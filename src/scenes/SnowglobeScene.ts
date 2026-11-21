@@ -14,7 +14,7 @@ import {
   PixarSleighHandle,
 } from '../three/pixarModels';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
-import { HolidayScene, SceneFrameContext } from './types';
+import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
 interface GlobeFlake3D {
   x: number;
@@ -362,6 +362,10 @@ export class SnowglobeScene implements HolidayScene {
       this.hudCanvas.height = Math.floor(this.height * dpr);
       this.hudCtx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+  }
+
+  triggerReaction(kind: SceneReactionKind): void {
+    this.miniSleigh?.triggerReaction(kind);
   }
 
   interact(): void {

@@ -17,7 +17,7 @@ interface MenuSnow {
   phase: number;
 }
 
-const MODE_ORDER: SceneId[] = ['express', 'caravan', 'flight3d', 'snowglobe'];
+const MODE_ORDER: SceneId[] = ['express', 'caravan', 'flight3d', 'snowglobe', 'timeline'];
 
 export class MenuView {
   private root: HTMLElement;
@@ -108,8 +108,10 @@ export class MenuView {
       <main class="mode-grid">
         ${MODE_ORDER.map((id) => {
           const m = t.modes[id];
+          const variantClass =
+            id === 'snowglobe' || id === 'timeline' ? 'mode-card--hero' : 'mode-card--compact';
           return `
-            <button type="button" class="mode-card" data-mode="${id}">
+            <button type="button" class="mode-card ${variantClass}" data-mode="${id}">
               <div class="mode-thumb-wrap">
                 <canvas class="mode-thumb" data-thumb="${id}" width="320" height="150"></canvas>
                 <span class="mode-badge">${m.badge}</span>
@@ -284,6 +286,7 @@ export class MenuView {
     this.drawThumbCaravan(elapsedSec);
     this.drawThumbFlight3D(elapsedSec);
     this.drawThumbSnowglobe(elapsedSec);
+    this.drawThumbTimeline(elapsedSec);
   }
 
   private drawThumbExpress(t: number): void {
@@ -621,5 +624,113 @@ export class MenuView {
       ctx.arc(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad * 0.78, 1.9, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  private drawThumbTimeline(t: number): void {
+    const c = this.thumbCanvases.get('timeline');
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const w = c.width;
+    const h = c.height;
+
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+    skyGrad.addColorStop(0, '#07112e');
+    skyGrad.addColorStop(0.65, '#132556');
+    skyGrad.addColorStop(1, '#1f376b');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Horizon snowy curve & dark asphalt time-highway
+    const vpX = w * 0.42;
+    const vpY = h * 0.56;
+    ctx.fillStyle = '#aac7ec';
+    ctx.fillRect(0, vpY, w, h - vpY);
+
+    ctx.fillStyle = '#182444';
+    ctx.beginPath();
+    ctx.moveTo(vpX - 18, vpY);
+    ctx.lineTo(vpX + 18, vpY);
+    ctx.lineTo(w * 0.68, h);
+    ctx.lineTo(w * 0.14, h);
+    ctx.closePath();
+    ctx.fill();
+
+    // Animated center highway dashes
+    ctx.strokeStyle = '#ffd98a';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 5; i++) {
+      const p = ((t * 0.7 + i * 0.2) % 1);
+      const y1 = vpY + p * p * (h - vpY);
+      const y2 = vpY + Math.min(1, p + 0.08) * Math.min(1, p + 0.08) * (h - vpY);
+      ctx.beginPath();
+      ctx.moveTo(vpX, y1);
+      ctx.lineTo(vpX, y2);
+      ctx.stroke();
+    }
+
+    // Glowing Golden Time Archways receding toward the horizon
+    for (let i = 0; i < 4; i++) {
+      const p = ((t * 0.42 + i * 0.25) % 1);
+      const scale = 0.22 + p * 0.85;
+      const ay = vpY + p * 26;
+      const rx = 56 * scale;
+      ctx.strokeStyle = `rgba(255, 209, 102, ${0.28 + (1 - p) * 0.55})`;
+      ctx.lineWidth = 2 + scale * 1.8;
+      ctx.beginPath();
+      ctx.arc(vpX, ay, rx, Math.PI, 0);
+      ctx.stroke();
+    }
+
+    // Showcase velvet turntable pedestal on the right with miniature Starship & $420 aura
+    const px = w * 0.76;
+    const py = h * 0.77;
+    const pedGlow = ctx.createRadialGradient(px, py - 24, 4, px, py - 24, 46);
+    pedGlow.addColorStop(0, 'rgba(255, 212, 110, 0.45)');
+    pedGlow.addColorStop(1, 'rgba(255, 212, 110, 0)');
+    ctx.fillStyle = pedGlow;
+    ctx.beginPath();
+    ctx.arc(px, py - 24, 46, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#8b1024';
+    ctx.beginPath();
+    ctx.ellipse(px, py + 4, 30, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Miniature stainless Starship on rotating showcase
+    const bob = Math.sin(t * 2.4) * 3;
+    ctx.fillStyle = '#dce7f7';
+    ctx.beginPath();
+    ctx.moveTo(px, py - 52 + bob);
+    ctx.lineTo(px - 7, py - 34 + bob);
+    ctx.lineTo(px - 7, py - 4 + bob);
+    ctx.lineTo(px + 7, py - 4 + bob);
+    ctx.lineTo(px + 7, py - 34 + bob);
+    ctx.closePath();
+    ctx.fill();
+    // Forward & aft flaps
+    ctx.fillStyle = '#20293d';
+    ctx.fillRect(px - 11, py - 14 + bob, 4, 10);
+    ctx.fillRect(px + 7, py - 14 + bob, 4, 10);
+
+    // Floating timeline year pill badge
+    const yearIdx = Math.floor(t * 0.55) % 4;
+    const sampleYears = ['2006', '$420', '2024', '2026'];
+    ctx.fillStyle = 'rgba(8, 16, 44, 0.85)';
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.roundRect(w * 0.62, 14, 52, 20, 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ffe599';
+    ctx.font = 'bold 10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(sampleYears[yearIdx], w * 0.62 + 26, 24);
   }
 }

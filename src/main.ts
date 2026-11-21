@@ -4,8 +4,10 @@ import { BoringTunnelRenderer } from './core/boringTunnel';
 import { ElonEventDirector } from './core/elonEvents';
 import { EnvironmentManager } from './core/environment';
 import { SceneId } from './core/i18n';
+import { OsmWorldDirector } from './core/osmWorld';
 import { DriveSource, TelemetryEngine } from './core/telemetry';
 import { ElectricCaravanScene } from './scenes/ElectricCaravanScene';
+import { ElonTimelineScene } from './scenes/ElonTimelineScene';
 import { NorthPole3DScene } from './scenes/NorthPole3DScene';
 import { SnowglobeScene } from './scenes/SnowglobeScene';
 import { HolidayScene } from './scenes/types';
@@ -23,6 +25,8 @@ function createSceneById(id: SceneId): HolidayScene {
       return new NorthPole3DScene();
     case 'snowglobe':
       return new SnowglobeScene();
+    case 'timeline':
+      return new ElonTimelineScene();
   }
 }
 
@@ -36,6 +40,7 @@ class TeslaXmasApp {
   private env = new EnvironmentManager();
   private audio = new HolidayAudioEngine();
   private elon = new ElonEventDirector();
+  private osm = new OsmWorldDirector();
   private tunnelRenderer = new BoringTunnelRenderer();
 
   private menu: MenuView;
@@ -78,10 +83,12 @@ class TeslaXmasApp {
       }
     );
 
-    this.hud = new SceneHUD(this.appRoot, this.telemetry, this.env, this.audio, this.elon, {
+    this.hud = new SceneHUD(this.appRoot, this.telemetry, this.env, this.audio, this.elon, this.osm, {
       onBackToMenu: () => this.returnToMenu(),
       onSwitchMode: (id) => this.enterScene(id),
       onQuickInteract: () => this.triggerSceneInteract(0.5, 0.42),
+      onHoHoHo: () => this.activeScene?.triggerReaction?.('hohoho'),
+      onLandmarkReaction: () => this.activeScene?.triggerReaction?.('landmark'),
     });
 
     // Tapping anywhere on the canvas stage triggers scene interaction & wakes HUD
@@ -176,6 +183,8 @@ class TeslaXmasApp {
       this.enterScene('flight3d');
     } else if (e.key === '4') {
       this.enterScene('snowglobe');
+    } else if (e.key === '5') {
+      this.enterScene('timeline');
     } else if (e.key === ' ' && this.activeScene) {
       e.preventDefault();
       this.triggerSceneInteract(0.5, 0.42);
@@ -217,6 +226,7 @@ class TeslaXmasApp {
     const frame = this.telemetry.update(dt);
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
+    const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving);
 
     if (this.menu.isVisible()) {
       this.menu.update(dt, frame.elapsedSec);
@@ -231,6 +241,7 @@ class TeslaXmasApp {
         env: envState,
         elonEvent: activeEvent,
         audio: this.audio,
+        osm: osmState,
       });
 
       // Render Boring Tunnel seamless perspective overlay if active
@@ -244,7 +255,7 @@ class TeslaXmasApp {
       this.tunnelCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     }
 
-    this.hud.update(dt, frame, envState);
+    this.hud.update(dt, frame, envState, osmState);
     requestAnimationFrame((t) => this.tick(t));
   }
 }

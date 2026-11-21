@@ -1,6 +1,6 @@
 export type Locale = 'sv' | 'en';
 
-export type SceneId = 'express' | 'caravan' | 'flight3d' | 'snowglobe';
+export type SceneId = 'express' | 'caravan' | 'flight3d' | 'snowglobe' | 'timeline';
 export type ElonEventType = 'starman' | 'starlink' | 'starship' | 'supercharger' | 'cyberplow';
 
 export interface ModeMeta {
@@ -88,6 +88,13 @@ export interface TranslationDict {
   tunnelBanner: string;
   webglFallbackTitle: string;
   webglFallbackText: string;
+  osmSectionLabel: string;
+  osmEnableLabel: string;
+  osmNextStopBtn: string;
+  osmGreetingPrefix: string;
+  osmBiomes: Record<'village' | 'forest' | 'water' | 'highway', string>;
+  timelinePrev: string;
+  timelineNext: string;
 }
 
 const SV: TranslationDict = {
@@ -187,6 +194,14 @@ const SV: TranslationDict = {
       badge: '3D Crystal Snowglobe',
       actionLabel: '❄️ Skaka globen',
     },
+    timeline: {
+      id: 'timeline',
+      title: 'Elon Holiday Timeline (2006–2026)',
+      subtitle:
+        'Kör längs 20 år av historiska milstolpar — från Secret Master Plan & Tesla Private $420 till Mechazilla & Cybercab!',
+      badge: '3D Tidsresa · 14 Milstolpar',
+      actionLabel: '⏭ Nästa milstolpe',
+    },
   },
   elonEvents: {
     starman: {
@@ -228,6 +243,18 @@ const SV: TranslationDict = {
   webglFallbackTitle: 'WebGL kunde inte startas',
   webglFallbackText:
     'Din webbläsare nekade 3D-kontext just nu. Prova något av de andra tre lägena i menyn!',
+  osmSectionLabel: 'Plats & OpenStreetMap',
+  osmEnableLabel: 'Använd OpenStreetMap (GPS-miljö)',
+  osmNextStopBtn: '📍 Nästa demo-plats',
+  osmGreetingPrefix: 'God Jul,',
+  osmBiomes: {
+    village: 'Julstad',
+    forest: 'Vinterskog',
+    water: 'Frusen sjö',
+    highway: 'Vinterväg',
+  },
+  timelinePrev: 'Föregående',
+  timelineNext: 'Nästa',
 };
 
 const EN: TranslationDict = {
@@ -327,6 +354,14 @@ const EN: TranslationDict = {
       badge: '3D Crystal Snowglobe',
       actionLabel: '❄️ Shake Globe',
     },
+    timeline: {
+      id: 'timeline',
+      title: 'Elon Holiday Timeline (2006–2026)',
+      subtitle:
+        'Cruise along 20 years of iconic milestones — from Secret Master Plan & Tesla Private $420 to Mechazilla & Cybercab!',
+      badge: '3D Time-Highway · 14 Milestones',
+      actionLabel: '⏭ Next Milestone',
+    },
   },
   elonEvents: {
     starman: {
@@ -367,7 +402,19 @@ const EN: TranslationDict = {
   tunnelBanner: 'THE BORING CO. · NORTH POLE EXPRESS',
   webglFallbackTitle: 'WebGL unavailable',
   webglFallbackText:
-    'Your browser declined a 3D WebGL context. Try any of the other three holiday modes from the menu!',
+    'Your browser declined a 3D WebGL context. Try any of the other holiday modes from the menu!',
+  osmSectionLabel: 'Location & OpenStreetMap',
+  osmEnableLabel: 'Enable OpenStreetMap World',
+  osmNextStopBtn: '📍 Next Demo Location',
+  osmGreetingPrefix: 'Merry Christmas,',
+  osmBiomes: {
+    village: 'Winter Town',
+    forest: 'Snowy Forest',
+    water: 'Frozen Lake',
+    highway: 'Winter Highway',
+  },
+  timelinePrev: 'Previous',
+  timelineNext: 'Next',
 };
 
 const DICTS: Record<Locale, TranslationDict> = { sv: SV, en: EN };

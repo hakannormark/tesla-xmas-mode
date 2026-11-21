@@ -8,6 +8,8 @@ import {
   createSparklingSnowMaterial,
 } from '../three/pixarMaterials';
 import {
+  createFrozenLakePlane,
+  createHolidayRoadSign,
   createPixarCottage,
   createPixarCybertruck,
   createPixarOptimusElf,
@@ -16,6 +18,7 @@ import {
   createPixarSnowman,
   createPixarStreetLamp,
   createPixarTeslaSemi,
+  HolidayRoadSignHandle,
   PixarCottageHandle,
   PixarCybertruckHandle,
   PixarOptimusHandle,
@@ -26,7 +29,7 @@ import {
 } from '../three/pixarModels';
 import { PixarElonRig } from '../three/pixarElonEvents';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
-import { HolidayScene, SceneFrameContext } from './types';
+import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
 interface CaravanProp {
   group: THREE.Group;
@@ -54,6 +57,10 @@ export class ElectricCaravanScene implements HolidayScene {
   private moon!: THREE.Group;
   private snowField!: BokehSnowField;
   private elonRig!: PixarElonRig;
+  private frozenLake!: THREE.Mesh;
+  private roadSign!: HolidayRoadSignHandle;
+  private signZ = -20;
+  private lakeBlend = 0;
 
   private semis: { handle: PixarTeslaSemiHandle; zPos: number; idx: number }[] = [];
   private cyberEscort!: PixarCybertruckHandle;
@@ -189,6 +196,19 @@ export class ElectricCaravanScene implements HolidayScene {
 
     this.elonRig = new PixarElonRig();
     scene.add(this.elonRig.group);
+
+    this.frozenLake = createFrozenLakePlane(80, 180);
+    this.frozenLake.position.set(52, 0.03, 28);
+    scene.add(this.frozenLake);
+
+    this.roadSign = createHolidayRoadSign();
+    this.roadSign.group.position.set(5.6, 0, this.signZ);
+    this.roadSign.group.rotation.y = Math.PI * 0.72;
+    scene.add(this.roadSign.group);
+  }
+
+  triggerReaction(kind: SceneReactionKind): void {
+    this.overheadSleigh?.triggerReaction(kind);
   }
 
   resize(width: number, height: number): void {
@@ -205,7 +225,7 @@ export class ElectricCaravanScene implements HolidayScene {
 
   update(dt: number, frame: SceneFrameContext): void {
     if (!this.stage) return;
-    const { telemetry, env, elonEvent } = frame;
+    const { telemetry, env, elonEvent, osm } = frame;
     const time = telemetry.elapsedSec;
     const speedNorm = Math.min(1, telemetry.speedKmh / 110);
     const travel = (telemetry.speedKmh / 3.6) * dt * 1.15;
@@ -213,6 +233,20 @@ export class ElectricCaravanScene implements HolidayScene {
     this.stage.setQuality(env.quality);
     this.smoothCurve += (telemetry.turnRate - this.smoothCurve) * Math.min(1, dt * 3.5);
     this.wheelPhase += telemetry.speedKmh * 0.42 * dt;
+
+    const targetLake = osm.enabled && osm.biome === 'water' ? 0.92 : 0;
+    this.lakeBlend += (targetLake - this.lakeBlend) * Math.min(1, dt * 1.6);
+    (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
+    this.frozenLake.visible = this.lakeBlend > 0.02;
+
+    this.roadSign.group.visible = osm.enabled;
+    this.roadSign.setText(
+      `GOD JUL, ${osm.placeName.toUpperCase()}`,
+      osm.nearbyLandmark || osm.nearbyChargerName || osm.roadName
+    );
+    this.signZ += travel;
+    if (this.signZ > 85) this.signZ = -48;
+    this.roadSign.group.position.set(this.getRoadX(this.signZ) + 5.8, 0, this.signZ);
 
     if (this.rippleTimer >= 0) {
       this.rippleTimer += dt;

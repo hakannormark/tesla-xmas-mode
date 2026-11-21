@@ -2,15 +2,18 @@ import { AudioMixMode, AudioRouting, HolidayAudioEngine } from '../core/audioEng
 import { ElonEventDirector } from '../core/elonEvents';
 import { EnvironmentManager, EnvironmentState, GraphicsQuality, SkyMood } from '../core/environment';
 import { ElonEventType, i18n, SceneId } from '../core/i18n';
+import { OsmWorldDirector, OsmWorldState } from '../core/osmWorld';
 import { DriveSource, TelemetryEngine, TelemetryFrame } from '../core/telemetry';
 
 export interface HudCallbacks {
   onBackToMenu: () => void;
   onSwitchMode: (id: SceneId) => void;
   onQuickInteract: () => void;
+  onHoHoHo?: () => void;
+  onLandmarkReaction?: () => void;
 }
 
-const MODE_IDS: SceneId[] = ['express', 'caravan', 'flight3d', 'snowglobe'];
+const MODE_IDS: SceneId[] = ['express', 'caravan', 'flight3d', 'snowglobe', 'timeline'];
 const ELON_TYPES: ElonEventType[] = ['starman', 'starlink', 'starship', 'supercharger', 'cyberplow'];
 
 export class SceneHUD {
@@ -26,6 +29,7 @@ export class SceneHUD {
   private modeNameEl!: HTMLElement;
   private plaidBadgeEl!: HTMLElement;
   private speedEl!: HTMLElement;
+  private placeEl!: HTMLElement;
   private compassArrowEl!: HTMLElement;
   private npDistEl!: HTMLElement;
   private tempEl!: HTMLElement;
@@ -38,6 +42,7 @@ export class SceneHUD {
   private turnSlider!: HTMLInputElement;
   private tunnelCheckbox!: HTMLInputElement;
   private frostCheckbox!: HTMLInputElement;
+  private osmCheckbox!: HTMLInputElement;
   private volSlider!: HTMLInputElement;
   private diagTextEl!: HTMLElement;
   private modalDiagEl!: HTMLElement;
@@ -53,6 +58,7 @@ export class SceneHUD {
   private env: EnvironmentManager;
   private audio: HolidayAudioEngine;
   private elon: ElonEventDirector;
+  private osm: OsmWorldDirector;
   private callbacks: HudCallbacks;
 
   constructor(
@@ -61,12 +67,14 @@ export class SceneHUD {
     env: EnvironmentManager,
     audio: HolidayAudioEngine,
     elon: ElonEventDirector,
+    osm: OsmWorldDirector,
     callbacks: HudCallbacks
   ) {
     this.telemetry = telemetry;
     this.env = env;
     this.audio = audio;
     this.elon = elon;
+    this.osm = osm;
     this.callbacks = callbacks;
 
     this.root = document.createElement('div');
@@ -103,6 +111,15 @@ export class SceneHUD {
     this.elon.onEventStart((type) => {
       this.showToast(i18n.t().elonEvents[type].toast);
     });
+
+    this.osm.onPlaceChange((osmState) => {
+      if (!this.visible || !osmState.enabled) return;
+      const t = i18n.t();
+      const biomeLabel = t.osmBiomes[osmState.biome];
+      const extra = osmState.nearbyLandmark ? ` · ${osmState.nearbyLandmark}` : '';
+      this.showToast(`${t.osmGreetingPrefix} ${osmState.placeName} · ${biomeLabel}${extra}`);
+      this.callbacks.onLandmarkReaction?.();
+    });
   }
 
   private renderMarkup(): void {
@@ -121,6 +138,7 @@ export class SceneHUD {
         <span class="plaid-badge hidden" data-hud="plaid-badge">${t.plaidBadge}</span>
       </div>
       <div class="hud-telemetry-pill">
+        <span class="tele-place" data-hud="place">📍 Stockholm</span>
         <span class="tele-speed"><strong data-hud="speed">0</strong> km/h</span>
         <span class="tele-sep">·</span>
         <span class="tele-np">
@@ -229,6 +247,12 @@ export class SceneHUD {
             <span>${t.frostLabel}</span>
             <input type="checkbox" ${this.env.isFrostEnabled() ? 'checked' : ''} data-hud="frost-toggle" />
           </label>
+          <div class="drawer-sublabel" style="margin-top: 10px;">${t.osmSectionLabel}</div>
+          <label class="toggle-row">
+            <span>${t.osmEnableLabel}</span>
+            <input type="checkbox" ${this.osm.isEnabled() ? 'checked' : ''} data-hud="osm-toggle" />
+          </label>
+          <button type="button" class="drawer-action-btn" data-hud="osm-next">${t.osmNextStopBtn}</button>
           <div class="segmented full" style="margin-top: 8px;">
             <button type="button" class="${locale === 'sv' ? 'active' : ''}" data-hud-lang="sv">Svenska (SV)</button>
             <button type="button" class="${locale === 'en' ? 'active' : ''}" data-hud-lang="en">English (EN)</button>
@@ -262,6 +286,7 @@ export class SceneHUD {
     // Cache DOM refs
     this.modeNameEl = this.topBar.querySelector('[data-hud="mode-name"]')!;
     this.plaidBadgeEl = this.topBar.querySelector('[data-hud="plaid-badge"]')!;
+    this.placeEl = this.topBar.querySelector('[data-hud="place"]')!;
     this.speedEl = this.topBar.querySelector('[data-hud="speed"]')!;
     this.compassArrowEl = this.topBar.querySelector('[data-hud="np-arrow"]')!;
     this.npDistEl = this.topBar.querySelector('[data-hud="np-dist"]')!;
@@ -274,6 +299,7 @@ export class SceneHUD {
     this.turnSlider = this.drawer.querySelector('[data-hud="turn-slider"]')!;
     this.tunnelCheckbox = this.drawer.querySelector('[data-hud="tunnel-toggle"]')!;
     this.frostCheckbox = this.drawer.querySelector('[data-hud="frost-toggle"]')!;
+    this.osmCheckbox = this.drawer.querySelector('[data-hud="osm-toggle"]')!;
     this.volSlider = this.drawer.querySelector('[data-hud="vol-slider"]')!;
     this.diagTextEl = this.drawer.querySelector('[data-hud="diag-box"]')!;
     this.modalDiagEl = this.soundModal.querySelector('[data-hud="modal-diag"]')!;
@@ -293,7 +319,9 @@ export class SceneHUD {
     });
 
     this.bottomActions.querySelector('[data-hud="hohoho"]')?.addEventListener('click', () => {
+      this.audio.unlock();
       this.audio.playHoHoHo();
+      this.callbacks.onHoHoHo?.();
     });
 
     this.bottomActions.querySelector('[data-hud="toggle-drawer"]')?.addEventListener('click', () => {
@@ -396,6 +424,16 @@ export class SceneHUD {
       this.env.setFrostEnabled(this.frostCheckbox.checked);
     });
 
+    this.osmCheckbox.addEventListener('change', () => {
+      this.osm.setEnabled(this.osmCheckbox.checked);
+    });
+
+    this.drawer.querySelector('[data-hud="osm-next"]')?.addEventListener('click', () => {
+      this.osm.setEnabled(true);
+      this.osmCheckbox.checked = true;
+      this.osm.nextDemoStop();
+    });
+
     this.drawer.querySelectorAll<HTMLButtonElement>('[data-hud-lang]').forEach((btn) => {
       btn.addEventListener('click', () => {
         i18n.setLocale(btn.dataset.hudLang as 'sv' | 'en');
@@ -476,7 +514,7 @@ export class SceneHUD {
     this.toastTimer = 4.5;
   }
 
-  update(dt: number, telemetry: TelemetryFrame, env: EnvironmentState): void {
+  update(dt: number, telemetry: TelemetryFrame, env: EnvironmentState, osm: OsmWorldState): void {
     // Update sound diagnostics if drawer or modal is open
     if (this.drawerOpen || this.soundModalOpen) {
       const diag = this.audio.getDiagnostics();
@@ -488,6 +526,10 @@ export class SceneHUD {
     if (!this.visible) return;
 
     const t = i18n.t();
+    this.placeEl.classList.toggle('hidden', !osm.enabled);
+    if (osm.enabled) {
+      this.placeEl.textContent = `📍 ${osm.placeName}`;
+    }
     this.speedEl.textContent = String(Math.round(telemetry.speedKmh));
     this.compassArrowEl.style.transform = `rotate(${Math.round(telemetry.northPoleRelativeBearingDeg)}deg)`;
     this.npDistEl.textContent = `${Math.round(telemetry.northPoleDistanceKm)} km`;

@@ -9,16 +9,19 @@ import {
   getStarSpriteTexture,
 } from '../three/pixarMaterials';
 import {
+  createFrozenLakePlane,
+  createHolidayRoadSign,
   createPixarCottage,
   createPixarPineTree,
   createPixarSantaSleigh,
   createPixarStreetLamp,
+  HolidayRoadSignHandle,
   PixarCottageHandle,
   PixarSleighHandle,
 } from '../three/pixarModels';
 import { PixarElonRig } from '../three/pixarElonEvents';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
-import { HolidayScene, SceneFrameContext } from './types';
+import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
 interface RoadSlice {
   mesh: THREE.Mesh;
@@ -60,6 +63,10 @@ export class NorthPole3DScene implements HolidayScene {
   private snowField!: BokehSnowField;
   private cloudsGroup!: THREE.Group;
   private elonRig!: PixarElonRig;
+  private frozenLake!: THREE.Mesh;
+  private roadSign!: HolidayRoadSignHandle;
+  private signZ = -40;
+  private lakeBlend = 0;
 
   private rings: ExpandingRing[] = [];
   private smoothCurve = 0;
@@ -232,6 +239,20 @@ export class NorthPole3DScene implements HolidayScene {
     // 8. Elon 3D Easter Eggs
     this.elonRig = new PixarElonRig();
     scene.add(this.elonRig.group);
+
+    // 9. OSM Frozen Lake & Live Wooden North Pole Signpost
+    this.frozenLake = createFrozenLakePlane(85, 220);
+    this.frozenLake.position.set(52, 0.02, -55);
+    scene.add(this.frozenLake);
+
+    this.roadSign = createHolidayRoadSign();
+    this.roadSign.group.position.set(5.4, 0, this.signZ);
+    this.roadSign.group.rotation.y = -0.35;
+    scene.add(this.roadSign.group);
+  }
+
+  triggerReaction(kind: SceneReactionKind): void {
+    this.sleigh?.triggerReaction(kind);
   }
 
   resize(width: number, height: number): void {
@@ -261,7 +282,7 @@ export class NorthPole3DScene implements HolidayScene {
 
   update(dt: number, frame: SceneFrameContext): void {
     if (!this.stage) return;
-    const { telemetry, env, elonEvent } = frame;
+    const { telemetry, env, elonEvent, osm } = frame;
     const time = telemetry.elapsedSec;
     const speedMs = telemetry.speedKmh / 3.6;
     const forwardStep = speedMs * dt * 1.45;
@@ -273,9 +294,25 @@ export class NorthPole3DScene implements HolidayScene {
     const targetFlight = telemetry.isPlaidSpeed ? 1 : 0;
     this.flightFactor += (targetFlight - this.flightFactor) * Math.min(1, dt * 1.4);
 
+    // OSM biome visuals
+    const targetLake = osm.enabled && osm.biome === 'water' ? 0.92 : 0;
+    this.lakeBlend += (targetLake - this.lakeBlend) * Math.min(1, dt * 1.6);
+    (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
+    this.frozenLake.visible = this.lakeBlend > 0.02;
+
+    this.roadSign.group.visible = osm.enabled;
+    this.roadSign.setText(
+      `GOD JUL, ${osm.placeName.toUpperCase()}`,
+      osm.nearbyLandmark || osm.nearbyChargerName || osm.roadName
+    );
+    this.signZ += forwardStep;
+    if (this.signZ > 12) this.signZ = -145;
+    this.roadSign.group.position.set(this.getRoadCurveX(this.signZ) + 5.2, 0, this.signZ);
+
     // Update sky dome
     this.skyMat.uniforms.uTime.value = time;
-    this.skyMat.uniforms.uAuroraBoost.value = 1.0 + this.flightFactor * 0.75;
+    this.skyMat.uniforms.uAuroraBoost.value =
+      1.0 + this.flightFactor * 0.75 + (osm.biome === 'forest' ? 0.28 : 0);
     this.skyMat.uniforms.uTopColor.value.set(env.skyTopColor);
     this.skyMat.uniforms.uMidColor.value.set(env.skyMidColor);
     this.skyMat.uniforms.uHorizonColor.value.set(env.skyHorizonColor);

@@ -10,11 +10,14 @@ import {
   getStarSpriteTexture,
 } from '../three/pixarMaterials';
 import {
+  createFrozenLakePlane,
+  createHolidayRoadSign,
   createPixarCottage,
   createPixarPineTree,
   createPixarSantaSleigh,
   createPixarSnowman,
   createPixarStreetLamp,
+  HolidayRoadSignHandle,
   PixarCottageHandle,
   PixarPineHandle,
   PixarSleighHandle,
@@ -22,7 +25,7 @@ import {
 } from '../three/pixarModels';
 import { PixarElonRig } from '../three/pixarElonEvents';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
-import { HolidayScene, SceneFrameContext } from './types';
+import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
 interface ScrollProp {
   group: THREE.Group;
@@ -53,6 +56,10 @@ export class WinterExpressScene implements HolidayScene {
   private sleigh!: PixarSleighHandle;
   private snowField!: BokehSnowField;
   private elonRig!: PixarElonRig;
+  private frozenLake!: THREE.Mesh;
+  private roadSign!: HolidayRoadSignHandle;
+  private signX = 24;
+  private lakeBlend = 0;
 
   private props: ScrollProp[] = [];
   private mountains: { mesh: THREE.Mesh; x: number; z: number }[] = [];
@@ -218,6 +225,20 @@ export class WinterExpressScene implements HolidayScene {
     // 8. 3D Elon Easter Eggs
     this.elonRig = new PixarElonRig();
     scene.add(this.elonRig.group);
+
+    // 9. OSM Dynamic Frozen Lake & Live 3D North Pole Road Signpost
+    this.frozenLake = createFrozenLakePlane(220, 48);
+    this.frozenLake.position.set(0, 0.04, -30);
+    scene.add(this.frozenLake);
+
+    this.roadSign = createHolidayRoadSign();
+    this.roadSign.group.position.set(this.signX, 0, -2.8);
+    this.roadSign.group.rotation.y = -0.25;
+    scene.add(this.roadSign.group);
+  }
+
+  triggerReaction(kind: SceneReactionKind): void {
+    this.sleigh?.triggerReaction(kind);
   }
 
   resize(width: number, height: number): void {
@@ -265,30 +286,60 @@ export class WinterExpressScene implements HolidayScene {
     giftGroup.position.copy(this.sleigh.group.position).add(new THREE.Vector3(-0.6, -0.3, 0));
     this.stage.scene.add(giftGroup);
     this.gifts.push({ group: giftGroup, vy: -1.8, vx: -1.2, landed: false, age: 0, burstDone: false });
+    this.sleigh.triggerReaction('gift');
   }
 
   update(dt: number, frame: SceneFrameContext): void {
     if (!this.stage) return;
-    const { telemetry, env, elonEvent } = frame;
+    const { telemetry, env, elonEvent, osm } = frame;
     const time = telemetry.elapsedSec;
     const speedNorm = Math.min(1, telemetry.speedKmh / 110);
 
     this.stage.setQuality(env.quality);
     this.smoothTurn += (telemetry.turnRate - this.smoothTurn) * Math.min(1, dt * 4);
 
+    // OSM biome visual response (frozen lake in `water`, boosted aurora in `forest`, warm cottages in `village`)
+    const targetLake = osm.enabled && osm.biome === 'water' ? 0.92 : 0;
+    this.lakeBlend += (targetLake - this.lakeBlend) * Math.min(1, dt * 1.6);
+    const lakeMat = this.frozenLake.material as THREE.MeshPhysicalMaterial;
+    lakeMat.opacity = this.lakeBlend;
+    this.frozenLake.visible = this.lakeBlend > 0.02;
+
+    this.roadSign.group.visible = osm.enabled;
+    this.roadSign.setText(
+      `GOD JUL, ${osm.placeName.toUpperCase()}`,
+      osm.nearbyLandmark || osm.nearbyChargerName || osm.roadName
+    );
+
+    const biomeAurora = osm.enabled
+      ? osm.biome === 'forest'
+        ? 0.35
+        : osm.biome === 'water'
+          ? 0.25
+          : 0
+      : 0;
     this.skyMat.uniforms.uTime.value = time;
-    this.skyMat.uniforms.uAuroraBoost.value = telemetry.isPlaidSpeed ? 1.65 : 1.0 + speedNorm * 0.3;
+    this.skyMat.uniforms.uAuroraBoost.value =
+      (telemetry.isPlaidSpeed ? 1.65 : 1.0 + speedNorm * 0.3) + biomeAurora;
     this.skyMat.uniforms.uTopColor.value.set(env.skyTopColor);
     this.skyMat.uniforms.uMidColor.value.set(env.skyMidColor);
     this.skyMat.uniforms.uHorizonColor.value.set(env.skyHorizonColor);
 
     const worldSpeed = (telemetry.speedKmh / 3.6) * 0.72;
+    this.signX -= worldSpeed * dt;
+    if (this.signX < -58) this.signX = 58;
+    this.roadSign.group.position.x = this.signX;
+
     const span = 128;
     for (const p of this.props) {
       p.xOffset -= worldSpeed * dt;
       if (p.xOffset < -span * 0.5) p.xOffset += span;
       p.group.position.x = p.xOffset;
       p.cottage?.update(dt, time);
+      if (p.pine) {
+        const forestBoost = osm.biome === 'forest' ? 1.24 : 1.0;
+        p.pine.group.scale.y = THREE.MathUtils.lerp(p.pine.group.scale.y, forestBoost, Math.min(1, dt * 2));
+      }
     }
 
     const mSpan = 174;
