@@ -29,6 +29,7 @@ import {
 } from '../three/pixarModels';
 import { PixarElonRig } from '../three/pixarElonEvents';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
+import { createPixarForestAnimal, PixarAnimalHandle, WildlifeKind } from '../three/pixarWildlife';
 import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
 interface CaravanProp {
@@ -40,6 +41,7 @@ interface CaravanProp {
   cottage?: PixarCottageHandle;
   pine?: PixarPineHandle;
   lamp?: PixarStreetLampHandle;
+  animal?: PixarAnimalHandle;
 }
 
 interface RoadSlice {
@@ -61,6 +63,7 @@ export class ElectricCaravanScene implements HolidayScene {
   private roadSign!: HolidayRoadSignHandle;
   private signZ = -20;
   private lakeBlend = 0;
+  private animalAlert = 0;
 
   private semis: { handle: PixarTeslaSemiHandle; zPos: number; idx: number }[] = [];
   private cyberEscort!: PixarCybertruckHandle;
@@ -184,6 +187,23 @@ export class ElectricCaravanScene implements HolidayScene {
       }
     }
 
+    const faunaKinds: WildlifeKind[] = ['stag', 'fox', 'owl', 'rabbit', 'stag'];
+    faunaKinds.forEach((kind, fIdx) => {
+      const anim = createPixarForestAnimal(kind, fIdx + 7);
+      const zPos = -32 + fIdx * 28;
+      anim.group.scale.setScalar(kind === 'stag' ? 1.1 : 1.25);
+      anim.group.rotation.y = -Math.PI * 0.48;
+      scene.add(anim.group);
+      this.props.push({
+        group: anim.group,
+        side: 1,
+        lateral: 7.2 + (fIdx % 2) * 2.2,
+        zPos,
+        litAmount: 0.2,
+        animal: anim,
+      });
+    });
+
     this.snowField = createBokehSnowField(560, {
       minX: -36,
       maxX: 36,
@@ -208,6 +228,7 @@ export class ElectricCaravanScene implements HolidayScene {
   }
 
   triggerReaction(kind: SceneReactionKind): void {
+    this.animalAlert = 1.0;
     this.overheadSleigh?.triggerReaction(kind);
   }
 
@@ -234,7 +255,11 @@ export class ElectricCaravanScene implements HolidayScene {
     this.smoothCurve += (telemetry.turnRate - this.smoothCurve) * Math.min(1, dt * 3.5);
     this.wheelPhase += telemetry.speedKmh * 0.42 * dt;
 
-    const targetLake = osm.enabled && osm.biome === 'water' ? 0.92 : 0;
+    this.animalAlert = Math.max(0, this.animalAlert - dt * 0.55);
+    const alert = Math.max(osm.landmarkPulse, this.animalAlert);
+
+    const hasWater = osm.enabled && (osm.biome === 'water' || osm.waterCount > 0);
+    const targetLake = hasWater ? 0.92 : 0;
     this.lakeBlend += (targetLake - this.lakeBlend) * Math.min(1, dt * 1.6);
     (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
     this.frozenLake.visible = this.lakeBlend > 0.02;
@@ -310,6 +335,7 @@ export class ElectricCaravanScene implements HolidayScene {
       const cx = this.getRoadX(p.zPos);
       p.group.position.set(cx + p.side * p.lateral, 0, p.zPos);
       p.cottage?.update(dt, time);
+      p.animal?.update(dt, time, alert);
 
       const targetLit = p.zPos > -25 ? 1.0 : 0.06;
       const rate = 2.8 + speedNorm * 4.5;

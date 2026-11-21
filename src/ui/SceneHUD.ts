@@ -43,6 +43,7 @@ export class SceneHUD {
   private tunnelCheckbox!: HTMLInputElement;
   private frostCheckbox!: HTMLInputElement;
   private osmCheckbox!: HTMLInputElement;
+  private osmStatsEl!: HTMLElement;
   private volSlider!: HTMLInputElement;
   private diagTextEl!: HTMLElement;
   private modalDiagEl!: HTMLElement;
@@ -253,6 +254,7 @@ export class SceneHUD {
             <input type="checkbox" ${this.osm.isEnabled() ? 'checked' : ''} data-hud="osm-toggle" />
           </label>
           <button type="button" class="drawer-action-btn" data-hud="osm-next">${t.osmNextStopBtn}</button>
+          <div class="osm-stats-box" data-hud="osm-stats"></div>
           <div class="segmented full" style="margin-top: 8px;">
             <button type="button" class="${locale === 'sv' ? 'active' : ''}" data-hud-lang="sv">Svenska (SV)</button>
             <button type="button" class="${locale === 'en' ? 'active' : ''}" data-hud-lang="en">English (EN)</button>
@@ -300,6 +302,7 @@ export class SceneHUD {
     this.tunnelCheckbox = this.drawer.querySelector('[data-hud="tunnel-toggle"]')!;
     this.frostCheckbox = this.drawer.querySelector('[data-hud="frost-toggle"]')!;
     this.osmCheckbox = this.drawer.querySelector('[data-hud="osm-toggle"]')!;
+    this.osmStatsEl = this.drawer.querySelector('[data-hud="osm-stats"]')!;
     this.volSlider = this.drawer.querySelector('[data-hud="vol-slider"]')!;
     this.diagTextEl = this.drawer.querySelector('[data-hud="diag-box"]')!;
     this.modalDiagEl = this.soundModal.querySelector('[data-hud="modal-diag"]')!;
@@ -529,6 +532,11 @@ export class SceneHUD {
     this.placeEl.classList.toggle('hidden', !osm.enabled);
     if (osm.enabled) {
       this.placeEl.textContent = `📍 ${osm.placeName}`;
+    }
+    this.osmStatsEl.classList.toggle('hidden', !osm.enabled);
+    if (this.drawerOpen && osm.enabled) {
+      const modeTag = osm.isLiveOsm ? t.osmLiveGpsTag : `${t.osmDemoTourTag} · ${osm.placeName}`;
+      this.osmStatsEl.textContent = `${modeTag} · ${osm.buildingCount} ${t.osmBuildingsLabel} · ${osm.waterCount} ${t.osmWaterLabel} · ${t.osmWildlifeLabel}`;
     }
     this.speedEl.textContent = String(Math.round(telemetry.speedKmh));
     this.compassArrowEl.style.transform = `rotate(${Math.round(telemetry.northPoleRelativeBearingDeg)}deg)`;

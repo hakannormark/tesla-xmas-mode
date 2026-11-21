@@ -25,6 +25,7 @@ import {
 } from '../three/pixarModels';
 import { PixarElonRig } from '../three/pixarElonEvents';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
+import { createPixarForestAnimal, PixarAnimalHandle, WildlifeKind } from '../three/pixarWildlife';
 import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
 interface ScrollProp {
@@ -35,6 +36,7 @@ interface ScrollProp {
   cottage?: PixarCottageHandle;
   lamp?: PixarStreetLampHandle;
   pine?: PixarPineHandle;
+  animal?: PixarAnimalHandle;
 }
 
 interface ParachuteGift {
@@ -76,6 +78,9 @@ export class WinterExpressScene implements HolidayScene {
 
   private sleighAltitude = 3.6;
   private smoothTurn = 0;
+  private animalAlert = 0;
+  private osmSkyline!: THREE.Group;
+  private osmChurchSpire!: THREE.Group;
 
   mount(container: HTMLElement): void {
     const res = createPixarStageOrFallback(container, {
@@ -176,6 +181,44 @@ export class WinterExpressScene implements HolidayScene {
       }
     }
 
+    // 4b. Animated Pixar Forest Wildlife roaming snowy clearings alongside highway
+    const faunaOrder: WildlifeKind[] = ['stag', 'fox', 'owl', 'rabbit', 'stag'];
+    faunaOrder.forEach((kind, fIdx) => {
+      const anim = createPixarForestAnimal(kind, fIdx + 3);
+      const ax = -span * 0.4 + fIdx * 24;
+      const az = kind === 'rabbit' || kind === 'fox' ? -3.0 : -8.5;
+      anim.group.scale.setScalar(kind === 'stag' ? 1.1 : 1.25);
+      anim.group.position.set(ax, 0, az);
+      anim.group.rotation.y = az < -5 ? 0.35 : -0.4;
+      scene.add(anim.group);
+      this.props.push({ group: anim.group, xOffset: ax, zPos: az, baseY: 0, animal: anim });
+    });
+
+    // 4c. Distant OSM Neighborhood & Church Spire Skyline Silhouette
+    this.osmSkyline = new THREE.Group();
+    const skyWallMat = new THREE.MeshStandardMaterial({
+      color: '#202c4e',
+      emissive: '#ffb85c',
+      emissiveIntensity: 0.55,
+      roughness: 0.6,
+    });
+    const spireRoofMat = new THREE.MeshStandardMaterial({ color: '#1b2844', roughness: 0.55 });
+    for (let i = 0; i < 8; i++) {
+      const bh = 5.5 + (i % 3) * 3.2;
+      const blk = new THREE.Mesh(new THREE.BoxGeometry(5.2, bh, 4.5), skyWallMat);
+      blk.position.set(-28 + i * 8, bh * 0.5, -36);
+      this.osmSkyline.add(blk);
+    }
+    this.osmChurchSpire = new THREE.Group();
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(3.8, 12, 3.8), skyWallMat);
+    tower.position.y = 6;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(2.4, 8.5, 6), spireRoofMat);
+    cone.position.y = 16.2;
+    this.osmChurchSpire.add(tower, cone);
+    this.osmChurchSpire.position.set(10, 0, -34);
+    this.osmSkyline.add(this.osmChurchSpire);
+    scene.add(this.osmSkyline);
+
     // 5. Hero 3D Pixar Santa Sleigh + Articulated Reindeer flying left-to-right!
     this.sleigh = createPixarSantaSleigh();
     this.sleigh.group.rotation.y = -Math.PI * 0.56;
@@ -238,6 +281,7 @@ export class WinterExpressScene implements HolidayScene {
   }
 
   triggerReaction(kind: SceneReactionKind): void {
+    this.animalAlert = 1.0;
     this.sleigh?.triggerReaction(kind);
   }
 
@@ -298,12 +342,23 @@ export class WinterExpressScene implements HolidayScene {
     this.stage.setQuality(env.quality);
     this.smoothTurn += (telemetry.turnRate - this.smoothTurn) * Math.min(1, dt * 4);
 
-    // OSM biome visual response (frozen lake in `water`, boosted aurora in `forest`, warm cottages in `village`)
-    const targetLake = osm.enabled && osm.biome === 'water' ? 0.92 : 0;
+    this.animalAlert = Math.max(0, this.animalAlert - dt * 0.55);
+    const alert = Math.max(osm.landmarkPulse, this.animalAlert);
+
+    // OSM biome & cityscape visual response
+    const hasWater = osm.enabled && (osm.biome === 'water' || osm.waterCount > 0);
+    const targetLake = hasWater ? 0.92 : 0;
     this.lakeBlend += (targetLake - this.lakeBlend) * Math.min(1, dt * 1.6);
     const lakeMat = this.frozenLake.material as THREE.MeshPhysicalMaterial;
     lakeMat.opacity = this.lakeBlend;
     this.frozenLake.visible = this.lakeBlend > 0.02;
+
+    this.osmSkyline.visible = osm.enabled && osm.buildingCount > 0;
+    if (this.osmSkyline.visible) {
+      const hasChurch = osm.snapshot.buildings.some((b) => b.kind === 'church');
+      this.osmChurchSpire.visible = hasChurch;
+      this.osmSkyline.position.x = -((osm.demoTravelM * 0.25) % 24);
+    }
 
     this.roadSign.group.visible = osm.enabled;
     this.roadSign.setText(
@@ -336,8 +391,9 @@ export class WinterExpressScene implements HolidayScene {
       if (p.xOffset < -span * 0.5) p.xOffset += span;
       p.group.position.x = p.xOffset;
       p.cottage?.update(dt, time);
+      p.animal?.update(dt, time, alert);
       if (p.pine) {
-        const forestBoost = osm.biome === 'forest' ? 1.24 : 1.0;
+        const forestBoost = osm.enabled && (osm.biome === 'forest' || osm.forestCount > 2) ? 1.24 : 1.0;
         p.pine.group.scale.y = THREE.MathUtils.lerp(p.pine.group.scale.y, forestBoost, Math.min(1, dt * 2));
       }
     }

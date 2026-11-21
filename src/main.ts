@@ -226,7 +226,7 @@ class TeslaXmasApp {
     const frame = this.telemetry.update(dt);
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
-    const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving);
+    const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh);
 
     if (this.menu.isVisible()) {
       this.menu.update(dt, frame.elapsedSec);

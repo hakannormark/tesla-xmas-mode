@@ -95,6 +95,13 @@ export interface TranslationDict {
   osmBiomes: Record<'village' | 'forest' | 'water' | 'highway', string>;
   timelinePrev: string;
   timelineNext: string;
+  timelinePassingLabel: string;
+  timelineUpcomingLabel: string;
+  osmBuildingsLabel: string;
+  osmWaterLabel: string;
+  osmWildlifeLabel: string;
+  osmLiveGpsTag: string;
+  osmDemoTourTag: string;
 }
 
 const SV: TranslationDict = {
@@ -182,8 +189,8 @@ const SV: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        '3D-flygning bakom Tomtesläden på en kurvig vinterväg med volymetriskt ljus som stiger upp i norrskensmolnen i Plaid-fart.',
-      badge: '3D Plaid Flight',
+        '3D-flygning genom verkliga OpenStreetMap-kvarter, kyrktorn och sjöar omskapade till magisk skog med renar, rävar, harar och ugglor.',
+      badge: '3D OSM Skogsvärld',
       actionLabel: '🌟 Stjärnring',
     },
     snowglobe: {
@@ -198,9 +205,9 @@ const SV: TranslationDict = {
       id: 'timeline',
       title: 'Elon Holiday Timeline (2006–2026)',
       subtitle:
-        'Kör längs 20 år av historiska milstolpar — från Secret Master Plan & Tesla Private $420 till Mechazilla & Cybercab!',
-      badge: '3D Tidsresa · 14 Milstolpar',
-      actionLabel: '⏭ Nästa milstolpe',
+        'Kör förbi 14 fullskaliga Elon-händelser längs vintervägen — från Secret Master Plan & $420 till Starman, Mechazilla & Cybercab!',
+      badge: '3D Väghändelser · 14 År',
+      actionLabel: '⏭ Nästa längs vägen',
     },
   },
   elonEvents: {
@@ -255,6 +262,13 @@ const SV: TranslationDict = {
   },
   timelinePrev: 'Föregående',
   timelineNext: 'Nästa',
+  timelinePassingLabel: 'Passerar nu!',
+  timelineUpcomingLabel: 'Längre fram längs vägen',
+  osmBuildingsLabel: 'byggnader',
+  osmWaterLabel: 'vatten',
+  osmWildlifeLabel: '🦌 Skogsdjur',
+  osmLiveGpsTag: 'Live OSM',
+  osmDemoTourTag: 'Demo-rutt',
 };
 
 const EN: TranslationDict = {
@@ -342,8 +356,8 @@ const EN: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        '3D Pixar chase flight behind Santa’s sleigh along a curving snowy road that climbs into aurora clouds at Plaid speeds.',
-      badge: '3D Plaid Flight',
+        '3D flight through recognizable OpenStreetMap buildings, churches & lakes transformed into an enchanted snowy forest teeming with wildlife.',
+      badge: '3D OSM Forest World',
       actionLabel: '🌟 Star Ring',
     },
     snowglobe: {
@@ -358,9 +372,9 @@ const EN: TranslationDict = {
       id: 'timeline',
       title: 'Elon Holiday Timeline (2006–2026)',
       subtitle:
-        'Cruise along 20 years of iconic milestones — from Secret Master Plan & Tesla Private $420 to Mechazilla & Cybercab!',
-      badge: '3D Time-Highway · 14 Milestones',
-      actionLabel: '⏭ Next Milestone',
+        'Drive past 14 full-scale Elon spectacles erupting along the winter highway — from Secret Master Plan & $420 to Starman & Mechazilla!',
+      badge: '3D Road Events · 14 Years',
+      actionLabel: '⏭ Next Roadside Event',
     },
   },
   elonEvents: {
@@ -415,6 +429,13 @@ const EN: TranslationDict = {
   },
   timelinePrev: 'Previous',
   timelineNext: 'Next',
+  timelinePassingLabel: 'Passing now!',
+  timelineUpcomingLabel: 'Ahead down the road',
+  osmBuildingsLabel: 'buildings',
+  osmWaterLabel: 'water',
+  osmWildlifeLabel: '🦌 Forest wildlife',
+  osmLiveGpsTag: 'Live OSM',
+  osmDemoTourTag: 'Demo Tour',
 };
 
 const DICTS: Record<Locale, TranslationDict> = { sv: SV, en: EN };

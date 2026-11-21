@@ -20,6 +20,7 @@ import {
   PixarSleighHandle,
 } from '../three/pixarModels';
 import { PixarElonRig } from '../three/pixarElonEvents';
+import { OsmMapLayer } from '../three/osmMapRenderer';
 import { createPixarStageOrFallback, PixarStage } from '../three/pixarRenderer';
 import { HolidayScene, SceneFrameContext, SceneReactionKind } from './types';
 
@@ -34,6 +35,7 @@ interface RoadsideItem {
   side: -1 | 1;
   lateralDist: number;
   zOffset: number;
+  isLamp?: boolean;
   cottage?: PixarCottageHandle;
 }
 
@@ -63,10 +65,12 @@ export class NorthPole3DScene implements HolidayScene {
   private snowField!: BokehSnowField;
   private cloudsGroup!: THREE.Group;
   private elonRig!: PixarElonRig;
+  private osmMap!: OsmMapLayer;
   private frozenLake!: THREE.Mesh;
   private roadSign!: HolidayRoadSignHandle;
   private signZ = -40;
   private lakeBlend = 0;
+  private landmarkAlert = 0;
 
   private rings: ExpandingRing[] = [];
   private smoothCurve = 0;
@@ -154,12 +158,14 @@ export class NorthPole3DScene implements HolidayScene {
       let group: THREE.Group;
       let lateralDist = 6.2 + Math.random() * 14;
       let cottage: PixarCottageHandle | undefined;
+      let isLamp = false;
 
       if (i % 7 === 0) {
         const lamp = createPixarStreetLamp();
         lamp.setLit(1);
         group = lamp.group;
         lateralDist = 4.6;
+        isLamp = true;
       } else if (i % 11 === 0) {
         cottage = createPixarCottage(i);
         cottage.setLit(1);
@@ -175,7 +181,7 @@ export class NorthPole3DScene implements HolidayScene {
 
       const zOffset = 10 - (i / count) * totalSpan;
       scene.add(group);
-      this.roadsideItems.push({ group, side, lateralDist, zOffset, cottage });
+      this.roadsideItems.push({ group, side, lateralDist, zOffset, isLamp, cottage });
     }
 
     // 5. Hero Sculpted 3D Pixar Santa Sleigh & Articulated Reindeer
@@ -249,9 +255,13 @@ export class NorthPole3DScene implements HolidayScene {
     this.roadSign.group.position.set(5.4, 0, this.signZ);
     this.roadSign.group.rotation.y = -0.35;
     scene.add(this.roadSign.group);
+
+    this.osmMap = new OsmMapLayer();
+    scene.add(this.osmMap.group);
   }
 
   triggerReaction(kind: SceneReactionKind): void {
+    this.landmarkAlert = 1.0;
     this.sleigh?.triggerReaction(kind);
   }
 
@@ -294,8 +304,16 @@ export class NorthPole3DScene implements HolidayScene {
     const targetFlight = telemetry.isPlaidSpeed ? 1 : 0;
     this.flightFactor += (targetFlight - this.flightFactor) * Math.min(1, dt * 1.4);
 
-    // OSM biome visuals
-    const targetLake = osm.enabled && osm.biome === 'water' ? 0.92 : 0;
+    this.landmarkAlert = Math.max(0, this.landmarkAlert - dt * 0.55);
+    const sleighAlert = Math.max(osm.landmarkPulse, this.landmarkAlert);
+
+    // 3D Real-Geometry OSM Forest-Town Layer (extruded buildings, spires, lakes, wildlife!)
+    this.osmMap.update(dt, telemetry, osm, env.quality, sleighAlert);
+    const hasOsmWorld =
+      osm.enabled && (osm.buildingCount > 0 || osm.waterCount > 0 || osm.forestCount > 0);
+
+    // OSM fallback frozen lake only if OSM water polygons aren't already drawn by OsmMapLayer
+    const targetLake = osm.enabled && osm.biome === 'water' && osm.waterCount === 0 ? 0.92 : 0;
     this.lakeBlend += (targetLake - this.lakeBlend) * Math.min(1, dt * 1.6);
     (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
     this.frozenLake.visible = this.lakeBlend > 0.02;
@@ -336,7 +354,10 @@ export class NorthPole3DScene implements HolidayScene {
       if (item.zOffset > 14) item.zOffset -= propSpan;
       const cx = this.getRoadCurveX(item.zOffset);
       item.group.position.set(cx + item.side * item.lateralDist, 0, item.zOffset);
-      item.cottage?.update(dt, time);
+      item.group.visible = !hasOsmWorld || !!item.isLamp;
+      if (item.group.visible) {
+        item.cottage?.update(dt, time);
+      }
     }
 
     // Sleigh Flight & Plaid Ascent
@@ -425,6 +446,7 @@ export class NorthPole3DScene implements HolidayScene {
   }
 
   dispose(): void {
+    this.osmMap?.dispose();
     if (this.fallbackEl) {
       this.fallbackEl.remove();
       this.fallbackEl = null;
