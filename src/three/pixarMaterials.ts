@@ -1,0 +1,578 @@
+import * as THREE from 'three';
+
+/**
+ * Shared procedural PBR textures, custom shaders, and Pixar-grade lighting assets.
+ * Everything is 100% self-contained (zero external asset URLs that could 404 in a car).
+ */
+
+let cachedGlowTex: THREE.CanvasTexture | null = null;
+let cachedSnowflakeTex: THREE.CanvasTexture | null = null;
+let cachedStarSpriteTex: THREE.CanvasTexture | null = null;
+
+export function getSoftGlowTexture(): THREE.CanvasTexture {
+  if (cachedGlowTex) return cachedGlowTex;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  grad.addColorStop(0.22, 'rgba(255, 248, 224, 0.85)');
+  grad.addColorStop(0.55, 'rgba(255, 224, 155, 0.28)');
+  grad.addColorStop(1, 'rgba(255, 200, 120, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGlowTex = tex;
+  return tex;
+}
+
+export function getSnowflakeTexture(): THREE.CanvasTexture {
+  if (cachedSnowflakeTex) return cachedSnowflakeTex;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const c = size / 2;
+
+  const halo = ctx.createRadialGradient(c, c, 2, c, c, c);
+  halo.addColorStop(0, 'rgba(255, 255, 255, 0.96)');
+  halo.addColorStop(0.36, 'rgba(235, 246, 255, 0.66)');
+  halo.addColorStop(0.76, 'rgba(210, 232, 255, 0.16)');
+  halo.addColorStop(1, 'rgba(210, 232, 255, 0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.save();
+  ctx.translate(c, c);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 6; i++) {
+    ctx.rotate(Math.PI / 3);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -28);
+    ctx.moveTo(0, -14);
+    ctx.lineTo(7, -21);
+    ctx.moveTo(0, -14);
+    ctx.lineTo(-7, -21);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedSnowflakeTex = tex;
+  return tex;
+}
+
+export function getStarSpriteTexture(): THREE.CanvasTexture {
+  if (cachedStarSpriteTex) return cachedStarSpriteTex;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const c = size / 2;
+
+  const halo = ctx.createRadialGradient(c, c, 1, c, c, c);
+  halo.addColorStop(0, 'rgba(255, 252, 230, 1)');
+  halo.addColorStop(0.25, 'rgba(255, 224, 130, 0.75)');
+  halo.addColorStop(0.6, 'rgba(255, 190, 80, 0.2)');
+  halo.addColorStop(1, 'rgba(255, 180, 70, 0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.fillStyle = '#fff9df';
+  ctx.beginPath();
+  ctx.ellipse(c, c, c * 0.88, 4.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(c, c, 4.5, c * 0.88, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedStarSpriteTex = tex;
+  return tex;
+}
+
+export function createSnowTextures(): { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  const size = 256;
+  const bumpCanvas = document.createElement('canvas');
+  bumpCanvas.width = size;
+  bumpCanvas.height = size;
+  const bCtx = bumpCanvas.getContext('2d')!;
+
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = size;
+  roughCanvas.height = size;
+  const rCtx = roughCanvas.getContext('2d')!;
+
+  bCtx.fillStyle = '#808080';
+  bCtx.fillRect(0, 0, size, size);
+  rCtx.fillStyle = '#d4d4d4';
+  rCtx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 65; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const rad = 18 + Math.random() * 44;
+    const g = bCtx.createRadialGradient(x, y, 2, x, y, rad);
+    const bright = Math.random() > 0.5 ? 215 : 55;
+    g.addColorStop(0, `rgba(${bright},${bright},${bright},0.22)`);
+    g.addColorStop(1, 'rgba(128,128,128,0)');
+    bCtx.fillStyle = g;
+    bCtx.beginPath();
+    bCtx.arc(x, y, rad, 0, Math.PI * 2);
+    bCtx.fill();
+  }
+
+  for (let i = 0; i < 520; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    rCtx.fillStyle = Math.random() > 0.35 ? '#1c1c1c' : '#555555';
+    rCtx.fillRect(x, y, 2, 2);
+  }
+
+  const bumpMap = new THREE.CanvasTexture(bumpCanvas);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.repeat.set(16, 16);
+
+  const roughnessMap = new THREE.CanvasTexture(roughCanvas);
+  roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
+  roughnessMap.repeat.set(22, 22);
+
+  return { bumpMap, roughnessMap };
+}
+
+export function createSparklingSnowMaterial(tint = '#94b0d8'): THREE.MeshPhysicalMaterial {
+  const { bumpMap, roughnessMap } = createSnowTextures();
+  return new THREE.MeshPhysicalMaterial({
+    color: tint,
+    roughness: 0.82,
+    metalness: 0.02,
+    clearcoat: 0.14,
+    clearcoatRoughness: 0.48,
+    bumpMap,
+    bumpScale: 0.16,
+    roughnessMap,
+    sheen: 0.2,
+    sheenColor: new THREE.Color('#9ec0ee'),
+    sheenRoughness: 0.7,
+  });
+}
+
+export function createTimberWallTexture(baseHex = '#7c1a28'): THREE.CanvasTexture {
+  const w = 256;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, w, h);
+
+  const rows = 8;
+  const rowH = h / rows;
+  for (let i = 0; i < rows; i++) {
+    const y = i * rowH;
+    const g = ctx.createLinearGradient(0, y, 0, y + rowH);
+    g.addColorStop(0, 'rgba(255, 220, 190, 0.14)');
+    g.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
+    g.addColorStop(1, 'rgba(20, 4, 8, 0.38)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, w, rowH);
+
+    ctx.strokeStyle = 'rgba(255, 235, 210, 0.07)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, y + rowH * 0.45);
+    ctx.bezierCurveTo(w * 0.3, y + rowH * 0.3, w * 0.7, y + rowH * 0.65, w, y + rowH * 0.48);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#efe6d8';
+  ctx.fillRect(0, 0, 14, h);
+  ctx.fillRect(w - 14, 0, 14, h);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createWarmWindowTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createRadialGradient(size * 0.5, size * 0.62, 6, size * 0.5, size * 0.5, size * 0.72);
+  grad.addColorStop(0, '#fff7cf');
+  grad.addColorStop(0.42, '#ffbe55');
+  grad.addColorStop(0.82, '#e87a24');
+  grad.addColorStop(1, '#7c2b12');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.fillStyle = 'rgba(84, 30, 12, 0.32)';
+  ctx.beginPath();
+  ctx.moveTo(size * 0.68, size * 0.34);
+  ctx.lineTo(size * 0.52, size * 0.88);
+  ctx.lineTo(size * 0.84, size * 0.88);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#381512';
+  ctx.lineWidth = 9;
+  ctx.strokeRect(4, 4, size - 8, size - 8);
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(size * 0.5, 0);
+  ctx.lineTo(size * 0.5, size);
+  ctx.moveTo(0, size * 0.5);
+  ctx.lineTo(size, size * 0.5);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createTrailerBillboardTexture(): THREE.CanvasTexture {
+  const w = 512;
+  const h = 192;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#8d081e');
+  bg.addColorStop(0.5, '#d41232');
+  bg.addColorStop(1, '#7b0618');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = 'rgba(255, 232, 165, 0.92)';
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(-10, h * 0.74);
+  ctx.bezierCurveTo(w * 0.25, h * 0.25, w * 0.68, h * 1.05, w + 10, h * 0.3);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-10, h * 0.82);
+  ctx.bezierCurveTo(w * 0.28, h * 0.35, w * 0.65, h * 1.08, w + 10, h * 0.38);
+  ctx.stroke();
+
+  for (let i = 0; i < 24; i++) {
+    const sx = (i * 53) % w;
+    const sy = ((i * 37) % (h - 32)) + 16;
+    ctx.fillStyle = 'rgba(255, 244, 200, 0.55)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.2 + (i % 3), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#fff8e2';
+  ctx.shadowColor = 'rgba(255, 204, 102, 0.9)';
+  ctx.shadowBlur = 16;
+  ctx.font = '700 40px "Cinzel", Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('HOLIDAY EXPRESS', w * 0.5, h * 0.44);
+
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = '#ffe099';
+  ctx.font = '600 17px Inter, sans-serif';
+  ctx.fillText('✦  NORTH POLE ELECTRIC CARAVAN  ✦', w * 0.5, h * 0.73);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createMoonSurfaceTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  const g = ctx.createRadialGradient(size * 0.38, size * 0.38, 12, size * 0.5, size * 0.5, size * 0.55);
+  g.addColorStop(0, '#fffdf2');
+  g.addColorStop(0.65, '#fae9c4');
+  g.addColorStop(1, '#dfc08b');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+
+  const craters = [
+    [0.3, 0.35, 0.14],
+    [0.62, 0.28, 0.1],
+    [0.54, 0.62, 0.16],
+    [0.26, 0.68, 0.08],
+    [0.74, 0.54, 0.09],
+    [0.44, 0.22, 0.07],
+  ];
+  for (const [cx, cy, cr] of craters) {
+    const cg = ctx.createRadialGradient(cx * size, cy * size, 2, cx * size, cy * size, cr * size);
+    cg.addColorStop(0, 'rgba(170, 140, 96, 0.28)');
+    cg.addColorStop(0.75, 'rgba(182, 152, 108, 0.14)');
+    cg.addColorStop(1, 'rgba(255, 240, 200, 0)');
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(cx * size, cy * size, cr * size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createVolumetricBeamMaterial(colorHex = '#ffdf9e', opacity = 0.28): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(colorHex) },
+      uOpacity: { value: opacity },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormalView;
+      varying vec3 vViewPos;
+      void main() {
+        vUv = uv;
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vViewPos = -mvPos.xyz;
+        vNormalView = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      varying vec3 vNormalView;
+      varying vec3 vViewPos;
+      void main() {
+        vec3 viewDir = normalize(vViewPos);
+        float edge = pow(abs(dot(vNormalView, viewDir)), 1.65);
+        float verticalFade = smoothstep(0.0, 0.72, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
+        float alpha = edge * verticalFade * uOpacity;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+}
+
+const PIXAR_SKY_VERT = `
+  varying vec3 vWorldDir;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldDir = normalize(position);
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const PIXAR_SKY_FRAG = `
+  varying vec3 vWorldDir;
+  uniform float uTime;
+  uniform float uAuroraBoost;
+  uniform vec3 uTopColor;
+  uniform vec3 uMidColor;
+  uniform vec3 uHorizonColor;
+
+  float hash21(vec2 p) {
+    p = fract(p * vec2(234.34, 435.345));
+    p += dot(p, p + 34.23);
+    return fract(p.x * p.y);
+  }
+
+  void main() {
+    vec3 dir = normalize(vWorldDir);
+    float y = clamp(dir.y, -0.2, 1.0);
+    float h = clamp(y, 0.0, 1.0);
+
+    vec3 col = mix(uHorizonColor, uMidColor, smoothstep(0.0, 0.32, h));
+    col = mix(col, uTopColor, smoothstep(0.28, 0.92, h));
+
+    float horizonGlow = exp(-abs(y - 0.03) * 10.5);
+    col += vec3(0.48, 0.21, 0.14) * horizonGlow * 0.58;
+
+    float az = atan(dir.z, dir.x);
+    float w1 = sin(az * 3.0 + uTime * 0.26) * 0.08 + cos(az * 5.0 - uTime * 0.18) * 0.04;
+    float w2 = cos(az * 4.0 - uTime * 0.32 + 1.4) * 0.07 + sin(az * 7.0 + uTime * 0.22) * 0.03;
+
+    float band1 = exp(-pow((y - (0.31 + w1)) * 7.8, 2.0));
+    float band2 = exp(-pow((y - (0.43 + w2)) * 9.0, 2.0));
+    float rays1 = 0.58 + 0.42 * sin(az * 24.0 + uTime * 0.85 + y * 8.0);
+    float rays2 = 0.55 + 0.45 * cos(az * 18.0 - uTime * 0.65);
+
+    vec3 emerald = vec3(0.14, 0.96, 0.72);
+    vec3 goldTint = vec3(1.0, 0.8, 0.42);
+    vec3 violetTint = vec3(0.55, 0.42, 0.98);
+
+    col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost);
+    col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost);
+
+    if (y > 0.04) {
+      vec2 starGrid = vec2(az * 38.0, y * 74.0);
+      vec2 cell = floor(starGrid);
+      vec2 f = fract(starGrid) - 0.5;
+      float rnd = hash21(cell);
+      if (rnd > 0.925) {
+        float d = length(f);
+        float star = smoothstep(0.24, 0.0, d);
+        float tw = 0.55 + 0.45 * sin(uTime * (1.8 + rnd * 4.5) + rnd * 62.0);
+        vec3 sCol = rnd > 0.97 ? vec3(1.25, 1.08, 0.82) : vec3(0.95, 1.05, 1.25);
+        col += sCol * star * tw * smoothstep(0.04, 0.22, y) * 1.15;
+      }
+    }
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+export function createPixarSkyDome(radius = 300): { mesh: THREE.Mesh; material: THREE.ShaderMaterial } {
+  const geo = new THREE.SphereGeometry(radius, 36, 24);
+  const material = new THREE.ShaderMaterial({
+    vertexShader: PIXAR_SKY_VERT,
+    fragmentShader: PIXAR_SKY_FRAG,
+    uniforms: {
+      uTime: { value: 0 },
+      uAuroraBoost: { value: 1.0 },
+      uTopColor: { value: new THREE.Color('#040a1e') },
+      uMidColor: { value: new THREE.Color('#0c1e4a') },
+      uHorizonColor: { value: new THREE.Color('#1d3364') },
+    },
+    side: THREE.BackSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, material);
+  return { mesh, material };
+}
+
+export function createPixarMoon(radius = 10): THREE.Group {
+  const group = new THREE.Group();
+  const moonTex = createMoonSurfaceTexture();
+  const disc = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 28, 28),
+    new THREE.MeshBasicMaterial({ map: moonTex, color: '#fff8e8', fog: false })
+  );
+  group.add(disc);
+
+  const haloSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: getSoftGlowTexture(),
+      color: '#ffdf9a',
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    })
+  );
+  haloSprite.scale.set(radius * 5.8, radius * 5.8, 1);
+  group.add(haloSprite);
+
+  return group;
+}
+
+export interface BokehSnowBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface BokehSnowField {
+  group: THREE.Group;
+  update(dt: number, windX: number, windZ: number, fallSpeed: number): void;
+}
+
+/**
+ * Dual-layer soft bokeh 3D snowfall particle field using crystalline snowflake textures.
+ */
+export function createBokehSnowField(count: number, bounds: BokehSnowBounds): BokehSnowField {
+  const group = new THREE.Group();
+  const smallCount = Math.floor(count * 0.72);
+  const bokehCount = Math.max(20, count - smallCount);
+
+  const buildLayer = (n: number, size: number, opacity: number) => {
+    const pos = new Float32Array(n * 3);
+    const seeds = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
+      pos[i * 3 + 1] = bounds.minY + Math.random() * (bounds.maxY - bounds.minY);
+      pos[i * 3 + 2] = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
+      seeds[i] = Math.random() * Math.PI * 2;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      map: getSnowflakeTexture(),
+      color: '#f2f8ff',
+      size,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const pts = new THREE.Points(geo, mat);
+    group.add(pts);
+    return { pts, pos, seeds, count: n };
+  };
+
+  const fine = buildLayer(smallCount, 0.52, 0.85);
+  const big = buildLayer(bokehCount, 1.35, 0.45);
+  let elapsed = 0;
+
+  const updateLayer = (
+    layer: ReturnType<typeof buildLayer>,
+    dt: number,
+    wx: number,
+    wz: number,
+    fy: number,
+    mul: number
+  ) => {
+    const { pos, seeds, count: n } = layer;
+    for (let i = 0; i < n; i++) {
+      const ix = i * 3;
+      const sway = Math.sin(elapsed * 1.4 + seeds[i]) * 0.65;
+      pos[ix] += (wx * mul + sway) * dt;
+      pos[ix + 1] -= fy * mul * dt;
+      pos[ix + 2] += wz * mul * dt;
+
+      if (pos[ix + 1] < bounds.minY) pos[ix + 1] = bounds.maxY;
+      if (pos[ix + 1] > bounds.maxY) pos[ix + 1] = bounds.minY;
+      if (pos[ix] < bounds.minX) pos[ix] += bounds.maxX - bounds.minX;
+      if (pos[ix] > bounds.maxX) pos[ix] -= bounds.maxX - bounds.minX;
+      if (pos[ix + 2] < bounds.minZ) pos[ix + 2] += bounds.maxZ - bounds.minZ;
+      if (pos[ix + 2] > bounds.maxZ) pos[ix + 2] -= bounds.maxZ - bounds.minZ;
+    }
+    layer.pts.geometry.attributes.position.needsUpdate = true;
+  };
+
+  return {
+    group,
+    update(dt: number, windX: number, windZ: number, fallSpeed: number): void {
+      elapsed += dt;
+      updateLayer(fine, dt, windX, windZ, fallSpeed, 1.0);
+      updateLayer(big, dt, windX, windZ, fallSpeed, 1.38);
+    },
+  };
+}
