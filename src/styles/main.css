@@ -1228,3 +1228,21 @@ button {
     justify-content: center;
   }
 }
+
+.winter-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .4rem 1rem;
+  width: 100%;
+  padding: .75rem 1.2rem;
+  border: 1px solid #c2a26d;
+  border-radius: 12px;
+  background: linear-gradient(105deg, #1e3447, #344158 70%, #594853);
+  color: #fff1d6;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.winter-entry strong { font-size: 1.2em; }

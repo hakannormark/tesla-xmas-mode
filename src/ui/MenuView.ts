@@ -3,7 +3,7 @@ import { i18n, SceneId } from '../core/i18n';
 import { DriveSource } from '../core/telemetry';
 
 export interface MenuCallbacks {
-  onSelectMode: (id: SceneId) => void;
+  onSelectMode: (id: SceneId, winterLight?: boolean) => void;
   onDriveSourceChange: (source: DriveSource) => void;
   onAudioMixChange: (mix: AudioMixMode) => void;
   onSoundCheckOpen: () => void;
@@ -105,6 +105,10 @@ export class MenuView {
         </div>
       </header>
 
+      <button type="button" class="winter-entry" data-winter-light>
+        <strong>${locale === 'sv' ? 'Prova Vinterljus' : 'Try Winter Light'}</strong>
+        <span>North Pole Flight Deck · ${locale === 'sv' ? 'Filmisk prototyp' : 'Cinematic prototype'} →</span>
+      </button>
       <main class="mode-grid">
         ${MODE_ORDER.map((id) => {
           const m = t.modes[id];
@@ -152,6 +156,11 @@ export class MenuView {
     gallery.querySelectorAll<HTMLCanvasElement>('canvas[data-thumb]').forEach((c) => {
       const id = c.dataset.thumb as SceneId;
       this.thumbCanvases.set(id, c);
+    });
+
+    gallery.querySelector('[data-winter-light]')?.addEventListener('click', () => {
+      this.audio.unlock();
+      this.callbacks.onSelectMode('flight3d', true);
     });
 
     // Attach event handlers

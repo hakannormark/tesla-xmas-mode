@@ -16,14 +16,14 @@ import { WinterExpressScene } from './scenes/WinterExpressScene';
 import { MenuView } from './ui/MenuView';
 import { SceneHUD } from './ui/SceneHUD';
 
-function createSceneById(id: SceneId): HolidayScene {
+function createSceneById(id: SceneId, winterLight: boolean): HolidayScene {
   switch (id) {
     case 'express':
       return new WinterExpressScene();
     case 'caravan':
       return new ElectricCaravanScene();
     case 'flight3d':
-      return new NorthPole3DScene();
+      return new NorthPole3DScene(winterLight);
     case 'snowglobe':
       return new SnowglobeScene();
     case 'timeline':
@@ -73,7 +73,7 @@ class TeslaXmasApp {
       this.telemetry.getSource(),
       this.audio.getMixMode(),
       {
-        onSelectMode: (id) => this.enterScene(id),
+        onSelectMode: (id, winterLight) => this.enterScene(id, winterLight),
         onDriveSourceChange: (src: DriveSource) => {
           this.telemetry.setSource(src);
           this.hud.syncDrawerButtons();
@@ -164,7 +164,7 @@ class TeslaXmasApp {
     }
   }
 
-  enterScene(id: SceneId): void {
+  enterScene(id: SceneId, winterLight = false): void {
     this.audio.unlock();
     if (this.activeScene) {
       this.activeScene.dispose();
@@ -172,7 +172,7 @@ class TeslaXmasApp {
     }
     this.stageEl.innerHTML = '';
 
-    const scene = createSceneById(id);
+    const scene = createSceneById(id, winterLight);
     scene.mount(this.stageEl);
     this.activeScene = scene;
 

@@ -1,3 +1,4 @@
+import { WinterGrove } from '../three/winterGrove';
 import * as THREE from 'three';
 import { ELON_MILESTONES } from '../core/elonTimelineData';
 import { HolidayAudioEngine } from '../core/audioEngine';
@@ -101,6 +102,9 @@ export class NorthPole3DScene implements HolidayScene {
   private stage: PixarStage | null = null;
   private fallbackEl: HTMLElement | null = null;
 
+  private grove?: WinterGrove;
+  constructor(private readonly winterLight = false) {}
+
   private skyMat!: THREE.ShaderMaterial;
   private moon!: THREE.Group;
   private alpineBackdrop!: THREE.Group;
@@ -201,6 +205,13 @@ export class NorthPole3DScene implements HolidayScene {
 
     if (this.stage) {
       const { scene, camera } = this.stage;
+      if (this.winterLight) {
+        this.grove = new WinterGrove();
+        scene.add(this.grove.group);
+        const rim = new THREE.DirectionalLight('#a8cfff', 1.35);
+        rim.position.set(-22, 14, -35);
+        scene.add(rim);
+      }
       camera.position.set(0, 6.2, 11.6);
 
       // 1. Pixar Sky Dome, Textured Moon & Sculpted Snowy Alpine Backdrop
@@ -732,7 +743,8 @@ export class NorthPole3DScene implements HolidayScene {
     const windX = Math.sin(windRad) * windStrength * 2.2 - this.smoothCurve * 4;
 
     this.stage.setQuality(env.quality);
-    this.stage.setAtmosphere(env.daylightFactor, env.blueHourFactor, env.fogColor);
+    const daylight = this.winterLight ? 0.12 : env.daylightFactor;
+    this.stage.setAtmosphere(daylight, this.winterLight ? 0.8 : env.blueHourFactor, this.winterLight ? '#525e80' : env.fogColor);
     this.hornFlashTimer = Math.max(0, this.hornFlashTimer - dt);
     if (this.comboTimer > 0) {
       this.comboTimer -= dt;
@@ -750,11 +762,12 @@ export class NorthPole3DScene implements HolidayScene {
 
     // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Wet Reflections & Glitter
     this.roadScroll += forwardStep;
+    this.grove?.update(this.roadScroll, (z) => this.getRoadCurveX(z));
     this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
     const auroraHex =
       env.theme === 'cyber2099' ? '#3eeeff' : env.theme === 'nordic' ? '#7fd6ff' : '#3ce8b4';
     const auroraBoost = env.theme === 'cyber2099' ? 1.25 : 1.0 + live.auroraLiveBoost * 0.45;
-    this.snowyRoad.setAtmosphere(time, env.daylightFactor, auroraHex, auroraBoost);
+    this.snowyRoad.setAtmosphere(time, daylight, auroraHex, auroraBoost);
 
     // 2. Curve-Locked OSM Forest / Open Countryside / Town Layer + Living Props & Church Bells
     this.osmMap.setVisualMood(beat, windX, env.theme);
@@ -810,11 +823,11 @@ export class NorthPole3DScene implements HolidayScene {
       beat * 0.48 +
       this.flightFactor * 0.65 +
       (osm.enabled && osm.biome === 'forest' ? 0.24 : 0);
-    this.skyMat.uniforms.uTopColor.value.set(env.skyTopColor);
-    this.skyMat.uniforms.uMidColor.value.set(env.skyMidColor);
-    this.skyMat.uniforms.uHorizonColor.value.set(env.skyHorizonColor);
+    this.skyMat.uniforms.uTopColor.value.set(this.winterLight ? '#101735' : env.skyTopColor);
+    this.skyMat.uniforms.uMidColor.value.set(this.winterLight ? '#48577e' : env.skyMidColor);
+    this.skyMat.uniforms.uHorizonColor.value.set(this.winterLight ? '#eba991' : env.skyHorizonColor);
     if (this.skyMat.uniforms.uDaylight) {
-      this.skyMat.uniforms.uDaylight.value = env.daylightFactor;
+      this.skyMat.uniforms.uDaylight.value = daylight;
     }
     this.moon.userData.setMoonPhase?.(env.moonPhase);
     this.moon.userData.setDaylight?.(env.daylightFactor);
@@ -831,7 +844,7 @@ export class NorthPole3DScene implements HolidayScene {
       const nextCx = this.getRoadCurveX(item.zOffset - 5);
       item.group.position.set(cx + item.side * item.lateralDist, 0, item.zOffset);
       item.group.rotation.y = Math.atan2(cx - nextCx, 5);
-      item.group.visible = !!item.isLamp || !hasOsmWorld;
+      item.group.visible = !!item.isLamp || !hasOsmWorld || (this.winterLight && !!item.cottage);
       if (item.group.visible) {
         item.cottage?.update(dt, time);
       }
@@ -1124,7 +1137,14 @@ export class NorthPole3DScene implements HolidayScene {
     let wantLookY = sleighY - 0.25;
     let wantLookZ = -26;
 
-    if (env.cinematicCam) {
+    if (this.winterLight) {
+      // The composition follows the measured turn and speed even during a stop.
+      wantCamX = sleighX - (env.cinematicCam ? 1.75 : 0) + this.smoothCurve * 0.8;
+      wantCamY = sleighY + 2.05;
+      wantCamZ = 12.8 + speedNorm;
+      wantLookY = sleighY + 0.45;
+      wantLookZ = -13;
+    } else if (env.cinematicCam) {
       this.camShotTimer += dt;
       if (this.stoppedSec > 3.6) {
         // Warm front-3/4 close-up of Santa waving his steaming glögg mug & frosted reindeer!
@@ -1243,6 +1263,7 @@ export class NorthPole3DScene implements HolidayScene {
     }
     this.milestoneCardEl?.remove();
     this.milestoneCardEl = null;
+    this.grove?.dispose();
     this.liveSkyRig?.dispose();
     this.livingWorld?.dispose();
     this.chimneyPts?.geometry.dispose();
