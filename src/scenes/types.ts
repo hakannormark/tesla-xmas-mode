@@ -10,7 +10,6 @@ export type SceneReactionKind = 'hohoho' | 'landmark' | 'gift';
 
 export interface SceneFrameContext {
   localDemo?: boolean;
-  demoNotice?: string;
   telemetry: TelemetryFrame;
   env: EnvironmentState;
   elonEvent: ActiveElonEvent | null;

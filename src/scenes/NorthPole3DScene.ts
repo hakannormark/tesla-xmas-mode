@@ -813,7 +813,7 @@ export class NorthPole3DScene implements HolidayScene {
     if (this.signCaption) {
       this.signCaption.hidden = !osm.enabled || (telemetry.source === 'gps' && !this.street);
       const roadName = this.street ? this.street.name : osm.roadName;
-      const caption = frame.demoNotice ?? [roadName, osm.placeName].filter(Boolean).join(' · ');
+      const caption = [roadName, osm.placeName].filter(Boolean).join(' · ');
       this.signCaption.classList.toggle('mapped', !!this.street);
       if (this.signCaption.textContent !== caption) this.signCaption.textContent = caption;
     }

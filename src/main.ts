@@ -1,5 +1,5 @@
 import './styles/main.css';
-import { LocalDemoDrive, demoStart } from './core/localDemo';
+import { LocalDemoDrive } from './core/localDemo';
 import { AudioMixMode, HolidayAudioEngine } from './core/audioEngine';
 import { BoringTunnelRenderer } from './core/boringTunnel';
 import { ElonEventDirector } from './core/elonEvents';
@@ -283,7 +283,7 @@ class TeslaXmasApp {
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
     this.audio.setMusicStyle(envState.theme);
-    const osmState = this.localDemo?.data?.map ?? this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
+    const osmState = this.localDemo?.map ?? this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
     this.live.update(frame.latitude, frame.longitude);
     const liveState = this.live.getState();
 
@@ -296,10 +296,7 @@ class TeslaXmasApp {
       this.audio.update(dt, frame, activeEvent?.type ?? null);
 
       this.activeScene.update(dt, {
-        localDemo: !!this.localDemo?.data,
-        demoNotice: this.localDemo && !this.localDemo.data
-          ? (this.localDemo.failed ? 'Kartan kunde inte hämtas · Reservdemo' : 'Hämtar ' + demoStart + ' · Djursholm')
-          : this.localDemo?.data && frame.tripKm < 0.025 ? demoStart + ' · Djursholm' : undefined,
+        localDemo: !!this.localDemo,
         telemetry: frame,
         env: envState,
         elonEvent: activeEvent,

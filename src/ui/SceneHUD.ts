@@ -694,7 +694,7 @@ export class SceneHUD {
 
     this.osmStatsEl.classList.toggle('hidden', !osm.enabled);
     if (this.drawerOpen && osm.enabled) {
-      const modeTag = osm.isLiveOsm ? t.osmLiveGpsTag : `${t.osmDemoTourTag} · ${osm.placeName}`;
+      const modeTag = osm.isLiveOsm && telemetry.source === 'gps' ? t.osmLiveGpsTag : `${t.osmDemoTourTag} · ${osm.placeName}`;
       this.osmStatsEl.textContent = `${modeTag} · ${osm.buildingCount} ${t.osmBuildingsLabel} · ${osm.waterCount} ${t.osmWaterLabel} · ${t.osmWildlifeLabel}`;
     }
     if (this.drawerOpen) {
