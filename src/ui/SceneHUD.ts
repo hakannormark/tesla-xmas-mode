@@ -55,6 +55,7 @@ export class SceneHUD {
   private tunnelCheckbox!: HTMLInputElement;
   private frostCheckbox!: HTMLInputElement;
   private cineCheckbox!: HTMLInputElement;
+  private elonTimelineCheckbox!: HTMLInputElement;
   private osmCheckbox!: HTMLInputElement;
   private osmStatsEl!: HTMLElement;
   private liveStatsEl!: HTMLElement;
@@ -221,6 +222,10 @@ export class SceneHUD {
 
         <section class="drawer-section">
           <div class="drawer-label">${t.drawerElonSection}</div>
+          <label class="toggle-row">
+            <span>${t.elonTimelineToggleLabel}</span>
+            <input type="checkbox" ${this.env.isElonTimelineEnabled() ? 'checked' : ''} data-hud="elon-timeline-toggle" />
+          </label>
           <div class="elon-pills">
             ${ELON_TYPES.map(
               (et) => `<button type="button" class="chip-btn" data-elon="${et}">${t.elonEvents[et].label}</button>`
@@ -354,6 +359,7 @@ export class SceneHUD {
     this.tunnelCheckbox = this.drawer.querySelector('[data-hud="tunnel-toggle"]')!;
     this.frostCheckbox = this.drawer.querySelector('[data-hud="frost-toggle"]')!;
     this.cineCheckbox = this.drawer.querySelector('[data-hud="cine-toggle"]')!;
+    this.elonTimelineCheckbox = this.drawer.querySelector('[data-hud="elon-timeline-toggle"]')!;
     this.osmCheckbox = this.drawer.querySelector('[data-hud="osm-toggle"]')!;
     this.osmStatsEl = this.drawer.querySelector('[data-hud="osm-stats"]')!;
     this.liveStatsEl = this.drawer.querySelector('[data-hud="live-stats"]')!;
@@ -492,6 +498,10 @@ export class SceneHUD {
       this.syncDrawerButtons();
     });
 
+    this.elonTimelineCheckbox.addEventListener('change', () => {
+      this.env.setElonTimelineEnabled(this.elonTimelineCheckbox.checked);
+    });
+
     this.drawer.querySelectorAll<HTMLButtonElement>('[data-theme]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const theme = btn.dataset.theme as HolidayThemeId;
@@ -573,6 +583,7 @@ export class SceneHUD {
     this.tunnelCheckbox.checked = this.telemetry.getForceTunnel();
     this.frostCheckbox.checked = this.env.isFrostEnabled();
     this.cineCheckbox.checked = cine;
+    this.elonTimelineCheckbox.checked = this.env.isElonTimelineEnabled();
     this.cineBtnEl.classList.toggle('is-active', cine);
   }
 

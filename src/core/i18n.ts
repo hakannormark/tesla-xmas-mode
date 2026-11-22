@@ -120,6 +120,7 @@ export interface TranslationDict {
   liveSectionLabel: string;
   frostWipeHint: string;
   giftsLabel: string;
+  elonTimelineToggleLabel: string;
 }
 
 const SV: TranslationDict = {
@@ -306,6 +307,7 @@ const SV: TranslationDict = {
   liveSectionLabel: 'Live Rymd, Väder & Flyg',
   frostWipeHint: 'Dra fingret på kanterna för att skrapa frost',
   giftsLabel: '🎁',
+  elonTimelineToggleLabel: 'Visa Elon-tidslinje längs vägen',
 };
 
 const EN: TranslationDict = {
@@ -492,6 +494,7 @@ const EN: TranslationDict = {
   liveSectionLabel: 'Live Space, Wind & Flights',
   frostWipeHint: 'Drag edges to wipe windshield frost',
   giftsLabel: '🎁',
+  elonTimelineToggleLabel: 'Show Elon Timeline along road',
 };
 
 const DICTS: Record<Locale, TranslationDict> = { sv: SV, en: EN };

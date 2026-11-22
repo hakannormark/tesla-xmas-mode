@@ -35,6 +35,7 @@ export interface EnvironmentState {
   calendarMode: CalendarPreviewMode;
   holidayCalendar: HolidayCalendarInfo;
   cinematicCam: boolean;
+  elonTimelineEnabled: boolean;
   skyTopColor: string;
   skyMidColor: string;
   skyHorizonColor: string;
@@ -133,6 +134,7 @@ export class EnvironmentManager {
   private theme: HolidayThemeId = 'classic';
   private calendarMode: CalendarPreviewMode = 'auto';
   private cinematicCam = false;
+  private elonTimelineEnabled = true;
   private temperatureC = -6;
   private windSpeedKmh = 14;
   private windDirDeg = 250;
@@ -173,6 +175,8 @@ export class EnvironmentManager {
       }
       const savedCine = localStorage.getItem('tesla-xmas-cinecam');
       if (savedCine === '1') this.cinematicCam = true;
+      const savedElonTl = localStorage.getItem('tesla-xmas-elon-timeline');
+      if (savedElonTl === '0') this.elonTimelineEnabled = false;
     } catch {
       // Ignore storage access errors
     }
@@ -212,6 +216,19 @@ export class EnvironmentManager {
     this.frostEnabled = enabled;
     try {
       localStorage.setItem('tesla-xmas-frost', enabled ? '1' : '0');
+    } catch {
+      // Ignore
+    }
+  }
+
+  isElonTimelineEnabled(): boolean {
+    return this.elonTimelineEnabled;
+  }
+
+  setElonTimelineEnabled(enabled: boolean): void {
+    this.elonTimelineEnabled = enabled;
+    try {
+      localStorage.setItem('tesla-xmas-elon-timeline', enabled ? '1' : '0');
     } catch {
       // Ignore
     }
@@ -363,6 +380,7 @@ export class EnvironmentManager {
       calendarMode: this.calendarMode,
       holidayCalendar,
       cinematicCam: this.cinematicCam,
+      elonTimelineEnabled: this.elonTimelineEnabled,
       skyTopColor,
       skyMidColor,
       skyHorizonColor,

@@ -802,8 +802,16 @@ export class NorthPole3DScene implements HolidayScene {
       this.redLightOptimus.update(time);
     }
 
-    // 6. Early, Towering Roadside Elon Timeline Encounters along the Boulevard!
-    if (this.activeSlot) {
+    // 6. Early, Towering Roadside Elon Timeline Encounters along the Boulevard (toggleable)
+    if (!env.elonTimelineEnabled) {
+      if (this.activeSlot) {
+        this.stage.scene.remove(this.activeSlot.root);
+        disposeTimelineGroup(this.activeSlot.root);
+        this.activeSlot = null;
+      }
+      this.milestoneCardEl?.classList.remove('visible');
+      this.milestoneCooldownM = 12;
+    } else if (this.activeSlot) {
       const slot = this.activeSlot;
       slot.zOffset += forwardStep;
       slot.root.position.set(this.getRoadCurveX(slot.zOffset), 0, slot.zOffset);
