@@ -435,17 +435,13 @@ button {
   pointer-events: none;
 }
 
-.frost-vignette {
+.frost-canvas {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(220, 240, 255, 0) 64%,
-    rgba(205, 234, 255, 0.14) 88%,
-    rgba(235, 248, 255, 0.34) 100%
-  );
-  transition: opacity 0.6s ease;
+  transition: opacity 0.45s ease;
 }
 
 .hud-topbar,
@@ -515,6 +511,35 @@ button {
   color: #fff8e8;
   background: linear-gradient(90deg, #e01b3a, #ff7b47);
   box-shadow: 0 0 18px rgba(255, 70, 90, 0.65);
+}
+
+.gift-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff8e2;
+  background: linear-gradient(135deg, rgba(224, 27, 58, 0.85), rgba(168, 18, 42, 0.88));
+  border: 1px solid rgba(255, 214, 122, 0.55);
+  box-shadow: 0 0 16px rgba(255, 188, 92, 0.4);
+}
+
+.live-micro-pill {
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #c8ecff;
+  background: rgba(8, 18, 46, 0.72);
+  border: 1px solid rgba(110, 215, 255, 0.32);
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+
+.hud-pill-action.is-active {
+  background: linear-gradient(135deg, rgba(40, 148, 214, 0.82), rgba(20, 74, 148, 0.9));
+  border-color: rgba(130, 230, 255, 0.72);
+  box-shadow: 0 0 16px rgba(72, 212, 255, 0.45);
 }
 
 .hud-telemetry-pill {
@@ -755,14 +780,37 @@ button {
   background: rgba(255, 212, 122, 0.22);
 }
 
-.osm-stats-box {
+.osm-stats-box,
+.live-stats-box {
   padding: 7px 10px;
   border-radius: 9px;
   background: rgba(16, 32, 72, 0.72);
   border: 1px solid rgba(110, 210, 255, 0.24);
   font-size: 11.5px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: #cfe4ff;
+}
+
+.mic-toggle-btn {
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #e4ecfc;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.mic-toggle-btn.active {
+  background: linear-gradient(135deg, #1ea866, #147846);
+  border-color: rgba(130, 255, 190, 0.65);
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(45, 212, 130, 0.45);
+}
+
+.cal-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .slider-row {
@@ -1113,12 +1161,27 @@ button {
     width: auto;
   }
 
-  .hud-mode-title {
+  .hud-mode-title,
+  .live-micro-pill {
     display: none;
   }
 
   .tele-place {
     max-width: 95px;
+  }
+
+  .hud-bottom-actions {
+    right: 12px;
+    left: 12px;
+    bottom: 14px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .hud-pill-action {
+    padding: 8px 12px;
+    font-size: 12px;
   }
 
   .elon-toast {

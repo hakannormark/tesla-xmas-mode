@@ -529,6 +529,7 @@ const PIXAR_SKY_FRAG = `
   varying vec3 vWorldDir;
   uniform float uTime;
   uniform float uAuroraBoost;
+  uniform float uThemeMode;
   uniform vec3 uTopColor;
   uniform vec3 uMidColor;
   uniform vec3 uHorizonColor;
@@ -548,7 +549,10 @@ const PIXAR_SKY_FRAG = `
     col = mix(col, uTopColor, smoothstep(0.28, 0.92, h));
 
     float horizonGlow = exp(-abs(y - 0.03) * 10.5);
-    col += vec3(0.48, 0.21, 0.14) * horizonGlow * 0.58;
+    vec3 glowTint = uThemeMode > 1.5
+      ? vec3(0.75, 0.14, 0.56)
+      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : vec3(0.48, 0.21, 0.14));
+    col += glowTint * horizonGlow * 0.58;
 
     float az = atan(dir.z, dir.x);
     float w1 = sin(az * 3.0 + uTime * 0.26) * 0.08 + cos(az * 5.0 - uTime * 0.18) * 0.04;
@@ -559,9 +563,15 @@ const PIXAR_SKY_FRAG = `
     float rays1 = 0.58 + 0.42 * sin(az * 24.0 + uTime * 0.85 + y * 8.0);
     float rays2 = 0.55 + 0.45 * cos(az * 18.0 - uTime * 0.65);
 
-    vec3 emerald = vec3(0.14, 0.96, 0.72);
-    vec3 goldTint = vec3(1.0, 0.8, 0.42);
-    vec3 violetTint = vec3(0.55, 0.42, 0.98);
+    vec3 emerald = uThemeMode > 1.5
+      ? vec3(0.12, 0.95, 1.0)
+      : vec3(0.14, 0.96, 0.72);
+    vec3 goldTint = uThemeMode > 1.5
+      ? vec3(1.0, 0.24, 0.78)
+      : vec3(1.0, 0.8, 0.42);
+    vec3 violetTint = uThemeMode > 1.5
+      ? vec3(0.72, 0.32, 1.0)
+      : vec3(0.55, 0.42, 0.98);
 
     col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost);
     col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost);
@@ -592,6 +602,7 @@ export function createPixarSkyDome(radius = 300): { mesh: THREE.Mesh; material: 
     uniforms: {
       uTime: { value: 0 },
       uAuroraBoost: { value: 1.0 },
+      uThemeMode: { value: 0.0 },
       uTopColor: { value: new THREE.Color('#040a1e') },
       uMidColor: { value: new THREE.Color('#0c1e4a') },
       uHorizonColor: { value: new THREE.Color('#1d3364') },
@@ -606,25 +617,58 @@ export function createPixarSkyDome(radius = 300): { mesh: THREE.Mesh; material: 
 export function createPixarMoon(radius = 10): THREE.Group {
   const group = new THREE.Group();
   const moonTex = createMoonSurfaceTexture();
-  const disc = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 28, 28),
-    new THREE.MeshBasicMaterial({ map: moonTex, color: '#fff8e8', fog: false })
-  );
+  const discMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: moonTex },
+      uSunDir: { value: new THREE.Vector3(0.25, 0.15, 0.96).normalize() },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormalView;
+      void main() {
+        vUv = uv;
+        vNormalView = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uMap;
+      uniform vec3 uSunDir;
+      varying vec2 vUv;
+      varying vec3 vNormalView;
+      void main() {
+        vec3 texCol = texture2D(uMap, vUv).rgb * vec3(1.0, 0.97, 0.91);
+        float ndotl = dot(normalize(vNormalView), normalize(uSunDir));
+        float lit = smoothstep(-0.18, 0.24, ndotl);
+        vec3 shadowCol = texCol * vec3(0.18, 0.24, 0.42);
+        vec3 finalCol = mix(shadowCol, texCol, max(0.08, lit));
+        gl_FragColor = vec4(finalCol, 1.0);
+      }
+    `,
+    fog: false,
+  });
+  const disc = new THREE.Mesh(new THREE.SphereGeometry(radius, 28, 28), discMat);
   group.add(disc);
 
-  const haloSprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: getSoftGlowTexture(),
-      color: '#ffdf9a',
-      transparent: true,
-      opacity: 0.72,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      fog: false,
-    })
-  );
+  const haloMat = new THREE.SpriteMaterial({
+    map: getSoftGlowTexture(),
+    color: '#ffdf9a',
+    transparent: true,
+    opacity: 0.72,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
+  const haloSprite = new THREE.Sprite(haloMat);
   haloSprite.scale.set(radius * 5.8, radius * 5.8, 1);
   group.add(haloSprite);
+
+  group.userData.setMoonPhase = (phase: number) => {
+    const theta = (0.5 - phase) * Math.PI * 2;
+    discMat.uniforms.uSunDir.value.set(Math.sin(theta), 0.12, Math.cos(theta)).normalize();
+    const fullness = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+    haloMat.opacity = 0.28 + fullness * 0.48;
+  };
 
   return group;
 }

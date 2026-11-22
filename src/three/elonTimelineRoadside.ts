@@ -267,8 +267,9 @@ export function createRoadsideMilestoneEvent(
     spec.add(roadster, f1Body, nose);
   } else if (kind === 'models_supercharger') {
     const sc = createAccurateSuperchargerPlaza();
-    sc.group.scale.setScalar(1.0);
+    sc.group.scale.setScalar(0.76);
     sc.group.position.y = 0.1;
+    sc.group.rotation.y = side > 0 ? -Math.PI * 0.25 : Math.PI * 0.25;
     spec.add(sc.group);
     updater = (t) => sc.update(t);
   } else if (kind === 'falcon_landing') {

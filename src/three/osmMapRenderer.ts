@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GraphicsQuality } from '../core/environment';
+import { GraphicsQuality, HolidayThemeId } from '../core/environment';
 import {
   geoDeltaMeters,
   OsmBuilding,
@@ -7,11 +7,12 @@ import {
   OsmWorldState,
 } from '../core/osmWorld';
 import { TelemetryFrame } from '../core/telemetry';
-import { createSparklingSnowMaterial } from './pixarMaterials';
+import { createSparklingSnowMaterial, getSoftGlowTexture } from './pixarMaterials';
 import {
   createHolidayRoadSign,
   createPixarCottage,
   createPixarPineTree,
+  PixarCottageHandle,
 } from './pixarModels';
 import { createAccurateSuperchargerPlaza } from './teslaModels';
 import { createPixarForestAnimal, PixarAnimalHandle, WildlifeKind } from './pixarWildlife';
@@ -272,7 +273,19 @@ interface BuiltBuildingRef {
   centerX: number;
   centerZ: number;
   radius: number;
+  topY: number;
+  litBoost: number;
+  cottage?: PixarCottageHandle;
+  celebrateHalo: THREE.Sprite;
+  celebrateStar: THREE.Mesh;
   label?: THREE.Mesh;
+}
+
+export interface GiftTargetInfo {
+  x: number;
+  y: number;
+  z: number;
+  lightUp: () => void;
 }
 
 interface CorridorPlacedItem {
@@ -301,8 +314,14 @@ export class OsmMapLayer {
   private buildingRefs: BuiltBuildingRef[] = [];
   private corridorItems: CorridorPlacedItem[] = [];
   private animals: PixarAnimalHandle[] = [];
+  private pineItems: Array<{ group: THREE.Group; phase: number }> = [];
+  private nordicTorches: THREE.Group[] = [];
   private cottageUpdaters: Array<(dt: number, time: number) => void> = [];
   private plazaUpdaters: Array<(time: number) => void> = [];
+  private beatEnergy = 0;
+  private windX = 0;
+  private theme: HolidayThemeId = 'classic';
+  private targetVec = new THREE.Vector3();
 
   constructor() {
     this.mapPivot.add(this.mapInner);
@@ -330,8 +349,37 @@ export class OsmMapLayer {
     this.buildingRefs = [];
     this.corridorItems = [];
     this.animals = [];
+    this.pineItems = [];
+    this.nordicTorches = [];
     this.cottageUpdaters = [];
     this.plazaUpdaters = [];
+  }
+
+  setVisualMood(beatEnergy: number, windX: number, theme: HolidayThemeId): void {
+    this.beatEnergy = beatEnergy;
+    this.windX = windX;
+    this.theme = theme;
+  }
+
+  getGiftTargets(): GiftTargetInfo[] {
+    const out: GiftTargetInfo[] = [];
+    for (const b of this.buildingRefs) {
+      if (!b.group.visible) continue;
+      b.group.updateWorldMatrix(true, false);
+      this.targetVec.set(0, Math.min(18, b.topY * 0.9), 0).applyMatrix4(b.group.matrixWorld);
+      if (this.targetVec.z < -8 && this.targetVec.z > -125 && Math.abs(this.targetVec.x) < 75) {
+        out.push({
+          x: this.targetVec.x,
+          y: this.targetVec.y,
+          z: this.targetVec.z,
+          lightUp: () => {
+            b.litBoost = 1.0;
+            b.cottage?.setLit(1.0);
+          },
+        });
+      }
+    }
+    return out;
   }
 
   private createBuildingMesh(
@@ -346,11 +394,13 @@ export class OsmMapLayer {
     const spanX = Math.max(4, b.widthM);
     const spanZ = Math.max(4, b.depthM);
     let topY = b.heightM;
+    let cottageHandle: PixarCottageHandle | undefined;
 
     if (b.kind === 'small_cottage') {
-      // Handcrafted Cozy Pixar Snow Cottage (with animated fireplace hearth & chimney smoke!)
+      // Handcrafted Cozy Pixar Snow Cottage (lights up brilliantly when a gift lands down the chimney!)
       const cot = createPixarCottage(idx + 1);
-      cot.setLit(1);
+      cot.setLit(0.48);
+      cottageHandle = cot;
       const sx = THREE.MathUtils.clamp(spanX / 4.2, 0.85, 1.85);
       const sy = THREE.MathUtils.clamp(b.heightM / 4.0, 0.9, 1.55);
       const sz = THREE.MathUtils.clamp(spanZ / 3.8, 0.85, 1.85);
@@ -517,6 +567,29 @@ export class OsmMapLayer {
       g.add(label);
     }
 
+    // Interactive Holiday Roof Glow & Celebration Star (ignites on Gift Cannon chimney hit!)
+    const celebrateHalo = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: getSoftGlowTexture(),
+        color: '#ffdf78',
+        transparent: true,
+        opacity: 0.08,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    celebrateHalo.scale.set(Math.min(20, spanX * 1.45), Math.min(20, spanX * 1.45), 1);
+    celebrateHalo.position.set(0, topY * 0.72, 0);
+    g.add(celebrateHalo);
+
+    const celebrateStar = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.65, 0),
+      new THREE.MeshBasicMaterial({ color: '#ffe57e', toneMapped: false })
+    );
+    celebrateStar.position.set(0, topY + 0.85, 0);
+    celebrateStar.visible = false;
+    g.add(celebrateStar);
+
     this.mapInner.add(g);
     const rad = Math.min(28, Math.hypot(spanX * 0.5, spanZ * 0.5) + 1.5);
     this.corridorItems.push({ obj: g, baseX: b.centerX, baseZ: b.centerZ, baseYaw: 0 });
@@ -525,6 +598,11 @@ export class OsmMapLayer {
       centerX: b.centerX,
       centerZ: b.centerZ,
       radius: rad,
+      topY,
+      litBoost: 0,
+      cottage: cottageHandle,
+      celebrateHalo,
+      celebrateStar,
       label,
     };
   }
@@ -682,11 +760,14 @@ export class OsmMapLayer {
     // 4. POIs (Tesla Supercharger Plazas & Carved Holiday Road Signs)
     for (const poi of snapshot.pois.slice(0, 6)) {
       if (poi.kind === 'charger') {
+        const safeX = (poi.x >= 0 ? 1 : -1) * Math.max(13.8, Math.abs(poi.x));
+        const yaw = safeX >= 0 ? -Math.PI * 0.5 : Math.PI * 0.5;
         const sc = createAccurateSuperchargerPlaza();
         sc.group.scale.setScalar(0.85);
-        sc.group.position.set(poi.x, 0, poi.z);
+        sc.group.position.set(safeX, 0, poi.z);
+        sc.group.rotation.y = yaw;
         this.mapInner.add(sc.group);
-        this.corridorItems.push({ obj: sc.group, baseX: poi.x, baseZ: poi.z, baseYaw: 0 });
+        this.corridorItems.push({ obj: sc.group, baseX: safeX, baseZ: poi.z, baseYaw: yaw });
         this.plazaUpdaters.push((t) => sc.update(t));
       } else {
         const sign = createHolidayRoadSign();
@@ -752,9 +833,46 @@ export class OsmMapLayer {
         pine.group.position.set(tx, 0, tz);
         this.mapInner.add(pine.group);
         this.corridorItems.push({ obj: pine.group, baseX: tx, baseZ: tz, baseYaw: ang });
+        this.pineItems.push({ group: pine.group, phase: treesPlaced * 0.8 });
         treesPlaced++;
       }
     });
+
+    // 6B. Nordic Roadside Wooden Fire Torches (Marschaller/Facklor — active in 'nordic' Sagovinter theme!)
+    if (!isLiveOsm) {
+      const torchWood = mats.fenceWood;
+      const flameMat = new THREE.MeshBasicMaterial({ color: '#ffae38', toneMapped: false });
+      for (let i = 0; i < 8; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const fx = side * 6.8;
+        const fz = -18 - i * 24;
+        const tg = new THREE.Group();
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.4, 6), torchWood);
+        post.position.y = 0.7;
+        const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.12, 0.22, 8), torchWood);
+        bowl.position.y = 1.42;
+        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.45, 7), flameMat);
+        flame.position.y = 1.72;
+        const halo = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: getSoftGlowTexture(),
+            color: '#ff9e3d',
+            transparent: true,
+            opacity: 0.55,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          })
+        );
+        halo.scale.set(4.0, 4.0, 1);
+        halo.position.y = 1.75;
+        tg.add(post, bowl, flame, halo);
+        tg.position.set(fx, 0, fz);
+        tg.visible = this.theme === 'nordic';
+        this.mapInner.add(tg);
+        this.corridorItems.push({ obj: tg, baseX: fx, baseZ: fz, baseYaw: 0 });
+        this.nordicTorches.push(tg);
+      }
+    }
 
     // 7. Animated Forest Wildlife across clearings, parks & open plains
     const kinds: WildlifeKind[] = ['stag', 'fox', 'owl', 'rabbit', 'stag', 'fox', 'rabbit', 'owl'];
@@ -875,6 +993,50 @@ export class OsmMapLayer {
     }
 
     const time = telemetry.elapsedSec;
+    const pulse = this.beatEnergy;
+
+    // Audio-reactive glow & theme palette accents across facades + fairy trim
+    if (sharedFacadeMats) {
+      const targetEmissive = this.theme === 'cyber2099' ? '#a66bff' : '#ffbd58';
+      for (const fm of sharedFacadeMats) {
+        fm.emissive.set(targetEmissive);
+        fm.emissiveIntensity = 0.85 + pulse * 0.85;
+      }
+    }
+    if (sharedGoldFairyMat) {
+      sharedGoldFairyMat.color.set(
+        this.theme === 'cyber2099' ? '#4df3ff' : this.theme === 'nordic' ? '#ffd978' : '#ffdf88'
+      );
+    }
+    if (sharedGigaGlassMat) {
+      sharedGigaGlassMat.emissiveIntensity = 0.55 + pulse * 0.75;
+    }
+
+    for (const torch of this.nordicTorches) {
+      torch.visible = this.theme === 'nordic';
+    }
+
+    // Real wind gently sways pine trees
+    const windStrength = THREE.MathUtils.clamp(this.windX * 0.045, -0.14, 0.14);
+    for (const p of this.pineItems) {
+      p.group.rotation.z = windStrength + Math.sin(time * 2.1 + p.phase) * (0.015 + Math.abs(windStrength) * 0.4);
+    }
+
+    // Building Gift Cannon celebration illumination & sparkle beat response
+    for (const b of this.buildingRefs) {
+      if (b.litBoost > 0.02) {
+        b.celebrateStar.visible = true;
+        b.celebrateStar.rotation.y = time * 2.5;
+        b.celebrateStar.position.y = b.topY + 0.9 + Math.sin(time * 4) * 0.18;
+        (b.celebrateHalo.material as THREE.SpriteMaterial).opacity =
+          Math.min(0.98, 0.52 + b.litBoost * 0.45 + pulse * 0.25);
+        b.litBoost = Math.max(0.25, b.litBoost - dt * 0.06);
+      } else {
+        b.celebrateStar.visible = false;
+        (b.celebrateHalo.material as THREE.SpriteMaterial).opacity = 0.08 + pulse * 0.22;
+      }
+    }
+
     for (const anim of this.animals) {
       anim.update(dt, time, sleighAlert);
     }

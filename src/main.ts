@@ -4,6 +4,7 @@ import { BoringTunnelRenderer } from './core/boringTunnel';
 import { ElonEventDirector } from './core/elonEvents';
 import { EnvironmentManager } from './core/environment';
 import { SceneId } from './core/i18n';
+import { LiveWorldDataManager } from './core/liveWorldData';
 import { OsmWorldDirector } from './core/osmWorld';
 import { DriveSource, TelemetryEngine } from './core/telemetry';
 import { ElectricCaravanScene } from './scenes/ElectricCaravanScene';
@@ -41,6 +42,7 @@ class TeslaXmasApp {
   private audio = new HolidayAudioEngine();
   private elon = new ElonEventDirector();
   private osm = new OsmWorldDirector();
+  private live = new LiveWorldDataManager();
   private tunnelRenderer = new BoringTunnelRenderer();
 
   private menu: MenuView;
@@ -49,6 +51,7 @@ class TeslaXmasApp {
   private activeScene: HolidayScene | null = null;
   private wakeLockSentinel: WakeLockSentinel | null = null;
   private lastTimeMs = performance.now();
+  private pointerStart: { x: number; y: number; dragged: boolean } | null = null;
 
   constructor() {
     const root = document.getElementById('app');
@@ -91,13 +94,35 @@ class TeslaXmasApp {
       onLandmarkReaction: () => this.activeScene?.triggerReaction?.('landmark'),
     });
 
-    // Tapping anywhere on the canvas stage triggers scene interaction & wakes HUD
+    // Tapping anywhere fires scene interaction & Gift Cannon; dragging across frosted borders wipes frost!
     this.stageEl.addEventListener('pointerdown', (e) => {
       this.hud.wake();
-      if (!this.activeScene) return;
+      this.pointerStart = { x: e.clientX, y: e.clientY, dragged: false };
+    });
+
+    this.stageEl.addEventListener('pointermove', (e) => {
+      if (!this.pointerStart) return;
+      const dist = Math.hypot(e.clientX - this.pointerStart.x, e.clientY - this.pointerStart.y);
+      if (dist >= 14) {
+        this.pointerStart.dragged = true;
+        if (this.hud.wipeFrost(e.clientX, e.clientY)) {
+          this.audio.unlock();
+          this.audio.playIceScrape();
+        }
+      }
+    });
+
+    const endPointer = (e: PointerEvent) => {
+      const start = this.pointerStart;
+      this.pointerStart = null;
+      if (!start || start.dragged || !this.activeScene) return;
       const nx = e.clientX / Math.max(1, window.innerWidth);
       const ny = e.clientY / Math.max(1, window.innerHeight);
       this.triggerSceneInteract(nx, ny);
+    };
+    this.stageEl.addEventListener('pointerup', endPointer);
+    this.stageEl.addEventListener('pointercancel', () => {
+      this.pointerStart = null;
     });
 
     window.addEventListener('resize', () => this.handleResize());
@@ -151,6 +176,7 @@ class TeslaXmasApp {
     this.activeScene = scene;
 
     this.elon.reset();
+    this.hud.setGiftsDelivered(0);
     this.menu.hide();
     this.hud.setActiveMode(id);
     this.hud.show();
@@ -180,6 +206,7 @@ class TeslaXmasApp {
     this.tunnelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     this.menu.resize(w, h);
+    this.hud.resize(w, h);
     if (this.activeScene) {
       this.activeScene.resize(w, h);
     }
@@ -239,7 +266,10 @@ class TeslaXmasApp {
     const frame = this.telemetry.update(dt);
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
+    this.audio.setMusicStyle(envState.theme);
     const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh);
+    this.live.update(frame.latitude, frame.longitude);
+    const liveState = this.live.getState();
 
     if (this.menu.isVisible()) {
       this.menu.update(dt, frame.elapsedSec);
@@ -255,6 +285,8 @@ class TeslaXmasApp {
         elonEvent: activeEvent,
         audio: this.audio,
         osm: osmState,
+        live: liveState,
+        onGiftDelivered: (total) => this.hud.setGiftsDelivered(total),
       });
 
       // Render Boring Tunnel seamless perspective overlay if active
@@ -268,7 +300,7 @@ class TeslaXmasApp {
       this.tunnelCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     }
 
-    this.hud.update(dt, frame, envState, osmState);
+    this.hud.update(dt, frame, envState, osmState, liveState);
     requestAnimationFrame((t) => this.tick(t));
   }
 }

@@ -102,6 +102,24 @@ export interface TranslationDict {
   osmWildlifeLabel: string;
   osmLiveGpsTag: string;
   osmDemoTourTag: string;
+  cinematicCamBtn: string;
+  cinematicCamLabel: string;
+  themeLabel: string;
+  themeClassic: string;
+  themeNordic: string;
+  themeCyber: string;
+  calendarLabel: string;
+  calAuto: string;
+  calAdvent: string;
+  calLucia: string;
+  calXmasEve: string;
+  micLabel: string;
+  micOff: string;
+  micActive: string;
+  micDenied: string;
+  liveSectionLabel: string;
+  frostWipeHint: string;
+  giftsLabel: string;
 }
 
 const SV: TranslationDict = {
@@ -189,9 +207,9 @@ const SV: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        'Flagship Pixar 3D-vinterväg med snövallar, Coca-Cola & Tesla-julkaravaner, stugor, hus & Gigafactories från OpenStreetMap samt Elon-händelser!',
+        'Flagship Pixar 3D-vinterväg med Coca-Cola & Tesla-karavaner, realtidsflyg, norrsken, hus från OpenStreetMap & Julklappskanon!',
       badge: 'Disney/Pixar All-in-One ★',
-      actionLabel: '✨ Magi & Starlink',
+      actionLabel: '🎁 Tänd byn & Starlink',
     },
     snowglobe: {
       id: 'snowglobe',
@@ -225,11 +243,11 @@ const SV: TranslationDict = {
     },
     supercharger: {
       label: '⚡ Supercharger',
-      toast: 'Pepparkaks-Supercharger · Optimus-nissen vinkar!',
+      toast: 'Nordpolens Supercharger-Oas · Glöggbod & Optimus!',
     },
     cyberplow: {
       label: '🎄 Cybertruck',
-      toast: 'Frostig Cybertruck med lysande julgran på flaket',
+      toast: 'Cybertruck-snöplog med lysande julgran på flaket!',
     },
   },
   reindeerGears: {
@@ -270,6 +288,24 @@ const SV: TranslationDict = {
   osmWildlifeLabel: '🦌 Skogsdjur',
   osmLiveGpsTag: 'Live OSM',
   osmDemoTourTag: 'Demo-rutt',
+  cinematicCamBtn: '🎥 Bio',
+  cinematicCamLabel: 'Cinematic Bio-kamera',
+  themeLabel: 'Jul-tema / Skinn',
+  themeClassic: 'Coca-Cola',
+  themeNordic: 'Sagovinter',
+  themeCyber: 'Cyber 2099',
+  calendarLabel: 'Advents- & Julkalender',
+  calAuto: 'Auto (Idag)',
+  calAdvent: '4:e Advent',
+  calLucia: 'Lucia (13 dec)',
+  calXmasEve: 'Julafton (24 dec)',
+  micLabel: '🎤 Lyssna på bilens musik',
+  micOff: 'Av',
+  micActive: 'Aktiv',
+  micDenied: 'Ej tillåten',
+  liveSectionLabel: 'Live Rymd, Väder & Flyg',
+  frostWipeHint: 'Dra fingret på kanterna för att skrapa frost',
+  giftsLabel: '🎁',
 };
 
 const EN: TranslationDict = {
@@ -357,9 +393,9 @@ const EN: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        'Flagship Disney/Pixar winter boulevard fusing Coca-Cola & Tesla holiday Semis, Street-View cottages & Gigafactories from OSM, plus roadside Elon events!',
+        'Flagship Pixar 3D winter boulevard fusing Coca-Cola & Tesla Semis, live sky data, OSM cottages & Gigafactories, plus a Gift Cannon!',
       badge: 'Disney/Pixar All-in-One ★',
-      actionLabel: '✨ Magic & Starlink',
+      actionLabel: '🎁 Light Up & Starlink',
     },
     snowglobe: {
       id: 'snowglobe',
@@ -393,11 +429,11 @@ const EN: TranslationDict = {
     },
     supercharger: {
       label: '⚡ Supercharger',
-      toast: 'Gingerbread Supercharger · Optimus elf waves hello!',
+      toast: 'North Pole Supercharger Oasis · Glögg & Optimus!',
     },
     cyberplow: {
       label: '🎄 Cybertruck',
-      toast: 'Frosted Cybertruck hauling a glowing Christmas tree',
+      toast: 'Cybertruck Snowplow hauling a glowing Christmas tree!',
     },
   },
   reindeerGears: {
@@ -438,6 +474,24 @@ const EN: TranslationDict = {
   osmWildlifeLabel: '🦌 Forest wildlife',
   osmLiveGpsTag: 'Live OSM',
   osmDemoTourTag: 'Demo Tour',
+  cinematicCamBtn: '🎥 Cinema',
+  cinematicCamLabel: 'Cinematic Commercial Cam',
+  themeLabel: 'Holiday Theme',
+  themeClassic: 'Coca-Cola',
+  themeNordic: 'Nordic Tale',
+  themeCyber: 'Cyber 2099',
+  calendarLabel: 'Advent & Holiday Calendar',
+  calAuto: 'Auto (Today)',
+  calAdvent: '4th Advent',
+  calLucia: 'Lucia (Dec 13)',
+  calXmasEve: 'Xmas Eve (Dec 24)',
+  micLabel: '🎤 Cabin Music Light Show',
+  micOff: 'Off',
+  micActive: 'Active',
+  micDenied: 'Blocked',
+  liveSectionLabel: 'Live Space, Wind & Flights',
+  frostWipeHint: 'Drag edges to wipe windshield frost',
+  giftsLabel: '🎁',
 };
 
 const DICTS: Record<Locale, TranslationDict> = { sv: SV, en: EN };

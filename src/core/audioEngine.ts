@@ -339,6 +339,7 @@ export class HolidayAudioEngine {
 
   private mixMode: AudioMixMode = 'full';
   private routing: AudioRouting = 'direct';
+  private musicStyle: 'classic' | 'nordic' | 'cyber2099' = 'classic';
   private volume = 0.72;
 
   private songIdx = 0;
@@ -347,6 +348,14 @@ export class HolidayAudioEngine {
   private bellTimer = 0;
   private prevBraking = false;
   private lastEventTriggered: string | null = null;
+
+  private beatPulse = 0;
+  private smoothMicEnergy = 0;
+  private micState: 'off' | 'active' | 'denied' = 'off';
+  private micStream: MediaStream | null = null;
+  private micAnalyser: AnalyserNode | null = null;
+  private micData: Uint8Array<ArrayBuffer> | null = null;
+  private lastScrapeMs = 0;
 
   private wavDataUri: string | null = null;
 
@@ -412,6 +421,56 @@ export class HolidayAudioEngine {
       // Ignore
     }
     this.applyGainStates();
+  }
+
+  setMusicStyle(style: 'classic' | 'nordic' | 'cyber2099'): void {
+    this.musicStyle = style;
+  }
+
+  getMicState(): 'off' | 'active' | 'denied' {
+    return this.micState;
+  }
+
+  async setMicReactive(enabled: boolean): Promise<'off' | 'active' | 'denied'> {
+    if (!enabled) {
+      if (this.micStream) {
+        this.micStream.getTracks().forEach((tr) => tr.stop());
+        this.micStream = null;
+      }
+      this.micAnalyser = null;
+      this.micData = null;
+      this.smoothMicEnergy = 0;
+      this.micState = 'off';
+      return 'off';
+    }
+    this.unlock();
+    if (!this.ctx || !navigator.mediaDevices?.getUserMedia) {
+      this.micState = 'denied';
+      return 'denied';
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const src = this.ctx.createMediaStreamSource(stream);
+      const analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.72;
+      src.connect(analyser); // Not connected to destination -> zero audio feedback!
+      this.micStream = stream;
+      this.micAnalyser = analyser;
+      this.micData = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+      this.micState = 'active';
+      return 'active';
+    } catch {
+      this.micState = 'denied';
+      return 'denied';
+    }
+  }
+
+  getBeatEnergy(): number {
+    if (this.micState === 'active') {
+      return Math.min(1, this.smoothMicEnergy);
+    }
+    return Math.min(1, this.beatPulse);
   }
 
   unlock(): void {
@@ -575,6 +634,19 @@ export class HolidayAudioEngine {
   }
 
   update(dt: number, telemetry: TelemetryFrame, activeEventType: string | null): void {
+    this.beatPulse = Math.max(0, this.beatPulse - dt * 2.8);
+
+    if (this.micState === 'active' && this.micAnalyser && this.micData) {
+      this.micAnalyser.getByteFrequencyData(this.micData);
+      let sum = 0;
+      const bins = Math.min(16, this.micData.length);
+      for (let i = 0; i < bins; i++) sum += this.micData[i];
+      const norm = Math.min(1, (sum / (bins * 255)) * 1.9);
+      this.smoothMicEnergy += (norm - this.smoothMicEnergy) * Math.min(1, dt * 12);
+    } else {
+      this.smoothMicEnergy = Math.max(0, this.smoothMicEnergy - dt * 4);
+    }
+
     if (!this.ctx || this.ctx.state !== 'running') return;
     if (this.mixMode === 'muted') return;
 
@@ -594,6 +666,7 @@ export class HolidayAudioEngine {
         const secPerBeat = 60 / (song.bpm * tempoScale);
         const durSec = step.beats * secPerBeat;
         this.stepWaitSec = durSec;
+        this.beatPulse = Math.max(this.beatPulse, step.bass ? 0.95 : 0.62);
 
         if (step.chord) {
           const chordHz = step.chord.map(midiToHz);
@@ -677,22 +750,28 @@ export class HolidayAudioEngine {
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const harm = this.ctx.createOscillator();
-    osc.type = 'sine';
-    harm.type = 'triangle';
+    const isCyber = this.musicStyle === 'cyber2099' && !destOverride;
+    osc.type = isCyber ? 'sawtooth' : 'sine';
+    harm.type = isCyber ? 'square' : 'triangle';
     osc.frequency.value = freq;
-    harm.frequency.value = freq * 2;
+    harm.frequency.value = isCyber ? freq * 0.5 : freq * 2;
+
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = isCyber ? 2400 : 8000;
 
     const harmGain = this.ctx.createGain();
-    harmGain.gain.value = 0.18;
+    harmGain.gain.value = isCyber ? 0.16 : 0.18;
 
     const env = this.ctx.createGain();
     env.gain.setValueAtTime(0.0001, now);
-    env.gain.linearRampToValueAtTime(level, now + 0.015);
+    env.gain.linearRampToValueAtTime(isCyber ? level * 0.65 : level, now + 0.015);
     env.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
-    osc.connect(env);
+    osc.connect(lp);
     harm.connect(harmGain);
-    harmGain.connect(env);
+    harmGain.connect(lp);
+    lp.connect(env);
 
     if (destOverride) {
       env.connect(destOverride);
@@ -710,13 +789,14 @@ export class HolidayAudioEngine {
   private playBassNote(freq: number, level: number, duration: number): void {
     if (!this.ctx || !this.musicBus) return;
     const now = this.ctx.currentTime;
+    const isCyber = this.musicStyle === 'cyber2099';
     const osc = this.ctx.createOscillator();
-    osc.type = 'triangle';
+    osc.type = isCyber ? 'sawtooth' : 'triangle';
     osc.frequency.value = freq;
 
     const lp = this.ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(520, now);
+    lp.frequency.setValueAtTime(isCyber ? 860 : 520, now);
     lp.frequency.exponentialRampToValueAtTime(160, now + duration);
 
     const g = this.ctx.createGain();
@@ -906,6 +986,61 @@ export class HolidayAudioEngine {
     src.stop(now + 5.3);
   }
 
+  playGiftLaunch(): void {
+    this.unlock();
+    if (!this.ctx || this.ctx.state !== 'running' || this.mixMode === 'muted') return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(340, now);
+    osc.frequency.exponentialRampToValueAtTime(980, now + 0.16);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.11, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    osc.connect(g);
+    if (this.dryBus) g.connect(this.dryBus);
+    if (this.reverbBus) g.connect(this.reverbBus);
+    osc.start(now);
+    osc.stop(now + 0.24);
+  }
+
+  playChimneyPop(): void {
+    this.unlock();
+    if (!this.ctx || this.ctx.state !== 'running' || this.mixMode === 'muted') return;
+    [523.25, 659.25, 783.99, 1046.5].forEach((hz, i) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running') {
+          this.playCelestaNote(hz, 0.1, 0.42);
+        }
+      }, i * 35);
+    });
+    this.triggerSleighBell(0.7, 0.2);
+  }
+
+  playIceScrape(): void {
+    if (!this.ctx || !this.whiteNoiseBuf || this.ctx.state !== 'running' || this.mixMode === 'muted') return;
+    const nowMs = performance.now();
+    if (nowMs - this.lastScrapeMs < 140) return;
+    this.lastScrapeMs = nowMs;
+
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.whiteNoiseBuf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 3400 + Math.random() * 900;
+    bp.Q.value = 2.0;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.055, now + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    src.connect(bp);
+    bp.connect(g);
+    if (this.dryBus) g.connect(this.dryBus);
+    src.start(now, Math.random() * 0.5, 0.11);
+  }
+
   // --- Tesla 3-Button Sound Check ---
   testDirect(): void {
     this.unlock();
@@ -973,6 +1108,10 @@ export class HolidayAudioEngine {
   }
 
   dispose(): void {
+    if (this.micStream) {
+      this.micStream.getTracks().forEach((tr) => tr.stop());
+      this.micStream = null;
+    }
     if (this.mediaAudioEl) {
       this.mediaAudioEl.pause();
       this.mediaAudioEl.remove();

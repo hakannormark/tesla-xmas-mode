@@ -1,9 +1,18 @@
 import { AudioMixMode, AudioRouting, HolidayAudioEngine } from '../core/audioEngine';
 import { ElonEventDirector } from '../core/elonEvents';
-import { EnvironmentManager, EnvironmentState, GraphicsQuality, SkyMood } from '../core/environment';
+import {
+  CalendarPreviewMode,
+  EnvironmentManager,
+  EnvironmentState,
+  GraphicsQuality,
+  HolidayThemeId,
+  SkyMood,
+} from '../core/environment';
 import { ElonEventType, i18n, SceneId } from '../core/i18n';
+import { LiveWorldState } from '../core/liveWorldData';
 import { OsmWorldDirector, OsmWorldState } from '../core/osmWorld';
 import { DriveSource, TelemetryEngine, TelemetryFrame } from '../core/telemetry';
+import { FrostCanvasOverlay } from './FrostCanvas';
 
 export interface HudCallbacks {
   onBackToMenu: () => void;
@@ -18,7 +27,7 @@ const ELON_TYPES: ElonEventType[] = ['starman', 'starlink', 'starship', 'superch
 
 export class SceneHUD {
   private root: HTMLElement;
-  private frostEl: HTMLElement;
+  private frostCanvas: FrostCanvasOverlay;
   private topBar: HTMLElement;
   private toastEl: HTMLElement;
   private bottomActions: HTMLElement;
@@ -28,6 +37,8 @@ export class SceneHUD {
   // Cached HUD readout elements for zero-allocation frame updates
   private modeNameEl!: HTMLElement;
   private plaidBadgeEl!: HTMLElement;
+  private giftPillEl!: HTMLElement;
+  private livePillEl!: HTMLElement;
   private speedEl!: HTMLElement;
   private placeEl!: HTMLElement;
   private compassArrowEl!: HTMLElement;
@@ -35,6 +46,7 @@ export class SceneHUD {
   private tempEl!: HTMLElement;
   private statusPillEl!: HTMLElement;
   private actionBtnEl!: HTMLButtonElement;
+  private cineBtnEl!: HTMLButtonElement;
 
   // Drawer live elements
   private speedSlider!: HTMLInputElement;
@@ -42,13 +54,17 @@ export class SceneHUD {
   private turnSlider!: HTMLInputElement;
   private tunnelCheckbox!: HTMLInputElement;
   private frostCheckbox!: HTMLInputElement;
+  private cineCheckbox!: HTMLInputElement;
   private osmCheckbox!: HTMLInputElement;
   private osmStatsEl!: HTMLElement;
+  private liveStatsEl!: HTMLElement;
+  private micBtnEl!: HTMLButtonElement;
   private volSlider!: HTMLInputElement;
   private diagTextEl!: HTMLElement;
   private modalDiagEl!: HTMLElement;
 
   private activeMode: SceneId = 'express';
+  private giftsDelivered = 0;
   private drawerOpen = false;
   private soundModalOpen = false;
   private idleSeconds = 0;
@@ -81,9 +97,8 @@ export class SceneHUD {
     this.root = document.createElement('div');
     this.root.className = 'hud-root is-hidden';
 
-    this.frostEl = document.createElement('div');
-    this.frostEl.className = 'frost-vignette';
-    this.root.appendChild(this.frostEl);
+    this.frostCanvas = new FrostCanvasOverlay();
+    this.root.appendChild(this.frostCanvas.canvas);
 
     this.topBar = document.createElement('div');
     this.topBar.className = 'hud-topbar';
@@ -131,12 +146,20 @@ export class SceneHUD {
     const curRoute = this.audio.getRouting();
     const curSky = this.env.getSkyMood();
     const curQuality = this.env.getQuality();
+    const curTheme = this.env.getTheme();
+    const curCal = this.env.getCalendarMode();
+    const curCine = this.env.isCinematicCam();
+    const curMic = this.audio.getMicState();
+    const micText =
+      curMic === 'active' ? t.micActive : curMic === 'denied' ? t.micDenied : t.micOff;
 
     this.topBar.innerHTML = `
       <div class="hud-left">
         <button type="button" class="hud-btn" data-hud="back">${t.backToMenu}</button>
         <span class="hud-mode-title" data-hud="mode-name">${t.modes[this.activeMode].title}</span>
         <span class="plaid-badge hidden" data-hud="plaid-badge">${t.plaidBadge}</span>
+        <span class="gift-pill ${this.giftsDelivered > 0 ? '' : 'hidden'}" data-hud="gifts">${t.giftsLabel} ${this.giftsDelivered}</span>
+        <span class="live-micro-pill" data-hud="live-pill"></span>
       </div>
       <div class="hud-telemetry-pill">
         <span class="tele-place" data-hud="place">📍 Stockholm</span>
@@ -155,6 +178,7 @@ export class SceneHUD {
     this.bottomActions.innerHTML = `
       <button type="button" class="hud-pill-action" data-hud="interact">${t.modes[this.activeMode].actionLabel}</button>
       <button type="button" class="hud-pill-action" data-hud="hohoho">${t.hoHoHoBtn}</button>
+      <button type="button" class="hud-pill-action ${curCine ? 'is-active' : ''} ${this.activeMode === 'flight3d' ? '' : 'hidden'}" data-hud="toggle-cine">${t.cinematicCamBtn}</button>
       <button type="button" class="hud-pill-action hud-gear-btn" data-hud="toggle-drawer">${t.controlsBtn}</button>
     `;
 
@@ -220,6 +244,10 @@ export class SceneHUD {
             <button type="button" class="${curRoute === 'direct' ? 'active' : ''}" data-route="direct">${t.drawerRoutingDirect}</button>
             <button type="button" class="${curRoute === 'media' ? 'active' : ''}" data-route="media">${t.drawerRoutingMedia}</button>
           </div>
+          <label class="toggle-row" style="margin-top: 8px;">
+            <span>${t.micLabel}</span>
+            <button type="button" class="mic-toggle-btn ${curMic === 'active' ? 'active' : ''}" data-hud="mic-toggle">${micText}</button>
+          </label>
           <details class="sound-check-details">
             <summary>${t.drawerSoundCheckTitle}</summary>
             <p class="sound-hint">${t.drawerSoundCheckHint}</p>
@@ -234,6 +262,24 @@ export class SceneHUD {
 
         <section class="drawer-section">
           <div class="drawer-label">${t.drawerEnvSection}</div>
+          <div class="drawer-sublabel">${t.themeLabel}</div>
+          <div class="segmented full">
+            <button type="button" class="${curTheme === 'classic' ? 'active' : ''}" data-theme="classic">${t.themeClassic}</button>
+            <button type="button" class="${curTheme === 'nordic' ? 'active' : ''}" data-theme="nordic">${t.themeNordic}</button>
+            <button type="button" class="${curTheme === 'cyber2099' ? 'active' : ''}" data-theme="cyber2099">${t.themeCyber}</button>
+          </div>
+          <label class="toggle-row" style="margin-top: 8px;">
+            <span>${t.cinematicCamLabel}</span>
+            <input type="checkbox" ${curCine ? 'checked' : ''} data-hud="cine-toggle" />
+          </label>
+          <div class="drawer-sublabel" style="margin-top: 8px;">${t.calendarLabel}</div>
+          <div class="segmented-sm full cal-grid">
+            <button type="button" class="${curCal === 'auto' ? 'active' : ''}" data-cal="auto">${t.calAuto}</button>
+            <button type="button" class="${curCal === 'advent4' ? 'active' : ''}" data-cal="advent4">${t.calAdvent}</button>
+            <button type="button" class="${curCal === 'lucia' ? 'active' : ''}" data-cal="lucia">${t.calLucia}</button>
+            <button type="button" class="${curCal === 'xmas_eve' ? 'active' : ''}" data-cal="xmas_eve">${t.calXmasEve}</button>
+          </div>
+          <div class="drawer-sublabel" style="margin-top: 10px;">Himmel &amp; Grafik</div>
           <div class="segmented full">
             <button type="button" class="${curSky === 'midnight' ? 'active' : ''}" data-sky="midnight">${t.skyMidnight}</button>
             <button type="button" class="${curSky === 'twilight' ? 'active' : ''}" data-sky="twilight">${t.skyTwilight}</button>
@@ -248,13 +294,16 @@ export class SceneHUD {
             <span>${t.frostLabel}</span>
             <input type="checkbox" ${this.env.isFrostEnabled() ? 'checked' : ''} data-hud="frost-toggle" />
           </label>
-          <div class="drawer-sublabel" style="margin-top: 10px;">${t.osmSectionLabel}</div>
+          <p class="sound-hint" style="margin: 2px 0 8px;">❄ ${t.frostWipeHint}</p>
+          <div class="drawer-sublabel" style="margin-top: 6px;">${t.osmSectionLabel}</div>
           <label class="toggle-row">
             <span>${t.osmEnableLabel}</span>
             <input type="checkbox" ${this.osm.isEnabled() ? 'checked' : ''} data-hud="osm-toggle" />
           </label>
           <button type="button" class="drawer-action-btn" data-hud="osm-next">${t.osmNextStopBtn}</button>
           <div class="osm-stats-box" data-hud="osm-stats"></div>
+          <div class="drawer-sublabel" style="margin-top: 10px;">${t.liveSectionLabel}</div>
+          <div class="live-stats-box" data-hud="live-stats">Loading live feeds…</div>
           <div class="segmented full" style="margin-top: 8px;">
             <button type="button" class="${locale === 'sv' ? 'active' : ''}" data-hud-lang="sv">Svenska (SV)</button>
             <button type="button" class="${locale === 'en' ? 'active' : ''}" data-hud-lang="en">English (EN)</button>
@@ -288,6 +337,8 @@ export class SceneHUD {
     // Cache DOM refs
     this.modeNameEl = this.topBar.querySelector('[data-hud="mode-name"]')!;
     this.plaidBadgeEl = this.topBar.querySelector('[data-hud="plaid-badge"]')!;
+    this.giftPillEl = this.topBar.querySelector('[data-hud="gifts"]')!;
+    this.livePillEl = this.topBar.querySelector('[data-hud="live-pill"]')!;
     this.placeEl = this.topBar.querySelector('[data-hud="place"]')!;
     this.speedEl = this.topBar.querySelector('[data-hud="speed"]')!;
     this.compassArrowEl = this.topBar.querySelector('[data-hud="np-arrow"]')!;
@@ -295,14 +346,18 @@ export class SceneHUD {
     this.tempEl = this.topBar.querySelector('[data-hud="temp"]')!;
     this.statusPillEl = this.topBar.querySelector('[data-hud="status"]')!;
     this.actionBtnEl = this.bottomActions.querySelector('[data-hud="interact"]')!;
+    this.cineBtnEl = this.bottomActions.querySelector('[data-hud="toggle-cine"]')!;
 
     this.speedSlider = this.drawer.querySelector('[data-hud="speed-slider"]')!;
     this.speedReadout = this.drawer.querySelector('[data-hud="slider-speed-val"]')!;
     this.turnSlider = this.drawer.querySelector('[data-hud="turn-slider"]')!;
     this.tunnelCheckbox = this.drawer.querySelector('[data-hud="tunnel-toggle"]')!;
     this.frostCheckbox = this.drawer.querySelector('[data-hud="frost-toggle"]')!;
+    this.cineCheckbox = this.drawer.querySelector('[data-hud="cine-toggle"]')!;
     this.osmCheckbox = this.drawer.querySelector('[data-hud="osm-toggle"]')!;
     this.osmStatsEl = this.drawer.querySelector('[data-hud="osm-stats"]')!;
+    this.liveStatsEl = this.drawer.querySelector('[data-hud="live-stats"]')!;
+    this.micBtnEl = this.drawer.querySelector('[data-hud="mic-toggle"]')!;
     this.volSlider = this.drawer.querySelector('[data-hud="vol-slider"]')!;
     this.diagTextEl = this.drawer.querySelector('[data-hud="diag-box"]')!;
     this.modalDiagEl = this.soundModal.querySelector('[data-hud="modal-diag"]')!;
@@ -330,6 +385,11 @@ export class SceneHUD {
     this.bottomActions.querySelector('[data-hud="toggle-drawer"]')?.addEventListener('click', () => {
       this.audio.unlock();
       this.setDrawerOpen(!this.drawerOpen);
+    });
+
+    this.cineBtnEl.addEventListener('click', () => {
+      this.env.setCinematicCam(!this.env.isCinematicCam());
+      this.syncDrawerButtons();
     });
 
     this.drawer.querySelector('[data-hud="close-drawer"]')?.addEventListener('click', () => {
@@ -427,6 +487,36 @@ export class SceneHUD {
       this.env.setFrostEnabled(this.frostCheckbox.checked);
     });
 
+    this.cineCheckbox.addEventListener('change', () => {
+      this.env.setCinematicCam(this.cineCheckbox.checked);
+      this.syncDrawerButtons();
+    });
+
+    this.drawer.querySelectorAll<HTMLButtonElement>('[data-theme]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const theme = btn.dataset.theme as HolidayThemeId;
+        this.env.setTheme(theme);
+        this.audio.setMusicStyle(theme);
+        this.syncDrawerButtons();
+      });
+    });
+
+    this.drawer.querySelectorAll<HTMLButtonElement>('[data-cal]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.env.setCalendarMode(btn.dataset.cal as CalendarPreviewMode);
+        this.syncDrawerButtons();
+      });
+    });
+
+    this.micBtnEl.addEventListener('click', async () => {
+      const next = this.audio.getMicState() !== 'active';
+      const state = await this.audio.setMicReactive(next);
+      const t = i18n.t();
+      this.micBtnEl.textContent =
+        state === 'active' ? t.micActive : state === 'denied' ? t.micDenied : t.micOff;
+      this.micBtnEl.classList.toggle('active', state === 'active');
+    });
+
     this.osmCheckbox.addEventListener('change', () => {
       this.osm.setEnabled(this.osmCheckbox.checked);
     });
@@ -450,6 +540,9 @@ export class SceneHUD {
     const route = this.audio.getRouting();
     const sky = this.env.getSkyMood();
     const quality = this.env.getQuality();
+    const theme = this.env.getTheme();
+    const cal = this.env.getCalendarMode();
+    const cine = this.env.isCinematicCam();
 
     this.drawer.querySelectorAll<HTMLButtonElement>('[data-switch-mode]').forEach((b) => {
       b.classList.toggle('active', b.dataset.switchMode === this.activeMode);
@@ -471,8 +564,16 @@ export class SceneHUD {
     this.drawer.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((b) => {
       b.classList.toggle('active', b.dataset.quality === quality);
     });
+    this.drawer.querySelectorAll<HTMLButtonElement>('[data-theme]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.theme === theme);
+    });
+    this.drawer.querySelectorAll<HTMLButtonElement>('[data-cal]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.cal === cal);
+    });
     this.tunnelCheckbox.checked = this.telemetry.getForceTunnel();
     this.frostCheckbox.checked = this.env.isFrostEnabled();
+    this.cineCheckbox.checked = cine;
+    this.cineBtnEl.classList.toggle('is-active', cine);
   }
 
   setActiveMode(mode: SceneId): void {
@@ -480,7 +581,23 @@ export class SceneHUD {
     const t = i18n.t();
     this.modeNameEl.textContent = t.modes[mode].title;
     this.actionBtnEl.textContent = t.modes[mode].actionLabel;
+    this.cineBtnEl.classList.toggle('hidden', mode !== 'flight3d');
     this.syncDrawerButtons();
+  }
+
+  setGiftsDelivered(count: number): void {
+    this.giftsDelivered = count;
+    const t = i18n.t();
+    this.giftPillEl.textContent = `${t.giftsLabel} ${count}`;
+    this.giftPillEl.classList.toggle('hidden', count <= 0);
+  }
+
+  resize(width: number, height: number): void {
+    this.frostCanvas.resize(width, height);
+  }
+
+  wipeFrost(clientX: number, clientY: number): boolean {
+    return this.frostCanvas.wipeAt(clientX, clientY);
   }
 
   show(): void {
@@ -517,7 +634,13 @@ export class SceneHUD {
     this.toastTimer = 4.5;
   }
 
-  update(dt: number, telemetry: TelemetryFrame, env: EnvironmentState, osm: OsmWorldState): void {
+  update(
+    dt: number,
+    telemetry: TelemetryFrame,
+    env: EnvironmentState,
+    osm: OsmWorldState,
+    live: LiveWorldState
+  ): void {
     // Update sound diagnostics if drawer or modal is open
     if (this.drawerOpen || this.soundModalOpen) {
       const diag = this.audio.getDiagnostics();
@@ -529,15 +652,35 @@ export class SceneHUD {
     if (!this.visible) return;
 
     const t = i18n.t();
+    const locale = i18n.getLocale();
     this.placeEl.classList.toggle('hidden', !osm.enabled);
     if (osm.enabled) {
       this.placeEl.textContent = `📍 ${osm.placeName}`;
     }
+
+    // Live micro-pill (holiday event badge OR real NOAA Kp + ISS readout!)
+    const calBadge = locale === 'sv' ? env.holidayCalendar.badgeSv : env.holidayCalendar.badgeEn;
+    if (calBadge) {
+      this.livePillEl.textContent = calBadge;
+    } else {
+      const aurIcon = live.isAuroraAlert ? '🌌!' : '🌌';
+      this.livePillEl.textContent = `${aurIcon} Kp ${live.kpIndex.toFixed(1)} · 🛰 ${live.issDistanceKm} km`;
+    }
+
     this.osmStatsEl.classList.toggle('hidden', !osm.enabled);
     if (this.drawerOpen && osm.enabled) {
       const modeTag = osm.isLiveOsm ? t.osmLiveGpsTag : `${t.osmDemoTourTag} · ${osm.placeName}`;
       this.osmStatsEl.textContent = `${modeTag} · ${osm.buildingCount} ${t.osmBuildingsLabel} · ${osm.waterCount} ${t.osmWaterLabel} · ${t.osmWildlifeLabel}`;
     }
+    if (this.drawerOpen) {
+      const leadFlight = live.flights[0];
+      const flightTag = leadFlight
+        ? `${leadFlight.isLive ? '✈' : '🎅✈'} ${leadFlight.callsign} (${leadFlight.altitudeM}m)`
+        : '—';
+      this.liveStatsEl.textContent =
+        `🌌 Kp ${live.kpIndex.toFixed(1)}${live.isAuroraAlert ? ' ALERT!' : ''} · 🛰 ISS ${live.issDistanceKm.toLocaleString()} km · 🚀 ${live.nextSpaceXCountdown} · 💨 ${env.windSpeedKmh} km/h · ${flightTag}`;
+    }
+
     this.speedEl.textContent = String(Math.round(telemetry.speedKmh));
     this.compassArrowEl.style.transform = `rotate(${Math.round(telemetry.northPoleRelativeBearingDeg)}deg)`;
     this.npDistEl.textContent = `${Math.round(telemetry.northPoleDistanceKm)} km`;
@@ -556,8 +699,8 @@ export class SceneHUD {
     this.statusPillEl.textContent = statusText;
     this.statusPillEl.classList.toggle('tunnel', telemetry.inTunnel);
 
-    // Corner ice frost vignette
-    this.frostEl.style.opacity = String(env.frostAmount * 0.85);
+    // Interactive rim frost canvas
+    this.frostCanvas.update(dt, env);
 
     // Auto-dim HUD gently after 5.5s of untouched driving
     if (!this.drawerOpen && !this.soundModalOpen) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HolidayThemeId } from '../core/environment';
 import {
   addMorphTargets,
   evaluateReindeerGait,
@@ -36,6 +37,8 @@ export interface PixarSleighHandle {
   group: THREE.Group;
   update(dt: number, speedKmh: number, turnRate: number, accel: number, time: number): void;
   triggerReaction(kind: 'hohoho' | 'landmark' | 'gift'): void;
+  setStoppedMode(stoppedSec: number): void;
+  setTheme(theme: HolidayThemeId): void;
   getTrailOrigin(out: THREE.Vector3): THREE.Vector3;
 }
 
@@ -93,6 +96,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     clearcoatRoughness: 0.1,
   });
 
+  const sleighHullMat = crimsonPaint.clone();
+
   const velvetMat = new THREE.MeshPhysicalMaterial({
     color: '#8f0a20',
     roughness: 0.85,
@@ -106,6 +111,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     metalness: 0.88,
     roughness: 0.2,
   });
+
+  const runnerTrimMat = goldMat.clone();
 
   const snowFurMat = new THREE.MeshPhysicalMaterial({
     color: '#f8f5ef',
@@ -137,16 +144,16 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   sideGeo.rotateY(Math.PI * 0.5);
 
   for (const sx of [-0.88, 0.76]) {
-    const sideMesh = new THREE.Mesh(sideGeo, crimsonPaint);
+    const sideMesh = new THREE.Mesh(sideGeo, sleighHullMat);
     sideMesh.position.set(sx, 0.15, 0.65);
     sleighBodyGroup.add(sideMesh);
   }
 
-  const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.18, 2.35), crimsonPaint);
+  const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.18, 2.35), sleighHullMat);
   floorMesh.position.set(0, 0.56, 0.62);
   sleighBodyGroup.add(floorMesh);
 
-  const backrestMesh = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.82, 0.24), crimsonPaint);
+  const backrestMesh = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.82, 0.24), sleighHullMat);
   backrestMesh.position.set(0, 1.08, 1.72);
   backrestMesh.rotation.x = -0.24;
   sleighBodyGroup.add(backrestMesh);
@@ -158,7 +165,7 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
   const frontCowl = new THREE.Mesh(
     new THREE.CylinderGeometry(0.84, 0.84, 0.55, 16, 1, false, 0, Math.PI),
-    crimsonPaint
+    sleighHullMat
   );
   frontCowl.rotation.z = Math.PI * 0.5;
   frontCowl.rotation.x = -0.35;
@@ -175,10 +182,10 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       new THREE.Vector3(rx, 0.85, -1.16),
       new THREE.Vector3(rx, 0.98, -0.92),
     ]);
-    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(runnerCurve, 28, 0.055, 8, false), goldMat));
+    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(runnerCurve, 28, 0.055, 8, false), runnerTrimMat));
 
     for (const sz of [1.4, 0.35, -0.45]) {
-      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.46, 8), goldMat);
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.46, 8), runnerTrimMat);
       strut.position.set(rx, 0.34, sz);
       sleighBodyGroup.add(strut);
     }
@@ -188,7 +195,7 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       new THREE.Vector3(rx * 1.06, 1.08, 0.65),
       new THREE.Vector3(rx * 1.06, 1.4, -0.48),
     ]);
-    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(trimCurve, 20, 0.032, 6, false), goldMat));
+    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(trimCurve, 20, 0.032, 6, false), runnerTrimMat));
   }
 
   // Spring-Physics Swinging Brass Bow Lantern
@@ -399,20 +406,42 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     scarfSegs.push(seg);
   }
 
-  // Arms + Mittens (with local anchors for dynamic live reins!)
+  // Arms + Mittens (Right arm articulated to raise a steaming glögg mug & wave at red lights!)
   const leftMittenPos = new THREE.Vector3(-0.31, 0.44, -0.48);
   const rightMittenPos = new THREE.Vector3(0.31, 0.44, -0.48);
-  for (const ax of [-0.36, 0.36]) {
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.32, 6, 8), crimsonPaint);
-    arm.position.set(ax, 0.52, -0.24);
-    arm.rotation.x = -0.95;
-    arm.rotation.z = ax < 0 ? 0.25 : -0.25;
-    santaTorsoPivot.add(arm);
 
-    const mitten = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), velvetMat);
-    mitten.position.set(ax * 0.85, 0.44, -0.48);
-    santaTorsoPivot.add(mitten);
-  }
+  const leftArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.32, 6, 8), crimsonPaint);
+  leftArm.position.set(-0.36, 0.52, -0.24);
+  leftArm.rotation.x = -0.95;
+  leftArm.rotation.z = 0.25;
+  const leftMitten = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), velvetMat);
+  leftMitten.position.set(-0.31, 0.44, -0.48);
+  santaTorsoPivot.add(leftArm, leftMitten);
+
+  const rightArmPivot = new THREE.Group();
+  rightArmPivot.position.set(0.36, 0.64, -0.1);
+  const rightArmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.32, 6, 8), crimsonPaint);
+  rightArmMesh.position.set(0, -0.12, -0.14);
+  rightArmMesh.rotation.x = -0.95;
+  rightArmMesh.rotation.z = -0.25;
+  const rightMitten = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), velvetMat);
+  rightMitten.position.set(-0.05, -0.2, -0.38);
+
+  const gloggMug = new THREE.Group();
+  gloggMug.position.set(-0.04, -0.12, -0.46);
+  const mugBody = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.16, 10), crimsonPaint);
+  const mugTrim = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.016, 6, 10), goldMat);
+  mugTrim.rotation.x = Math.PI * 0.5;
+  mugTrim.position.y = 0.08;
+  const steamOrb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.06, 6, 6),
+    new THREE.MeshBasicMaterial({ color: '#eef7ff', transparent: true, opacity: 0.48 })
+  );
+  steamOrb.position.y = 0.16;
+  gloggMug.add(mugBody, mugTrim, steamOrb);
+  gloggMug.visible = false;
+  rightArmPivot.add(rightArmMesh, rightMitten, gloggMug);
+  santaTorsoPivot.add(rightArmPivot);
   sleighBodyGroup.add(santa);
 
   // --- Sculpted 4-Reindeer Team with GPU Blend Shapes & Dynamic Live Reins ---
@@ -654,6 +683,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   let hoHoHoTimer = 0;
   let landmarkTimer = 0;
   let giftTimer = 0;
+  let currentStoppedSec = 0;
+  let currentTheme: HolidayThemeId = 'classic';
 
   const windVec = new THREE.Vector3();
   const hatAnchor = new THREE.Vector3(0, 0.22, 0);
@@ -675,6 +706,28 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       } else if (kind === 'gift') {
         giftTimer = 1.6;
         lanternPitchSpring.impulse(-2.2);
+      }
+    },
+    setStoppedMode(stoppedSec: number): void {
+      currentStoppedSec = stoppedSec;
+    },
+    setTheme(theme: HolidayThemeId): void {
+      if (theme === currentTheme) return;
+      currentTheme = theme;
+      if (theme === 'cyber2099') {
+        sleighHullMat.color.set('#c4d2e6');
+        sleighHullMat.metalness = 0.92;
+        sleighHullMat.roughness = 0.2;
+        runnerTrimMat.color.set('#3ceeff');
+        runnerTrimMat.emissive.set('#0e90b8');
+        runnerTrimMat.emissiveIntensity = 0.95;
+      } else {
+        sleighHullMat.color.set(theme === 'nordic' ? '#8c1622' : '#c80e2b');
+        sleighHullMat.metalness = 0.35;
+        sleighHullMat.roughness = 0.16;
+        runnerTrimMat.color.set('#ffd166');
+        runnerTrimMat.emissive.set('#000000');
+        runnerTrimMat.emissiveIntensity = 0;
       }
     },
     update(dt: number, speedKmh: number, turnRate: number, accel: number, time: number): void {
@@ -703,14 +756,36 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       santaLeanSpring.update(dt, -accel * 0.045 - speedNorm * 0.12 + (hoHoHoTimer > 0 ? -0.14 : 0));
       santaTorsoPivot.rotation.x = santaLeanSpring.value;
 
-      const targetYaw = hoHoHoTimer > 0 ? Math.sin(time * 3.5) * 0.28 + 0.25 : -turnRate * 0.36;
+      const isWavingAtRedLight = currentStoppedSec > 3.2;
+      const targetBodyTurn = isWavingAtRedLight ? 2.45 : 0;
+      santaTorsoPivot.rotation.y +=
+        (targetBodyTurn - santaTorsoPivot.rotation.y) * Math.min(1, dt * 3.5);
+
+      gloggMug.visible = isWavingAtRedLight;
+      if (isWavingAtRedLight) {
+        rightArmPivot.rotation.z = -0.85 + Math.sin(time * 4.2) * 0.28;
+        rightArmPivot.rotation.x = 0.65;
+        steamOrb.position.y = 0.14 + ((time * 0.45) % 0.16);
+      } else {
+        rightArmPivot.rotation.z += (0 - rightArmPivot.rotation.z) * Math.min(1, dt * 6);
+        rightArmPivot.rotation.x += (0 - rightArmPivot.rotation.x) * Math.min(1, dt * 6);
+      }
+
+      const targetYaw = isWavingAtRedLight
+        ? Math.sin(time * 2.1) * 0.14
+        : hoHoHoTimer > 0
+          ? Math.sin(time * 3.5) * 0.28 + 0.25
+          : -turnRate * 0.36;
       santaHeadYawSpring.update(dt, targetYaw);
       santaHeadPivot.rotation.y = santaHeadYawSpring.value;
       santaHeadPivot.rotation.x = hoHoHoTimer > 0 ? Math.sin(time * 12) * 0.09 : speedNorm * 0.06;
 
       // Update Santa GPU Blend Shapes!
       const laughPulse = hoHoHoTimer > 0 ? Math.max(0, Math.sin(time * 13)) : 0;
-      const smileW = Math.min(1, 0.35 + (landmarkTimer > 0 ? 0.65 : 0) + (hoHoHoTimer > 0 ? 0.6 : 0));
+      const smileW = Math.min(
+        1,
+        0.35 + (isWavingAtRedLight ? 0.65 : 0) + (landmarkTimer > 0 ? 0.65 : 0) + (hoHoHoTimer > 0 ? 0.6 : 0)
+      );
       const squintW = Math.max(0, speedNorm - 0.55) * 1.4;
       const surpriseW = Math.max(giftTimer > 0 ? 0.85 : 0, accel < -1.5 ? 0.75 : 0);
 
@@ -752,6 +827,11 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
         r.group.rotation.x = pose.bodyPitch;
         r.group.rotation.y = -turnRate * (idx >= 2 ? 0.22 : 0.1);
         r.headGroup.rotation.x = pose.headPitch;
+        // Playful antler shake & nose nudge when waiting at red lights!
+        r.headGroup.rotation.z =
+          currentStoppedSec > 1.5
+            ? Math.sin(time * 9 + idx * 1.4) * Math.max(0, Math.sin(time * 0.9 + idx)) * 0.22
+            : 0;
 
         r.fl.rotation.x = pose.flUpper;
         r.flShin.rotation.x = pose.flShin;
@@ -790,16 +870,17 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
           ear.rotation.x = 0.25 - earPerkW * 0.35 + speedNorm * 0.28 + (eIdx === 0 ? 0.04 : -0.04);
         });
 
-        // Cold breath puffs when standing still (< 5 km/h)
-        const showBreath = speedKmh < 5;
+        // Cold breath puffs when standing still (< 5 km/h — extra visible at red lights!)
+        const showBreath = speedKmh < 5 || currentStoppedSec > 0.8;
+        const breathMul = currentStoppedSec > 1.5 ? 1.45 : 1.0;
         r.breathPuffs.forEach((puff, pIdx) => {
           puff.visible = showBreath;
           if (!showBreath) return;
           const cyc = (time * 0.6 + r.phaseOffset + pIdx * 0.33) % 1;
-          puff.position.set(Math.sin(cyc * 4) * 0.05, 0.32 + cyc * 0.38, -0.52 - cyc * 0.42);
-          const sc = 0.6 + cyc * 1.65;
+          puff.position.set(Math.sin(cyc * 4) * 0.05, 0.32 + cyc * 0.42, -0.52 - cyc * 0.48);
+          const sc = (0.65 + cyc * 1.85) * breathMul;
           puff.scale.set(sc, sc, sc);
-          (puff.material as THREE.MeshBasicMaterial).opacity = (1 - cyc) * 0.38;
+          (puff.material as THREE.MeshBasicMaterial).opacity = Math.min(0.65, (1 - cyc) * 0.42 * breathMul);
         });
 
         // Dynamic sagging leather/gold reins connecting Santa's mittens to each reindeer's collar!
@@ -1166,6 +1247,106 @@ export function createPixarSnowman(): THREE.Group {
   g.add(hatBrim, hatTop);
 
   return g;
+}
+
+export interface SwedishRoadSignHandle {
+  group: THREE.Group;
+  setDirections(northPoleKm: number, placeName: string, roadName: string): void;
+}
+
+/**
+ * Authentic Swedish Trafikverket dark-blue/white overhead gantry road sign with real OSM place names.
+ */
+export function createSwedishRoadSign(): SwedishRoadSignHandle {
+  const group = new THREE.Group();
+  const poleMat = new THREE.MeshStandardMaterial({
+    color: '#78849a',
+    metalness: 0.72,
+    roughness: 0.35,
+  });
+  const snowMat = createSparklingSnowMaterial('#b8cee8');
+
+  for (const px of [-1.45, 1.45]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.1, 8), poleMat);
+    pole.position.set(px, 2.05, 0);
+    group.add(pole);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 224;
+  const ctx = canvas.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const board = new THREE.Mesh(
+    new THREE.BoxGeometry(3.8, 1.68, 0.14),
+    poleMat
+  );
+  board.position.set(0, 3.2, 0);
+  const snowTop = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.16, 0.22), snowMat);
+  snowTop.position.set(0, 4.1, 0);
+  group.add(board, snowTop);
+
+  const faceMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
+  for (const side of [-1, 1]) {
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(3.72, 1.6), faceMat);
+    face.position.set(0, 3.2, side * 0.08);
+    if (side < 0) face.rotation.y = Math.PI;
+    group.add(face);
+  }
+
+  let lastKey = '';
+  const setDirections = (northPoleKm: number, placeName: string, roadName: string) => {
+    const npRounded = Math.round(northPoleKm);
+    const key = `${npRounded}|${placeName}|${roadName}`;
+    if (key === lastKey) return;
+    lastKey = key;
+
+    // Trafikverket Motorway Blue + Crisp White Border
+    ctx.fillStyle = '#00529b';
+    ctx.beginPath();
+    ctx.roundRect(4, 4, 504, 216, 16);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 7;
+    ctx.strokeRect(10, 10, 492, 204);
+
+    // Yellow/Green European Route Badge top right (if road code like E4/255 found)
+    const routeMatch = roadName.match(/\b(E\d+|\d{2,3})\b/);
+    const badgeText = routeMatch ? routeMatch[1] : 'E4';
+    ctx.fillStyle = badgeText.startsWith('E') ? '#0b8a3a' : '#f2c12e';
+    ctx.beginPath();
+    ctx.roundRect(418, 22, 68, 34, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.fillStyle = badgeText.startsWith('E') ? '#ffffff' : '#111827';
+    ctx.font = '800 20px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeText, 452, 40);
+
+    // 3 Directional Lines
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 29px Inter, sans-serif';
+    ctx.fillText(`↑  Nordpolen  ${npRounded.toLocaleString()} km`, 26, 56, 382);
+
+    ctx.font = '700 28px Inter, sans-serif';
+    ctx.fillText(`→  ${placeName.slice(0, 16)}  2 km`, 26, 112, 456);
+
+    ctx.fillStyle = '#ffe588';
+    ctx.font = '700 24px Inter, sans-serif';
+    ctx.fillText('🎅  Glögg & Pepparkakor  500 m', 26, 168, 456);
+
+    tex.needsUpdate = true;
+  };
+
+  setDirections(3414, 'Stockholm', 'E4');
+
+  return { group, setDirections };
 }
 
 export interface HolidayRoadSignHandle {

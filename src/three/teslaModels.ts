@@ -501,7 +501,7 @@ export interface AccurateCybertruckHandle {
   update(wheelPhase: number, time: number): void;
 }
 
-export function createAccurateCybertruck(withTree = true): AccurateCybertruckHandle {
+export function createAccurateCybertruck(withTree = true, withPlow = false): AccurateCybertruckHandle {
   const group = new THREE.Group();
 
   const steelMat = new THREE.MeshPhysicalMaterial({
@@ -738,6 +738,64 @@ export function createAccurateCybertruck(withTree = true): AccurateCybertruckHan
     };
   }
 
+  let plowUpdate: ((t: number) => void) | null = null;
+  if (withPlow) {
+    const plowGroup = new THREE.Group();
+    const plowYellowMat = new THREE.MeshStandardMaterial({
+      color: '#ffbe2e',
+      metalness: 0.45,
+      roughness: 0.35,
+    });
+    const plowRedMat = new THREE.MeshStandardMaterial({
+      color: '#d41630',
+      metalness: 0.35,
+      roughness: 0.4,
+    });
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.72, 0.14), plowYellowMat);
+      wing.position.set(side * 0.64, 0.42, -3.28 - 0.16);
+      wing.rotation.y = side * 0.28;
+      plowGroup.add(wing);
+
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.16, 0.16), plowRedMat);
+      stripe.position.set(side * 0.64, 0.7, -3.28 - 0.16);
+      stripe.rotation.y = side * 0.28;
+      plowGroup.add(stripe);
+
+      const strut = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.6), blackTrimMat);
+      strut.position.set(side * 0.45, 0.46, -2.98);
+      plowGroup.add(strut);
+    }
+    const snowEdge = new THREE.Mesh(
+      new THREE.BoxGeometry(2.65, 0.12, 0.2),
+      createSparklingSnowMaterial('#d2e4fa')
+    );
+    snowEdge.position.set(0, 0.8, -3.42);
+    plowGroup.add(snowEdge);
+
+    // Flashing roof holiday lightbar (amber + festive red)
+    const barHousing = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.08, 0.22), blackTrimMat);
+    barHousing.position.set(0, 1.88, -0.35);
+    plowGroup.add(barHousing);
+
+    const amberMat = new THREE.MeshBasicMaterial({ color: '#ffaa22', toneMapped: false });
+    const beaconRedMat = new THREE.MeshBasicMaterial({ color: '#ff2442', toneMapped: false });
+    const leftBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.24), amberMat);
+    leftBeacon.position.set(-0.34, 1.93, -0.35);
+    const rightBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.24), beaconRedMat);
+    rightBeacon.position.set(0.34, 1.93, -0.35);
+    plowGroup.add(leftBeacon, rightBeacon);
+
+    group.add(plowGroup);
+
+    plowUpdate = (time: number) => {
+      const pulseA = Math.sin(time * 14) > 0 ? 1.7 : 0.22;
+      const pulseB = Math.sin(time * 14) <= 0 ? 1.7 : 0.22;
+      amberMat.color.setRGB(1.0 * pulseA, 0.68 * pulseA, 0.12 * pulseA);
+      beaconRedMat.color.setRGB(1.0 * pulseB, 0.15 * pulseB, 0.24 * pulseB);
+    };
+  }
+
   tryLoadOptionalGlb('cybertruck', 5.7, (custom) => {
     group.clear();
     group.add(custom);
@@ -748,6 +806,7 @@ export function createAccurateCybertruck(withTree = true): AccurateCybertruckHan
     update(wheelPhase: number, time: number): void {
       for (const wg of wheelGroups) wg.rotation.x = -wheelPhase;
       bedTreeUpdate?.(time);
+      plowUpdate?.(time);
     },
   };
 }
@@ -1133,8 +1192,40 @@ export function createAccurateOptimusGen2(): AccurateOptimusHandle {
 }
 
 /**
- * 5B. ACCURATE TESLA V4 SUPERCHARGER MONOLITHS (Tall Polar-White Slabs + Black Center Channel + Crimson TESLA Badge)
+ * 5B. NORDPOLENS SUPERCHARGER-OAS (V4 Monoliths + Candy-Cane Arch + Glöggbod + Optimus Gen 2 Elf)
  */
+let sharedOasisHeaderTex: THREE.CanvasTexture | null = null;
+function getOasisHeaderTex(): THREE.CanvasTexture {
+  if (sharedOasisHeaderTex) return sharedOasisHeaderTex;
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 96;
+  const ctx = c.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 512, 96);
+  grad.addColorStop(0, '#8f0a20');
+  grad.addColorStop(0.5, '#c8122f');
+  grad.addColorStop(1, '#780819');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(4, 4, 504, 88, 16);
+  ctx.fill();
+  ctx.strokeStyle = '#ffe08a';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = '#fff9ea';
+  ctx.font = '700 28px "Cinzel", Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('⚡ NORDPOLEN SUPERCHARGER', 256, 36);
+  ctx.fillStyle = '#ffe08a';
+  ctx.font = '600 18px Inter, sans-serif';
+  ctx.fillText('GLÖGG · PEPPARKAKOR · 250 kW JULKRAFT', 256, 68);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  sharedOasisHeaderTex = tex;
+  return tex;
+}
+
 export function createAccurateSuperchargerPlaza(): { group: THREE.Group; update(time: number): void } {
   const group = new THREE.Group();
 
@@ -1151,50 +1242,101 @@ export function createAccurateSuperchargerPlaza(): { group: THREE.Group; update(
     emissiveIntensity: 1.2,
   });
   const snowMat = createSparklingSnowMaterial('#b8cee8');
+  const redCaneMat = new THREE.MeshStandardMaterial({ color: '#d91632', roughness: 0.4 });
+  const whiteCaneMat = new THREE.MeshStandardMaterial({ color: '#f8f9fc', roughness: 0.35 });
 
-  // Snowy concrete base pad
-  const pad = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.18, 2.4), snowMat);
-  pad.position.set(0, 0.09, 0);
+  // Snowy wide oasis pad
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(10.6, 0.2, 4.4), snowMat);
+  pad.position.set(0.4, 0.1, 0);
   group.add(pad);
 
+  // Candy-cane striped corner posts + festive arch beam supporting Nordpolen Supercharger sign
+  for (const bx of [-3.6, 1.8]) {
+    for (let seg = 0; seg < 6; seg++) {
+      const part = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.14, 0.14, 0.56, 10),
+        seg % 2 === 0 ? redCaneMat : whiteCaneMat
+      );
+      part.position.set(bx, 0.45 + seg * 0.54, 1.35);
+      group.add(part);
+    }
+  }
+  const archSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.6, 1.08),
+    new THREE.MeshBasicMaterial({ map: getOasisHeaderTex(), toneMapped: false, side: THREE.DoubleSide })
+  );
+  archSign.position.set(-0.9, 3.85, 1.35);
+  group.add(archSign);
+
+  // 3 Tall V4 Supercharger Monoliths
   for (let i = 0; i < 3; i++) {
-    const sx = (i - 1.2) * 2.05;
-    // Tall sleek V4 Polar-White Monolith
+    const sx = (i - 1.55) * 2.0;
     const monolith = new THREE.Mesh(new THREE.BoxGeometry(0.84, 2.45, 0.34), whiteSlabMat);
-    monolith.position.set(sx, 1.32, 0);
+    monolith.position.set(sx, 1.34, -0.35);
     group.add(monolith);
 
-    // Matte-black inner recessed side cable channel & bezel
     const channel = new THREE.Mesh(new THREE.BoxGeometry(0.28, 2.15, 0.36), blackMat);
-    channel.position.set(sx + 0.2, 1.3, 0);
+    channel.position.set(sx + 0.2, 1.32, -0.35);
     group.add(channel);
 
-    // Glowing Crimson TESLA Header Badge
     const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.68, 0.18), signMat);
-    badge.position.set(sx, 2.34, 0.18);
+    badge.position.set(sx, 2.36, -0.17);
     group.add(badge);
 
-    // Draped curved black NACS cable + docked holster handle
     const cableCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(sx + 0.22, 2.15, 0.14),
-      new THREE.Vector3(sx + 0.44, 1.35, 0.26),
-      new THREE.Vector3(sx + 0.32, 0.95, 0.16),
+      new THREE.Vector3(sx + 0.22, 2.17, -0.21),
+      new THREE.Vector3(sx + 0.44, 1.37, -0.09),
+      new THREE.Vector3(sx + 0.32, 0.97, -0.19),
     ]);
     group.add(new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 12, 0.032, 6, false), blackMat));
 
-    // Puffy snow cap & festive crimson holiday bow on top!
     const snowCap = new THREE.Mesh(new THREE.SphereGeometry(0.46, 10, 8), snowMat);
     snowCap.scale.set(1.05, 0.32, 0.65);
-    snowCap.position.set(sx, 2.58, 0);
+    snowCap.position.set(sx, 2.6, -0.35);
     group.add(snowCap);
 
-    const bow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 8, 8),
-      new THREE.MeshStandardMaterial({ color: '#d91632' })
-    );
-    bow.position.set(sx, 2.52, 0.2);
+    const bow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), redCaneMat);
+    bow.position.set(sx, 2.54, -0.15);
     group.add(bow);
   }
+
+  // Cozy Falu-Red Glögg & Pepparkaksbod on right side of Oasis!
+  const faluMat = new THREE.MeshStandardMaterial({ color: '#7a1924', roughness: 0.78 });
+  const warmCounterMat = new THREE.MeshBasicMaterial({ color: '#ffcf70', toneMapped: false });
+  const booth = new THREE.Mesh(new THREE.BoxGeometry(2.1, 1.9, 1.9), faluMat);
+  booth.position.set(3.8, 1.15, -0.2);
+  const boothWindow = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.62, 0.12), warmCounterMat);
+  boothWindow.position.set(3.8, 1.3, 0.76);
+  const boothRoof = new THREE.Mesh(new THREE.ConeGeometry(1.75, 1.05, 4), snowMat);
+  boothRoof.rotation.y = Math.PI * 0.25;
+  boothRoof.position.set(3.8, 2.58, -0.2);
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.75, 0.28), blackMat);
+  chimney.position.set(4.25, 2.85, -0.5);
+  group.add(booth, boothWindow, boothRoof, chimney);
+
+  // Subtle glögg chimney steam puffs
+  const steamMat = new THREE.MeshBasicMaterial({ color: '#f2f7ff', transparent: true, opacity: 0.4 });
+  const steams: THREE.Mesh[] = [];
+  for (let s = 0; s < 3; s++) {
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.14, 7, 7), steamMat.clone());
+    puff.position.set(4.25, 3.3 + s * 0.35, -0.5);
+    group.add(puff);
+    steams.push(puff);
+  }
+
+  // Twinkling oasis mini pine tree
+  const treeMat = new THREE.MeshStandardMaterial({ color: '#0f3c2d', roughness: 0.85 });
+  for (let c = 0; c < 3; c++) {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.72 - c * 0.18, 0.9, 8), treeMat);
+    cone.position.set(-4.3, 0.9 + c * 0.52, -0.1);
+    group.add(cone);
+  }
+  const treeStar = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.16, 0),
+    new THREE.MeshBasicMaterial({ color: '#ffe688', toneMapped: false })
+  );
+  treeStar.position.set(-4.3, 2.52, -0.1);
+  group.add(treeStar);
 
   // Subtle warm halo
   const glow = new THREE.Sprite(
@@ -1202,23 +1344,30 @@ export function createAccurateSuperchargerPlaza(): { group: THREE.Group; update(
       map: getSoftGlowTexture(),
       color: '#ff6678',
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.34,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
   );
-  glow.scale.set(7.5, 4.5, 1);
-  glow.position.set(-0.5, 1.6, 0.4);
+  glow.scale.set(9.5, 5.2, 1);
+  glow.position.set(0.2, 1.8, 0.4);
   group.add(glow);
 
   const optimus = createAccurateOptimusGen2();
-  optimus.group.position.set(2.9, 0.18, 0.45);
+  optimus.group.position.set(1.9, 0.2, 0.65);
   group.add(optimus.group);
 
   return {
     group,
     update(time: number): void {
       optimus.update(time);
+      treeStar.rotation.y = time * 1.4;
+      steams.forEach((p, idx) => {
+        const cyc = (time * 0.42 + idx * 0.33) % 1;
+        p.position.set(4.25 + Math.sin(time * 2 + idx) * 0.08, 3.25 + cyc * 1.1, -0.5);
+        p.scale.setScalar(0.8 + cyc * 1.3);
+        (p.material as THREE.MeshBasicMaterial).opacity = (1 - cyc) * 0.42;
+      });
     },
   };
 }

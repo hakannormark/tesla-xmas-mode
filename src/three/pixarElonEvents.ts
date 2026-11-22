@@ -15,6 +15,11 @@ export interface ElonAnchorConfig {
   starshipScale?: number;
   starlinkZ?: number;
   cybertruckYaw?: number;
+  forwardStep?: number;
+  getRoadCurveX?: (z: number) => number;
+  superchargerSideOffset?: number;
+  superchargerStartZ?: number;
+  superchargerWrapZ?: number;
   roadPointAt(progress: number, sideOffset: number, out: THREE.Vector3): THREE.Vector3;
 }
 
@@ -30,6 +35,9 @@ export class PixarElonRig {
 
   private tempPos = new THREE.Vector3();
   private wheelPhase = 0;
+  private lastEventType: string | null = null;
+  private superchargerZ = -126;
+  private cyberplowZ = -135;
 
   constructor() {
     // 1. Accurate Cherry-Red Tesla Roadster + SpaceX Starman + Santa Hat
@@ -80,8 +88,8 @@ export class PixarElonRig {
     this.superchargerPlaza.group.visible = false;
     this.group.add(this.superchargerPlaza.group);
 
-    // 5. Accurate Faceted Stainless Cybertruck hauling illuminated Christmas tree
-    this.cybertruck = createAccurateCybertruck(true);
+    // 5. Accurate Faceted Stainless Cybertruck hauling illuminated Christmas tree + Snowplow blade
+    this.cybertruck = createAccurateCybertruck(true, true);
     this.cybertruck.group.visible = false;
     this.group.add(this.cybertruck.group);
   }
@@ -89,6 +97,12 @@ export class PixarElonRig {
   update(event: ActiveElonEvent | null, dt: number, time: number, anchors: ElonAnchorConfig): void {
     const type = event?.type ?? null;
     const p = event?.progress ?? 0;
+
+    if (type !== this.lastEventType) {
+      if (type === 'supercharger') this.superchargerZ = anchors.superchargerStartZ ?? -126;
+      if (type === 'cyberplow') this.cyberplowZ = -135;
+      this.lastEventType = type;
+    }
 
     // 1. Starman crossing the full moon
     this.starmanGroup.visible = type === 'starman';
@@ -130,21 +144,44 @@ export class PixarElonRig {
       }
     }
 
-    // 4. Tesla V4 Supercharger + waving Optimus Gen 2 Elf
+    // 4. Tesla V4 Nordpolen Supercharger Oasis + waving Optimus Gen 2 Elf (planted at true road speed!)
     this.superchargerPlaza.group.visible = type === 'supercharger';
     if (this.superchargerPlaza.group.visible) {
-      anchors.roadPointAt(p, 5.8, this.tempPos);
-      this.superchargerPlaza.group.position.copy(this.tempPos);
+      if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
+        this.superchargerZ += anchors.forwardStep;
+        const wrapZ = anchors.superchargerWrapZ ?? 24;
+        if (this.superchargerZ > wrapZ) this.superchargerZ = anchors.superchargerStartZ ?? -132;
+        const rx = anchors.getRoadCurveX(this.superchargerZ);
+        const nextRx = anchors.getRoadCurveX(this.superchargerZ - 5);
+        const tangentYaw = Math.atan2(rx - nextRx, 5);
+        const side = anchors.superchargerSideOffset ?? 12.6;
+        this.superchargerPlaza.group.position.set(rx + side, 0, this.superchargerZ);
+        this.superchargerPlaza.group.rotation.y = tangentYaw - Math.PI * 0.5;
+      } else {
+        anchors.roadPointAt(p, 11.8, this.tempPos);
+        this.superchargerPlaza.group.position.copy(this.tempPos);
+        this.superchargerPlaza.group.rotation.y = 0;
+      }
       this.superchargerPlaza.update(time);
     }
 
-    // 5. Cybertruck hauling glowing tree
+    // 5. Cybertruck Snowplow hauling glowing tree in oncoming lane
     this.cybertruck.group.visible = type === 'cyberplow';
     if (this.cybertruck.group.visible) {
       this.wheelPhase += dt * 16;
-      anchors.roadPointAt(p, -1.6, this.tempPos);
-      this.cybertruck.group.position.copy(this.tempPos);
-      this.cybertruck.group.rotation.y = anchors.cybertruckYaw ?? 0;
+      if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
+        this.cyberplowZ += anchors.forwardStep + 14.5 * dt;
+        if (this.cyberplowZ > 24) this.cyberplowZ = -140;
+        const rx = anchors.getRoadCurveX(this.cyberplowZ);
+        const nextRx = anchors.getRoadCurveX(this.cyberplowZ - 5);
+        const tangentYaw = Math.atan2(rx - nextRx, 5);
+        this.cybertruck.group.position.set(rx - 2.45, 0, this.cyberplowZ);
+        this.cybertruck.group.rotation.y = tangentYaw + Math.PI;
+      } else {
+        anchors.roadPointAt(p, -2.4, this.tempPos);
+        this.cybertruck.group.position.copy(this.tempPos);
+        this.cybertruck.group.rotation.y = anchors.cybertruckYaw ?? 0;
+      }
       this.cybertruck.update(this.wheelPhase, time);
     }
   }

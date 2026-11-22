@@ -361,6 +361,11 @@ export class ElectricCaravanScene implements HolidayScene {
       starshipOrigin: new THREE.Vector3(24, 6, 80),
       starshipScale: 1.65,
       starlinkZ: 96,
+      forwardStep: travel,
+      getRoadCurveX: (z) => this.getRoadX(z),
+      superchargerSideOffset: 10.6,
+      superchargerStartZ: -44,
+      superchargerWrapZ: 74,
       roadPointAt: (p, side, out) => {
         const z = -34 + p * 84;
         return out.set(this.getRoadX(z) + side, 0, z);
