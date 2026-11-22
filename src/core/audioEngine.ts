@@ -356,6 +356,7 @@ export class HolidayAudioEngine {
   private micAnalyser: AnalyserNode | null = null;
   private micData: Uint8Array<ArrayBuffer> | null = null;
   private lastScrapeMs = 0;
+  private lastChurchBellMs = 0;
 
   private wavDataUri: string | null = null;
 
@@ -1039,6 +1040,95 @@ export class HolidayAudioEngine {
     bp.connect(g);
     if (this.dryBus) g.connect(this.dryBus);
     src.start(now, Math.random() * 0.5, 0.11);
+  }
+
+  /** Deep dual-blast brass truck horn chord for the Coca-Cola & Tesla Semi convoy */
+  playConvoyHorn(): void {
+    if (!this.ctx || this.ctx.state !== 'running' || this.mixMode === 'muted') return;
+    const bus = this.dryBus ?? this.ctx.destination;
+    const now = this.ctx.currentTime;
+    const blasts = [
+      { start: 0.0, dur: 0.34, gain: 0.22 },
+      { start: 0.42, dur: 0.72, gain: 0.26 },
+    ];
+    const chordHz = [146.83, 185.0, 220.0]; // D3-F#3-A3 warm air-horn triad
+
+    for (const blast of blasts) {
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.Q.value = 1.9;
+      lp.frequency.setValueAtTime(520, now + blast.start);
+      lp.frequency.exponentialRampToValueAtTime(1180, now + blast.start + 0.09);
+      lp.frequency.exponentialRampToValueAtTime(640, now + blast.start + blast.dur);
+
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(0.0001, now + blast.start);
+      env.gain.linearRampToValueAtTime(blast.gain, now + blast.start + 0.045);
+      env.gain.setValueAtTime(blast.gain * 0.88, now + blast.start + blast.dur * 0.72);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + blast.start + blast.dur + 0.14);
+
+      lp.connect(env);
+      env.connect(bus);
+
+      for (const hz of chordHz) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(hz, now + blast.start);
+        osc.detune.setValueAtTime((Math.random() - 0.5) * 9, now + blast.start);
+        osc.connect(lp);
+        osc.start(now + blast.start);
+        osc.stop(now + blast.start + blast.dur + 0.16);
+      }
+    }
+  }
+
+  /** Soft festive Swedish church bell toll when driving past an OSM church (26s cooldown) */
+  playChurchBells(): void {
+    if (!this.ctx || this.ctx.state !== 'running' || this.mixMode === 'muted') return;
+    const nowMs = performance.now();
+    if (nowMs - this.lastChurchBellMs < 26000) return;
+    this.lastChurchBellMs = nowMs;
+
+    const bus = this.dryBus ?? this.ctx.destination;
+    const now = this.ctx.currentTime;
+    const bells = [329.63, 392.0, 293.66, 261.63]; // E4 - G4 - D4 - C4 carillon
+
+    bells.forEach((baseHz, idx) => {
+      if (!this.ctx) return;
+      const t = now + idx * 0.52;
+      const partials = [
+        { mult: 1.0, amp: 0.11, decay: 2.1 },
+        { mult: 2.0, amp: 0.045, decay: 1.4 },
+        { mult: 2.756, amp: 0.025, decay: 0.85 },
+      ];
+      for (const p of partials) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(baseHz * p.mult, t);
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(p.amp, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + p.decay);
+        osc.connect(g);
+        g.connect(bus);
+        osc.start(t);
+        osc.stop(t + p.decay + 0.05);
+      }
+    });
+  }
+
+  /** Ascending celebratory celesta arpeggio for Gift Cannon combos & town tree/star bonuses */
+  playComboFanfare(combo: number): void {
+    if (!this.ctx || this.ctx.state !== 'running' || this.mixMode === 'muted') return;
+    const pitchScale = 1 + Math.min(4, Math.max(0, combo - 2)) * 0.06;
+    [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((hz, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running') {
+          this.playCelestaNote(hz * pitchScale, 0.13, 0.45);
+        }
+      }, idx * 45);
+    });
+    this.triggerSleighBell(0.82, 0.18);
   }
 
   // --- Tesla 3-Button Sound Check ---

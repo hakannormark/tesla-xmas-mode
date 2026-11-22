@@ -201,7 +201,14 @@ function createSilverTeslaEmblem(scale = 1): THREE.Group {
  */
 export interface AccurateSemiHandle {
   group: THREE.Group;
-  update(dt: number, wheelPhase: number, isBraking: boolean, rippleBoost: number, time: number): void;
+  update(
+    dt: number,
+    wheelPhase: number,
+    isBraking: boolean,
+    rippleBoost: number,
+    time: number,
+    hornFlash?: number
+  ): void;
 }
 
 export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): AccurateSemiHandle {
@@ -476,18 +483,26 @@ export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): Accur
 
   return {
     group,
-    update(_dt: number, wheelPhase: number, isBraking: boolean, rippleBoost: number, time: number): void {
+    update(
+      _dt: number,
+      wheelPhase: number,
+      isBraking: boolean,
+      rippleBoost: number,
+      time: number,
+      hornFlash = 0
+    ): void {
       for (const wg of wheelGroups) {
         wg.rotation.x = -wheelPhase;
       }
       bulbMaterials.forEach((bm, idx) => {
         const twinkle = 0.68 + 0.32 * Math.sin(time * 5.2 + idx * 0.45);
-        const boost = twinkle + rippleBoost * 1.4;
+        const boost = twinkle + rippleBoost * 1.4 + hornFlash * 1.1;
         bm.color.setRGB(1.28 * boost, 0.98 * boost, 0.45 * boost);
       });
-      panelMat.emissiveIntensity = 0.85 + rippleBoost * 0.9;
-      rearPanelMat.emissiveIntensity = 0.78 + rippleBoost * 0.85;
-      beamMat.uniforms.uOpacity.value = 0.24 + rippleBoost * 0.14;
+      panelMat.emissiveIntensity = 0.85 + rippleBoost * 0.9 + hornFlash * 0.8;
+      rearPanelMat.emissiveIntensity = 0.78 + rippleBoost * 0.85 + hornFlash * 0.8;
+      beamMat.uniforms.uOpacity.value = 0.24 + rippleBoost * 0.14 + hornFlash * 0.46;
+      drlMat.color.setRGB(1.0 + hornFlash * 0.7, 0.97 + hornFlash * 0.6, 0.91 + hornFlash * 0.5);
       tailMat.color.setRGB(isBraking ? 2.3 : 0.9, isBraking ? 0.22 : 0.1, isBraking ? 0.26 : 0.16);
     },
   };

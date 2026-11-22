@@ -8,6 +8,40 @@ import * as THREE from 'three';
 let cachedGlowTex: THREE.CanvasTexture | null = null;
 let cachedSnowflakeTex: THREE.CanvasTexture | null = null;
 let cachedStarSpriteTex: THREE.CanvasTexture | null = null;
+let cachedAnamorphicFlareTex: THREE.CanvasTexture | null = null;
+
+export function getAnamorphicFlareTexture(): THREE.CanvasTexture {
+  if (cachedAnamorphicFlareTex) return cachedAnamorphicFlareTex;
+  const w = 256;
+  const h = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  const hGrad = ctx.createLinearGradient(0, 0, w, 0);
+  hGrad.addColorStop(0, 'rgba(255, 224, 150, 0)');
+  hGrad.addColorStop(0.28, 'rgba(255, 224, 150, 0.25)');
+  hGrad.addColorStop(0.5, 'rgba(255, 248, 224, 0.92)');
+  hGrad.addColorStop(0.72, 'rgba(255, 224, 150, 0.25)');
+  hGrad.addColorStop(1, 'rgba(255, 224, 150, 0)');
+
+  const vGrad = ctx.createLinearGradient(0, 0, 0, h);
+  vGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  vGrad.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
+  vGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+  ctx.fillStyle = hGrad;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.fillStyle = vGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedAnamorphicFlareTex = tex;
+  return tex;
+}
 
 export function getSoftGlowTexture(): THREE.CanvasTexture {
   if (cachedGlowTex) return cachedGlowTex;
@@ -530,6 +564,7 @@ const PIXAR_SKY_FRAG = `
   uniform float uTime;
   uniform float uAuroraBoost;
   uniform float uThemeMode;
+  uniform float uDaylight;
   uniform vec3 uTopColor;
   uniform vec3 uMidColor;
   uniform vec3 uHorizonColor;
@@ -548,11 +583,20 @@ const PIXAR_SKY_FRAG = `
     vec3 col = mix(uHorizonColor, uMidColor, smoothstep(0.0, 0.32, h));
     col = mix(col, uTopColor, smoothstep(0.28, 0.92, h));
 
+    float nightVis = 1.0 - clamp(uDaylight * 1.15, 0.0, 0.92);
     float horizonGlow = exp(-abs(y - 0.03) * 10.5);
     vec3 glowTint = uThemeMode > 1.5
       ? vec3(0.75, 0.14, 0.56)
-      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : vec3(0.48, 0.21, 0.14));
+      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : mix(vec3(0.48, 0.21, 0.14), vec3(0.95, 0.72, 0.48), uDaylight));
     col += glowTint * horizonGlow * 0.58;
+
+    // Soft Milky Way diagonal stardust band across upper zenith in winter night
+    if (y > 0.06 && nightVis > 0.08) {
+      float mwCoord = dir.x * 0.78 + dir.y * 0.62 - 0.32;
+      float mwBand = exp(-mwCoord * mwCoord * 18.0);
+      float mwCloud = 0.55 + 0.45 * sin(dir.z * 9.0 + dir.x * 7.0) * cos(dir.y * 11.0);
+      col += vec3(0.22, 0.32, 0.58) * mwBand * mwCloud * smoothstep(0.06, 0.28, y) * 0.32 * nightVis;
+    }
 
     float az = atan(dir.z, dir.x);
     float w1 = sin(az * 3.0 + uTime * 0.26) * 0.08 + cos(az * 5.0 - uTime * 0.18) * 0.04;
@@ -573,10 +617,10 @@ const PIXAR_SKY_FRAG = `
       ? vec3(0.72, 0.32, 1.0)
       : vec3(0.55, 0.42, 0.98);
 
-    col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost);
-    col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost);
+    col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost * nightVis);
+    col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost * nightVis);
 
-    if (y > 0.04) {
+    if (y > 0.04 && nightVis > 0.08) {
       vec2 starGrid = vec2(az * 38.0, y * 74.0);
       vec2 cell = floor(starGrid);
       vec2 f = fract(starGrid) - 0.5;
@@ -586,7 +630,7 @@ const PIXAR_SKY_FRAG = `
         float star = smoothstep(0.24, 0.0, d);
         float tw = 0.55 + 0.45 * sin(uTime * (1.8 + rnd * 4.5) + rnd * 62.0);
         vec3 sCol = rnd > 0.97 ? vec3(1.25, 1.08, 0.82) : vec3(0.95, 1.05, 1.25);
-        col += sCol * star * tw * smoothstep(0.04, 0.22, y) * 1.15;
+        col += sCol * star * tw * smoothstep(0.04, 0.22, y) * 1.15 * nightVis;
       }
     }
 
@@ -603,6 +647,7 @@ export function createPixarSkyDome(radius = 300): { mesh: THREE.Mesh; material: 
       uTime: { value: 0 },
       uAuroraBoost: { value: 1.0 },
       uThemeMode: { value: 0.0 },
+      uDaylight: { value: 0.0 },
       uTopColor: { value: new THREE.Color('#040a1e') },
       uMidColor: { value: new THREE.Color('#0c1e4a') },
       uHorizonColor: { value: new THREE.Color('#1d3364') },
@@ -663,11 +708,31 @@ export function createPixarMoon(radius = 10): THREE.Group {
   haloSprite.scale.set(radius * 5.8, radius * 5.8, 1);
   group.add(haloSprite);
 
+  // Subtle horizontal anamorphic lens flare streak across bright winter moon!
+  const flareMat = new THREE.SpriteMaterial({
+    map: getAnamorphicFlareTexture(),
+    color: '#ffe8b8',
+    transparent: true,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false,
+  });
+  const flareSprite = new THREE.Sprite(flareMat);
+  flareSprite.scale.set(radius * 12.5, radius * 1.2, 1);
+  group.add(flareSprite);
+
+  let moonFullness = 1.0;
   group.userData.setMoonPhase = (phase: number) => {
     const theta = (0.5 - phase) * Math.PI * 2;
     discMat.uniforms.uSunDir.value.set(Math.sin(theta), 0.12, Math.cos(theta)).normalize();
-    const fullness = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
-    haloMat.opacity = 0.28 + fullness * 0.48;
+    moonFullness = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+    haloMat.opacity = 0.28 + moonFullness * 0.48;
+  };
+  group.userData.setDaylight = (d: number) => {
+    const fade = 1 - Math.min(0.8, d * 0.8);
+    haloMat.opacity = (0.28 + moonFullness * 0.48) * fade;
+    flareMat.opacity = (0.14 + moonFullness * 0.26) * fade;
   };
 
   return group;

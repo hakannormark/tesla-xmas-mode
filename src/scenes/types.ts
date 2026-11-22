@@ -15,7 +15,7 @@ export interface SceneFrameContext {
   osm: OsmWorldState;
   live: LiveWorldState;
   audio: HolidayAudioEngine;
-  onGiftDelivered?: (totalGifts: number) => void;
+  onGiftDelivered?: (totalGifts: number, combo?: number, bonusMsg?: string) => void;
 }
 
 export interface HolidayScene {
@@ -25,5 +25,6 @@ export interface HolidayScene {
   resize(width: number, height: number): void;
   interact(normX?: number, normY?: number): void;
   triggerReaction?(kind: SceneReactionKind): void;
+  triggerConvoySalute?(): void;
   dispose(): void;
 }

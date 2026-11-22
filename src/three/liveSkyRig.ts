@@ -82,6 +82,18 @@ export class LiveSkyRig {
   private fireworkBursts: FireworkBurst[] = [];
   private fireworksGroup = new THREE.Group();
 
+  private meteors: Array<{
+    group: THREE.Group;
+    wishRing: THREE.Sprite;
+    age: number;
+    cooldown: number;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    wishBurstAge: number;
+  }> = [];
+
   constructor() {
     // 1. Live Overhead Flight Patrol Slots (up to 3)
     const glowTex = getSoftGlowTexture();
@@ -344,6 +356,60 @@ export class LiveSkyRig {
     this.fireworksGroup.visible = false;
     this.group.add(this.fireworksGroup);
 
+    // 5B. 2 Catchable Geminids Shooting Stars Streaking Across the Winter Night Sky
+    const tailMat = new THREE.MeshBasicMaterial({
+      color: '#ffe9a8',
+      transparent: true,
+      opacity: 0.9,
+      toneMapped: false,
+      fog: false,
+    });
+    for (let m = 0; m < 2; m++) {
+      const mg = new THREE.Group();
+      const head = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: starTex,
+          color: '#fff6cf',
+          transparent: true,
+          opacity: 0.96,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fog: false,
+        })
+      );
+      head.scale.set(5.2, 5.2, 1);
+      const streak = new THREE.Mesh(new THREE.BoxGeometry(16, 0.25, 0.25), tailMat);
+      streak.position.set(-7.5, 2.2, 0);
+      streak.rotation.z = -0.32;
+
+      const wishRing = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: glowTex,
+          color: '#ffe066',
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fog: false,
+        })
+      );
+      wishRing.scale.set(16, 16, 1);
+      mg.add(head, streak, wishRing);
+      mg.visible = false;
+      this.group.add(mg);
+      this.meteors.push({
+        group: mg,
+        wishRing,
+        age: 0,
+        cooldown: 3.5 + m * 5.2,
+        startX: -55 + m * 30,
+        startY: 48,
+        endX: 25 + m * 25,
+        endY: 22,
+        wishBurstAge: -1,
+      });
+    }
+
     // 6. SpaceX Live Launch Countdown Roadside Gantry
     const postMat = new THREE.MeshStandardMaterial({ color: '#1b2234', metalness: 0.7, roughness: 0.35 });
     for (const px of [-2.4, 2.4]) {
@@ -557,6 +623,64 @@ export class LiveSkyRig {
       ctx.fillText(live.nextSpaceXName.slice(0, 28), 256, 108, 470);
       this.spaceXTex.needsUpdate = true;
     }
+
+    // 7. Catchable Geminids Shooting Stars (visible in night & dusk)
+    const canShowMeteors = env.daylightFactor < 0.65;
+    for (const m of this.meteors) {
+      if (m.wishBurstAge >= 0) {
+        m.wishBurstAge += dt;
+        m.group.visible = true;
+        const sc = 16 + m.wishBurstAge * 44;
+        m.wishRing.scale.set(sc, sc, 1);
+        (m.wishRing.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - m.wishBurstAge / 0.85);
+        if (m.wishBurstAge > 0.85) {
+          m.wishBurstAge = -1;
+          m.group.visible = false;
+          m.cooldown = 7.5 + Math.random() * 4.5;
+        }
+        continue;
+      }
+      if (!canShowMeteors) {
+        m.group.visible = false;
+        continue;
+      }
+      if (m.cooldown > 0) {
+        m.cooldown -= dt;
+        m.group.visible = false;
+        if (m.cooldown <= 0) {
+          m.age = 0;
+          const dir = Math.random() > 0.5 ? 1 : -1;
+          m.startX = -dir * (38 + Math.random() * 26);
+          m.startY = 44 + Math.random() * 14;
+          m.endX = dir * (28 + Math.random() * 28);
+          m.endY = 20 + Math.random() * 10;
+        }
+      } else {
+        m.age += dt;
+        const dur = 2.4;
+        if (m.age >= dur) {
+          m.cooldown = 7.0 + Math.random() * 5.0;
+          m.group.visible = false;
+        } else {
+          const p = m.age / dur;
+          m.group.visible = true;
+          (m.wishRing.material as THREE.SpriteMaterial).opacity = 0;
+          m.group.position.set(
+            THREE.MathUtils.lerp(m.startX, m.endX, p),
+            THREE.MathUtils.lerp(m.startY, m.endY, p),
+            -136
+          );
+          m.group.scale.y = m.endX > m.startX ? 1 : -1;
+        }
+      }
+    }
+  }
+
+  tryCatchShootingStar(): boolean {
+    const active = this.meteors.find((m) => m.cooldown <= 0 && m.wishBurstAge < 0 && m.group.visible);
+    if (!active) return false;
+    active.wishBurstAge = 0;
+    return true;
   }
 
   dispose(): void {

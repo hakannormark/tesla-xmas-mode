@@ -41,6 +41,8 @@ let sharedGigaRedBandMat: THREE.MeshPhysicalMaterial | null = null;
 let sharedGigaGlassMat: THREE.MeshStandardMaterial | null = null;
 let sharedSolarMat: THREE.MeshStandardMaterial | null = null;
 let sharedFenceWoodMat: THREE.MeshStandardMaterial | null = null;
+let sharedIcicleMat: THREE.MeshPhysicalMaterial | null = null;
+let sharedContactMat: THREE.MeshBasicMaterial | null = null;
 
 function markShared<T extends THREE.Material>(m: T): T {
   m.userData.shared = true;
@@ -99,6 +101,36 @@ function makeFacadeTextures(pal: FacadePalette): {
 
       eCtx.fillStyle = (r + c) % 4 === 0 ? '#ffd078' : '#ffbd58';
       eCtx.fillRect(wx + 2, wy + 2, ww - 4, wh - 4);
+
+      // Swedish 5-point Adventsstjärnor & 7-candle Adventsljusstakar glowing in windows!
+      if ((r + c) % 2 === 0) {
+        const sx = wx + ww * 0.5;
+        const sy = wy + wh * 0.36;
+        cCtx.fillStyle = '#fff9d6';
+        eCtx.fillStyle = '#fff5b8';
+        for (const tCtx of [cCtx, eCtx]) {
+          tCtx.beginPath();
+          for (let p = 0; p < 10; p++) {
+            const ang = (p / 10) * Math.PI * 2 - Math.PI * 0.5;
+            const rad = p % 2 === 0 ? 7.5 : 3.2;
+            const px = sx + Math.cos(ang) * rad;
+            const py = sy + Math.sin(ang) * rad;
+            if (p === 0) tCtx.moveTo(px, py);
+            else tCtx.lineTo(px, py);
+          }
+          tCtx.closePath();
+          tCtx.fill();
+        }
+      } else {
+        for (let k = -2; k <= 2; k++) {
+          const cx = wx + ww * 0.5 + k * 5.2;
+          const cy = wy + wh * 0.8 - (2 - Math.abs(k)) * 3.8;
+          cCtx.fillStyle = '#fffbe0';
+          eCtx.fillStyle = '#ffe990';
+          cCtx.fillRect(cx - 1, cy - 3, 2, 3);
+          eCtx.fillRect(cx - 1.2, cy - 3.5, 2.4, 3.5);
+        }
+      }
 
       cCtx.fillStyle = pal.trim;
       cCtx.fillRect(wx + ww * 0.5 - 1.5, wy, 3, wh);
@@ -209,6 +241,29 @@ function getSharedEnvMaterials() {
   if (!sharedFenceWoodMat) {
     sharedFenceWoodMat = markShared(new THREE.MeshStandardMaterial({ color: '#7a1c24', roughness: 0.84 }));
   }
+  if (!sharedIcicleMat) {
+    sharedIcicleMat = markShared(
+      new THREE.MeshPhysicalMaterial({
+        color: '#d4ecff',
+        emissive: '#356090',
+        emissiveIntensity: 0.35,
+        roughness: 0.08,
+        clearcoat: 1.0,
+        transparent: true,
+        opacity: 0.82,
+      })
+    );
+  }
+  if (!sharedContactMat) {
+    sharedContactMat = markShared(
+      new THREE.MeshBasicMaterial({
+        color: '#060c1f',
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+      })
+    );
+  }
   return {
     snowRoof: sharedSnowRoofMat,
     water: sharedWaterMat,
@@ -221,6 +276,8 @@ function getSharedEnvMaterials() {
     gigaGlass: sharedGigaGlassMat,
     solar: sharedSolarMat,
     fenceWood: sharedFenceWoodMat,
+    icicle: sharedIcicleMat,
+    contact: sharedContactMat,
   };
 }
 
@@ -274,6 +331,7 @@ interface BuiltBuildingRef {
   centerZ: number;
   radius: number;
   topY: number;
+  isChurch: boolean;
   litBoost: number;
   cottage?: PixarCottageHandle;
   celebrateHalo: THREE.Sprite;
@@ -359,6 +417,25 @@ export class OsmMapLayer {
     this.beatEnergy = beatEnergy;
     this.windX = windX;
     this.theme = theme;
+  }
+
+  hasPassingChurch(): boolean {
+    for (const b of this.buildingRefs) {
+      if (!b.isChurch || !b.group.visible) continue;
+      b.group.updateWorldMatrix(true, false);
+      this.targetVec.set(0, 0, 0).applyMatrix4(b.group.matrixWorld);
+      if (this.targetVec.z > -38 && this.targetVec.z < 10) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  lightUpNeighborhood(): void {
+    for (const b of this.buildingRefs) {
+      b.litBoost = 1.0;
+      b.cottage?.setLit(1.0);
+    }
   }
 
   getGiftTargets(): GiftTargetInfo[] {
@@ -533,8 +610,40 @@ export class OsmMapLayer {
           g.add(roofMesh, snowRoofMesh);
           topY = h + roofH + 0.6;
 
+          // 3D eaves, crystal icicles & cozy roof dormers under ultra quality!
+          const eaveRim = new THREE.Mesh(
+            new THREE.BoxGeometry(spanX * 1.06, 0.24, spanZ * 1.06),
+            mats.snowRoof
+          );
+          eaveRim.position.y = h + 0.08;
+          g.add(eaveRim);
+
+          if (this.builtQuality === 'ultra') {
+            const icicleCols = Math.min(8, Math.max(3, Math.floor(spanZ / 3.5)));
+            const faceX = (b.centerX >= 0 ? -1 : 1) * (spanX * 0.52);
+            for (let ic = 0; ic < icicleCols; ic++) {
+              const iz = -spanZ * 0.42 + (ic / Math.max(1, icicleCols - 1)) * spanZ * 0.84;
+              const icicle = new THREE.Mesh(
+                new THREE.ConeGeometry(0.11, 0.55 + (ic % 3) * 0.22, 5),
+                mats.icicle
+              );
+              icicle.rotation.x = Math.PI;
+              icicle.position.set(faceX, h - 0.24, iz);
+              g.add(icicle);
+            }
+          }
+
           if (b.kind === 'large_building') {
-            // Grand palace festive cupola + star crest
+            // Grand palace festive cupola + star crest + glowing dormer gables
+            for (const dz of [-spanZ * 0.25, spanZ * 0.25]) {
+              const dormerX = (b.centerX >= 0 ? -1 : 1) * (spanX * 0.42);
+              const dormer = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.3, 1.5), wallMat);
+              dormer.position.set(dormerX, h + 1.05, dz);
+              const dormerCap = new THREE.Mesh(new THREE.ConeGeometry(1.15, 0.85, 4), mats.snowRoof);
+              dormerCap.rotation.y = Math.PI * 0.25;
+              dormerCap.position.set(dormerX, h + 2.05, dz);
+              g.add(dormer, dormerCap);
+            }
             const cupBase = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.7, 2.8, 10), wallMat);
             cupBase.position.y = h + roofH + 1.2;
             const cupDome = new THREE.Mesh(new THREE.SphereGeometry(1.55, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), mats.spire);
@@ -590,6 +699,15 @@ export class OsmMapLayer {
     celebrateStar.visible = false;
     g.add(celebrateStar);
 
+    // Soft dark snow-ground contact shadow grounding building into the snowpack
+    const shadowPlane = new THREE.Mesh(
+      new THREE.CircleGeometry(Math.max(3.5, Math.max(spanX, spanZ) * 0.72), 18),
+      mats.contact
+    );
+    shadowPlane.rotation.x = -Math.PI * 0.5;
+    shadowPlane.position.y = 0.03;
+    g.add(shadowPlane);
+
     this.mapInner.add(g);
     const rad = Math.min(28, Math.hypot(spanX * 0.5, spanZ * 0.5) + 1.5);
     this.corridorItems.push({ obj: g, baseX: b.centerX, baseZ: b.centerZ, baseYaw: 0 });
@@ -599,6 +717,7 @@ export class OsmMapLayer {
       centerZ: b.centerZ,
       radius: rad,
       topY,
+      isChurch: b.kind === 'church',
       litBoost: 0,
       cottage: cottageHandle,
       celebrateHalo,
@@ -838,7 +957,51 @@ export class OsmMapLayer {
       }
     });
 
-    // 6B. Nordic Roadside Wooden Fire Torches (Marschaller/Facklor — active in 'nordic' Sagovinter theme!)
+    // 6C. Stockholm / Drottninggatan Overhead Catenary Holiday Light Canopies in town/water biomes!
+    if (!isLiveOsm && (snapshot.biome === 'village' || snapshot.biome === 'water')) {
+      const canopyCount = quality === 'eco' ? 3 : 5;
+      const glowTex = getSoftGlowTexture();
+      for (let c = 0; c < canopyCount; c++) {
+        const cz = -16 - c * 38;
+        const cg = new THREE.Group();
+        const spanPts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 14; i++) {
+          const u = i / 14;
+          const x = -6.2 + u * 12.4;
+          const y = 9.4 - Math.sin(u * Math.PI) * 1.35;
+          spanPts.push(new THREE.Vector3(x, y, 0));
+          if (i % 2 === 1) {
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 6), mats.fairy);
+            bulb.position.set(x, y, 0);
+            cg.add(bulb);
+          }
+        }
+        cg.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(spanPts), mats.fairy));
+
+        // Central golden Stockholm holiday star/crown suspended over the street!
+        const crownHalo = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: glowTex,
+            color: '#ffe07d',
+            transparent: true,
+            opacity: 0.65,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          })
+        );
+        crownHalo.scale.set(4.5, 4.5, 1);
+        crownHalo.position.set(0, 7.9, 0);
+        const crownRing = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.08, 6, 14), mats.fairy);
+        crownRing.position.set(0, 7.9, 0);
+        const crownCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), mats.churchGlass);
+        crownCore.position.set(0, 7.9, 0);
+        cg.add(crownHalo, crownRing, crownCore);
+
+        cg.position.set(0, 0, cz);
+        this.mapInner.add(cg);
+        this.corridorItems.push({ obj: cg, baseX: 0, baseZ: cz, baseYaw: 0 });
+      }
+    }
     if (!isLiveOsm) {
       const torchWood = mats.fenceWood;
       const flameMat = new THREE.MeshBasicMaterial({ color: '#ffae38', toneMapped: false });

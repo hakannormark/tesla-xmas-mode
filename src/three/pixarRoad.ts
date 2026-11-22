@@ -116,6 +116,13 @@ export class PixarSnowyRoad {
   private zSamples = new Float32Array(ROWS + 1);
   private roadMat: THREE.MeshPhysicalMaterial;
   private bankMat: THREE.MeshPhysicalMaterial;
+  private shaderUniforms = {
+    uTime: { value: 0 },
+    uScroll: { value: 0 },
+    uDaylight: { value: 0 },
+    uReflectBoost: { value: 1.0 },
+    uAuroraTint: { value: new THREE.Color('#3ce8b4') },
+  };
 
   constructor() {
     const vertCount = (ROWS + 1) * COLS_PER_ROW;
@@ -197,23 +204,129 @@ export class PixarSnowyRoad {
     this.roadMat = new THREE.MeshPhysicalMaterial({
       map,
       roughnessMap,
-      roughness: 0.72,
-      metalness: 0.06,
-      clearcoat: 0.42,
-      clearcoatRoughness: 0.22,
+      roughness: 0.42,
+      metalness: 0.14,
+      clearcoat: 0.72,
+      clearcoatRoughness: 0.14,
       vertexColors: true,
     });
+    this.roadMat.customProgramCacheKey = () => 'pixar-wet-asphalt-v1';
+    this.roadMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.shaderUniforms.uTime;
+      shader.uniforms.uScroll = this.shaderUniforms.uScroll;
+      shader.uniforms.uDaylight = this.shaderUniforms.uDaylight;
+      shader.uniforms.uReflectBoost = this.shaderUniforms.uReflectBoost;
+      shader.uniforms.uAuroraTint = this.shaderUniforms.uAuroraTint;
+
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying vec3 vWetWorldPos;\nvarying vec2 vWetRoadUv;'
+        )
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nvWetWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWetRoadUv = uv;'
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+uniform float uTime;
+uniform float uScroll;
+uniform float uDaylight;
+uniform float uReflectBoost;
+uniform vec3 uAuroraTint;
+varying vec3 vWetWorldPos;
+varying vec2 vWetRoadUv;`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `
+          float roadEdgeMask = 1.0 - smoothstep(0.42, 0.50, abs(vWetRoadUv.x - 0.5));
+          float tr1 = exp(-pow((vWetRoadUv.x - 0.27) * 14.0, 2.0));
+          float tr2 = exp(-pow((vWetRoadUv.x - 0.38) * 14.0, 2.0));
+          float tr3 = exp(-pow((vWetRoadUv.x - 0.62) * 14.0, 2.0));
+          float tr4 = exp(-pow((vWetRoadUv.x - 0.73) * 14.0, 2.0));
+          float trackSheen = min(1.0, tr1 + tr2 + tr3 + tr4);
+
+          float wz = vWetWorldPos.z - uScroll;
+          float shimmer = 0.72 + 0.28 * sin(wz * 2.4 + uTime * 3.2 + vWetRoadUv.x * 18.0);
+          float lampReflect = pow(0.5 + 0.5 * sin(wz * 0.418), 7.0) * smoothstep(0.12, 0.44, abs(vWetRoadUv.x - 0.5));
+          float nightWeight = 1.0 - clamp(uDaylight * 0.75, 0.0, 0.75);
+
+          vec3 goldRefl = vec3(0.95, 0.68, 0.28) * lampReflect * (0.28 + trackSheen * 0.42) * shimmer;
+          vec3 auroraRefl = uAuroraTint * (0.06 + trackSheen * 0.11) * (0.55 + 0.45 * sin(wz * 0.22 + uTime * 1.4));
+          float sleighTail = exp(-pow((vWetWorldPos.z - 2.6) * 0.16, 2.0)) * (1.0 - smoothstep(0.08, 0.35, abs(vWetRoadUv.x - 0.5)));
+          vec3 tailRefl = vec3(0.85, 0.16, 0.22) * sleighTail * 0.18;
+
+          gl_FragColor.rgb += (goldRefl + auroraRefl + tailRefl) * roadEdgeMask * nightWeight * uReflectBoost;
+          #include <dithering_fragment>`
+        );
+    };
 
     this.bankMat = createSparklingSnowMaterial('#a6c2e8');
     this.bankMat.vertexColors = true;
     this.bankMat.bumpScale = 0.22;
+    this.bankMat.customProgramCacheKey = () => 'pixar-snow-microglitter-v1';
+    this.bankMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.shaderUniforms.uTime;
+      shader.uniforms.uScroll = this.shaderUniforms.uScroll;
+      shader.uniforms.uDaylight = this.shaderUniforms.uDaylight;
+
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying vec3 vBankWorldPos;'
+        )
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nvBankWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+uniform float uTime;
+uniform float uScroll;
+uniform float uDaylight;
+varying vec3 vBankWorldPos;
+float bankSparkHash(vec2 p) {
+  p = fract(p * vec2(127.1, 311.7));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `
+          vec2 sgCell = floor(vec2(vBankWorldPos.x, vBankWorldPos.z - uScroll) * 6.5);
+          float sRnd = bankSparkHash(sgCell);
+          if (sRnd > 0.964) {
+            float glint = pow(0.5 + 0.5 * sin(uTime * 4.2 + sRnd * 55.0 + vBankWorldPos.z * 0.35), 4.0);
+            float nearFade = 1.0 - smoothstep(-15.0, -95.0, vBankWorldPos.z);
+            vec3 crystalCol = sRnd > 0.986 ? vec3(1.15, 0.96, 0.68) : vec3(0.86, 0.96, 1.15);
+            gl_FragColor.rgb += crystalCol * glint * nearFade * (0.28 + uDaylight * 0.22);
+          }
+          #include <dithering_fragment>`
+        );
+    };
 
     this.mesh = new THREE.Mesh(this.geometry, [this.roadMat, this.bankMat]);
     this.mesh.frustumCulled = false;
     this.update(0, () => 0);
   }
 
+  setAtmosphere(time: number, daylight: number, auroraHex: string, boost = 1.0): void {
+    this.shaderUniforms.uTime.value = time;
+    this.shaderUniforms.uDaylight.value = daylight;
+    this.shaderUniforms.uAuroraTint.value.set(auroraHex);
+    this.shaderUniforms.uReflectBoost.value = boost;
+  }
+
   update(scrollDistance: number, curveFn: (z: number) => number): void {
+    this.shaderUniforms.uScroll.value = scrollDistance;
     const pos = this.posAttr.array as Float32Array;
     const uvs = this.uvAttr.array as Float32Array;
 
@@ -392,6 +505,22 @@ export function createPixarAlpineBackdrop(): THREE.Group {
     sp.scale.set(sc, sc * 0.75, 1);
     sp.position.set(vx, 2.4 + (i % 4) * 1.2, vz);
     group.add(sp);
+  }
+
+  // Layered Soft Valley Mist Curtain separating foothills from winter snow plains
+  for (let m = 0; m < 7; m++) {
+    const mist = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: glowTex,
+        color: m % 2 === 0 ? '#a9c7f0' : '#ebd4c2',
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false,
+      })
+    );
+    mist.scale.set(68, 13, 1);
+    mist.position.set((m - 3) * 34, 4.8 + (m % 2) * 1.6, -132 - (m % 2) * 8);
+    group.add(mist);
   }
 
   return group;

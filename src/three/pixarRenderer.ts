@@ -32,6 +32,12 @@ export class PixarStage {
 
   private composer: EffectComposer;
   private bloomPass: UnrealBloomPass;
+  private hemiLight: THREE.HemisphereLight;
+  private moonKeyLight: THREE.DirectionalLight;
+  private rimLight: THREE.DirectionalLight;
+  private baseBloomStrength: number;
+  private baseExposure: number;
+  private fogTargetColor = new THREE.Color('#0c1b42');
   private envRenderTarget: THREE.WebGLRenderTarget;
   private quality: GraphicsQuality = 'ultra';
   private curWidth: number;
@@ -50,8 +56,10 @@ export class PixarStage {
     const dpr = this.getTargetDpr();
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(this.curWidth, this.curHeight);
+    this.baseExposure = opts.exposure ?? 1.02;
+    this.baseBloomStrength = opts.bloomStrength ?? 0.42;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = opts.exposure ?? 1.02;
+    this.renderer.toneMappingExposure = this.baseExposure;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = 'scene-canvas';
     container.appendChild(this.renderer.domElement);
@@ -77,16 +85,16 @@ export class PixarStage {
       opts.far ?? 450
     );
 
-    const hemi = new THREE.HemisphereLight('#7ba8ef', '#111b3a', 0.56);
-    this.scene.add(hemi);
+    this.hemiLight = new THREE.HemisphereLight('#7ba8ef', '#111b3a', 0.56);
+    this.scene.add(this.hemiLight);
 
-    const moonKey = new THREE.DirectionalLight('#ffdfae', 0.88);
-    moonKey.position.set(28, 42, -32);
-    this.scene.add(moonKey);
+    this.moonKeyLight = new THREE.DirectionalLight('#ffdfae', 0.88);
+    this.moonKeyLight.position.set(28, 42, -32);
+    this.scene.add(this.moonKeyLight);
 
-    const rimLight = new THREE.DirectionalLight('#54d8c5', 0.42);
-    rimLight.position.set(-28, 18, -45);
-    this.scene.add(rimLight);
+    this.rimLight = new THREE.DirectionalLight('#54d8c5', 0.42);
+    this.rimLight.position.set(-28, 18, -45);
+    this.scene.add(this.rimLight);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.setPixelRatio(dpr);
@@ -100,7 +108,7 @@ export class PixarStage {
         Math.max(1, Math.floor(this.curWidth * 0.5)),
         Math.max(1, Math.floor(this.curHeight * 0.5))
       ),
-      opts.bloomStrength ?? 0.42,
+      this.baseBloomStrength,
       opts.bloomRadius ?? 0.50,
       opts.bloomThreshold ?? 0.80
     );
@@ -110,6 +118,29 @@ export class PixarStage {
     this.composer.addPass(outputPass);
 
     this.setQuality(this.quality);
+  }
+
+  setAtmosphere(daylightFactor: number, blueHourFactor: number, fogHex: string): void {
+    const d = THREE.MathUtils.clamp(daylightFactor, 0, 1);
+    const b = THREE.MathUtils.clamp(blueHourFactor, 0, 1);
+
+    this.hemiLight.intensity = 0.56 + d * 0.72 + b * 0.16;
+    this.moonKeyLight.intensity = 0.88 + d * 0.95 + b * 0.25;
+    if (d > 0.65) {
+      this.moonKeyLight.color.set('#fff3db');
+    } else if (b > 0.4) {
+      this.moonKeyLight.color.set('#ffb88c');
+    } else {
+      this.moonKeyLight.color.set('#ffdfae');
+    }
+    this.rimLight.intensity = 0.42 + b * 0.24 - d * 0.15;
+
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.fogTargetColor.set(fogHex);
+      this.scene.fog.color.lerp(this.fogTargetColor, 0.12);
+    }
+    this.bloomPass.strength = Math.max(0.18, this.baseBloomStrength * (1 - d * 0.52));
+    this.renderer.toneMappingExposure = this.baseExposure + d * 0.08;
   }
 
   private getTargetDpr(): number {

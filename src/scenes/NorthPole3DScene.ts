@@ -8,6 +8,7 @@ import {
   RoadsideMilestoneSlot,
 } from '../three/elonTimelineRoadside';
 import { LiveSkyRig } from '../three/liveSkyRig';
+import { LivingWorldRig } from '../three/livingWorldProps';
 import { OsmMapLayer } from '../three/osmMapRenderer';
 import { PixarElonRig } from '../three/pixarElonEvents';
 import {
@@ -86,11 +87,14 @@ interface GiftProjectile {
   start: THREE.Vector3;
   end: THREE.Vector3;
   onLand?: () => void;
+  bonusGifts?: number;
+  bonusKind?: 'town_tree' | 'snowman';
 }
 
 const TRAIL_COUNT = 240;
 const BURST_COUNT = 72;
 const CHIMNEY_SPARK_COUNT = 36;
+const SPRAY_COUNT = 120;
 
 export class NorthPole3DScene implements HolidayScene {
   readonly id: SceneId = 'flight3d';
@@ -126,6 +130,7 @@ export class NorthPole3DScene implements HolidayScene {
   private elonRig!: PixarElonRig;
   private liveSkyRig!: LiveSkyRig;
   private osmMap!: OsmMapLayer;
+  private livingWorld!: LivingWorldRig;
   private frozenLake!: THREE.Mesh;
   private roadSign!: HolidayRoadSignHandle;
   private swedishSign!: SwedishRoadSignHandle;
@@ -147,9 +152,18 @@ export class NorthPole3DScene implements HolidayScene {
   private chimneyPos = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
   private chimneyVel = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
   private chimneyLife = new Float32Array(CHIMNEY_SPARK_COUNT);
+  private sprayPts!: THREE.Points;
+  private sprayPos = new Float32Array(SPRAY_COUNT * 3);
+  private sprayVel = new Float32Array(SPRAY_COUNT * 3);
+  private sprayLife = new Float32Array(SPRAY_COUNT);
+  private sprayCursor = 0;
+  private sleighLight!: THREE.PointLight;
   private giftsDelivered = 0;
+  private comboCount = 0;
+  private comboTimer = 0;
+  private hornFlashTimer = 0;
   private lastAudio?: HolidayAudioEngine;
-  private lastGiftCb?: (total: number) => void;
+  private lastGiftCb?: (total: number, combo?: number, bonusMsg?: string) => void;
 
   // Smooth Cinematic Commercial Camera state
   private camShotTimer = 0;
@@ -479,6 +493,32 @@ export class NorthPole3DScene implements HolidayScene {
 
       this.osmMap = new OsmMapLayer();
       scene.add(this.osmMap.group);
+
+      this.livingWorld = new LivingWorldRig(() => this.osmMap.lightUpNeighborhood());
+      scene.add(this.livingWorld.group);
+
+      // Colored sleigh & Rudolph snowbank light spill
+      this.sleighLight = new THREE.PointLight('#ffb860', 2.2, 26, 1.65);
+      this.sleighLight.position.set(0, 1.9, 0.4);
+      this.sleigh.group.add(this.sleighLight);
+
+      // 120-Particle Powder Snow Spray behind convoy tires & sleigh runners
+      const sprayGeo = new THREE.BufferGeometry();
+      for (let i = 0; i < SPRAY_COUNT; i++) this.sprayPos[i * 3 + 1] = -99;
+      sprayGeo.setAttribute('position', new THREE.BufferAttribute(this.sprayPos, 3));
+      this.sprayPts = new THREE.Points(
+        sprayGeo,
+        new THREE.PointsMaterial({
+          map: getSoftGlowTexture(),
+          color: '#e6f4ff',
+          size: 0.92,
+          transparent: true,
+          opacity: 0.72,
+          depthWrite: false,
+        })
+      );
+      this.sprayPts.frustumCulled = false;
+      scene.add(this.sprayPts);
     }
 
     this.mountMilestoneCard(container);
@@ -564,6 +604,17 @@ export class NorthPole3DScene implements HolidayScene {
     }
   }
 
+  triggerConvoySalute(): void {
+    if (!this.stage) return;
+    this.hornFlashTimer = 1.6;
+    this.rippleTimer = 0;
+    this.landmarkAlert = 1.0;
+    this.sleigh?.triggerReaction('hohoho');
+    this.lastAudio?.playConvoyHorn();
+    const t = i18n.t();
+    this.lastGiftCb?.(this.giftsDelivered, this.comboCount, t.convoyHornToast);
+  }
+
   interact(normX = 0.5, _normY = 0.42): void {
     if (!this.stage) return;
     // 1. Trigger Light Show wave across Coca-Cola & Tesla Semis + Santa surprise bounce!
@@ -571,28 +622,51 @@ export class NorthPole3DScene implements HolidayScene {
     this.landmarkAlert = 1.0;
     this.sleigh.triggerReaction('gift');
 
-    // 2. Launch 3D Parabolic Gift Projectile toward an OSM building chimney ahead ("Tänd byn!")
+    // 1B. Check interactive Geminids Shooting Star catch!
+    if (this.liveSkyRig.tryCatchShootingStar()) {
+      this.giftsDelivered += 3;
+      this.comboCount = Math.min(9, Math.max(1, this.comboCount + 1));
+      this.comboTimer = 4.2;
+      this.lastAudio?.playComboFanfare(this.comboCount + 1);
+      this.lastGiftCb?.(this.giftsDelivered, this.comboCount, i18n.t().wishStarToast);
+    }
+
+    // 2. Launch 3D Parabolic Gift Projectile toward Town Tree, Snowman, or OSM building ahead
     const slot = this.giftPool.find((g) => !g.active) ?? this.giftPool[0];
     if (slot) {
-      const candidates = this.osmMap.getGiftTargets();
       const wantLeft = normX < 0.5;
-      let chosen = candidates.find(
-        (c) => c.z < -12 && c.z > -95 && (wantLeft ? c.x < 0 : c.x >= 0)
-      );
-      if (!chosen && candidates.length > 0) {
-        chosen = candidates[0];
-      }
+      const livingTargets = this.livingWorld?.getInteractiveTargets() ?? [];
+      const treeTarget = livingTargets.find((c) => c.kind === 'town_tree');
+      const snowTarget =
+        livingTargets.find((c) => c.kind === 'snowman' && (wantLeft ? c.x < 0 : c.x >= 0)) ??
+        livingTargets.find((c) => c.kind === 'snowman');
+      const livingChoice = treeTarget ?? snowTarget;
+
       slot.active = true;
       slot.t = 0;
       slot.start.copy(this.sleigh.group.position).add(new THREE.Vector3(0, 1.45, -0.4));
-      if (chosen) {
-        slot.end.set(chosen.x, chosen.y, chosen.z);
-        slot.onLand = chosen.lightUp;
+
+      if (livingChoice) {
+        slot.end.set(livingChoice.x, livingChoice.y, livingChoice.z);
+        slot.onLand = livingChoice.lightUp;
+        slot.bonusGifts = livingChoice.bonusGifts;
+        slot.bonusKind = livingChoice.kind;
       } else {
-        const dropZ = -28;
-        const dropX = this.getRoadCurveX(dropZ) + (wantLeft ? -11 : 11);
-        slot.end.set(dropX, 1.2, dropZ);
-        slot.onLand = undefined;
+        const candidates = this.osmMap.getGiftTargets();
+        const chosen =
+          candidates.find((c) => c.z < -12 && c.z > -95 && (wantLeft ? c.x < 0 : c.x >= 0)) ??
+          candidates[0];
+        if (chosen) {
+          slot.end.set(chosen.x, chosen.y, chosen.z);
+          slot.onLand = chosen.lightUp;
+        } else {
+          const dropZ = -28;
+          const dropX = this.getRoadCurveX(dropZ) + (wantLeft ? -11 : 11);
+          slot.end.set(dropX, 1.2, dropZ);
+          slot.onLand = undefined;
+        }
+        slot.bonusGifts = 0;
+        slot.bonusKind = undefined;
       }
       slot.mesh.position.copy(slot.start);
       slot.mesh.visible = true;
@@ -658,6 +732,12 @@ export class NorthPole3DScene implements HolidayScene {
     const windX = Math.sin(windRad) * windStrength * 2.2 - this.smoothCurve * 4;
 
     this.stage.setQuality(env.quality);
+    this.stage.setAtmosphere(env.daylightFactor, env.blueHourFactor, env.fogColor);
+    this.hornFlashTimer = Math.max(0, this.hornFlashTimer - dt);
+    if (this.comboTimer > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) this.comboCount = 0;
+    }
     this.smoothCurve += (telemetry.turnRate - this.smoothCurve) * Math.min(1, dt * 3.5);
     this.wheelPhase += Math.max(8, telemetry.speedKmh * 0.45) * dt;
     if (this.rippleTimer >= 0) {
@@ -668,13 +748,23 @@ export class NorthPole3DScene implements HolidayScene {
     this.landmarkAlert = Math.max(0, this.landmarkAlert - dt * 0.55);
     const sleighAlert = Math.max(osm.landmarkPulse, this.landmarkAlert);
 
-    // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Snowbanks
+    // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Wet Reflections & Glitter
     this.roadScroll += forwardStep;
     this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
+    const auroraHex =
+      env.theme === 'cyber2099' ? '#3eeeff' : env.theme === 'nordic' ? '#7fd6ff' : '#3ce8b4';
+    const auroraBoost = env.theme === 'cyber2099' ? 1.25 : 1.0 + live.auroraLiveBoost * 0.45;
+    this.snowyRoad.setAtmosphere(time, env.daylightFactor, auroraHex, auroraBoost);
 
-    // 2. Curve-Locked OSM Forest / Open Countryside / Town Layer + Beat/Wind/Theme Mood
+    // 2. Curve-Locked OSM Forest / Open Countryside / Town Layer + Living Props & Church Bells
     this.osmMap.setVisualMood(beat, windX, env.theme);
     this.osmMap.update(dt, telemetry, osm, env.quality, sleighAlert, (z) =>
+      this.getRoadCurveX(z)
+    );
+    if (this.osmMap.hasPassingChurch()) {
+      audio.playChurchBells();
+    }
+    this.livingWorld.update(dt, time, forwardStep, osm, env.quality, (z) =>
       this.getRoadCurveX(z)
     );
     const hasOsmWorld =
@@ -723,7 +813,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.skyMat.uniforms.uTopColor.value.set(env.skyTopColor);
     this.skyMat.uniforms.uMidColor.value.set(env.skyMidColor);
     this.skyMat.uniforms.uHorizonColor.value.set(env.skyHorizonColor);
+    if (this.skyMat.uniforms.uDaylight) {
+      this.skyMat.uniforms.uDaylight.value = env.daylightFactor;
+    }
     this.moon.userData.setMoonPhase?.(env.moonPhase);
+    this.moon.userData.setDaylight?.(env.daylightFactor);
 
     const targetFlight = telemetry.isPlaidSpeed ? 1 : 0;
     this.flightFactor += (targetFlight - this.flightFactor) * Math.min(1, dt * 1.4);
@@ -769,7 +863,11 @@ export class NorthPole3DScene implements HolidayScene {
           ? Math.max(0, 1 - Math.abs(this.rippleTimer - truck.idx * 0.35) * 2.1)
           : 0) +
         beat * 0.65;
-      truck.handle.update(dt, this.wheelPhase, telemetry.isBraking, rippleBoost, time);
+      const hornWave =
+        this.hornFlashTimer > 0
+          ? Math.max(0, Math.sin(this.hornFlashTimer * 12) * 0.4 + 0.85)
+          : 0;
+      truck.handle.update(dt, this.wheelPhase, telemetry.isBraking, rippleBoost, time, hornWave);
     }
 
     // 5B. Red-Light Cameos: Waving Santa-Hat Optimus + Oncoming Cybertruck Snowplow
@@ -851,8 +949,17 @@ export class NorthPole3DScene implements HolidayScene {
     // 7. Sleigh Flight, Red-Light Glögg Wave, Cyber Theme & Multi-Tier Speed Glitter
     this.sleigh.setStoppedMode(this.stoppedSec);
     this.sleigh.setTheme(env.theme);
+    const hornBounce = this.hornFlashTimer > 0 ? Math.sin(this.hornFlashTimer * 14) * 0.16 : 0;
     const targetY =
-      2.95 + this.flightFactor * 5.6 + Math.sin(time * 2.2) * (0.14 + speedNorm * 0.22);
+      2.95 +
+      this.flightFactor * 5.6 +
+      Math.sin(time * 2.2) * (0.14 + speedNorm * 0.22) +
+      hornBounce;
+    this.sleighLight.color.set(
+      env.theme === 'cyber2099' ? '#4cecff' : env.theme === 'nordic' ? '#82e4ff' : '#ffb860'
+    );
+    this.sleighLight.intensity =
+      (1.8 + beat * 1.4 + this.flightFactor * 0.9) * (1 - env.daylightFactor * 0.55);
     const targetX = this.smoothCurve * 1.5;
     this.sleigh.group.position.x += (targetX - this.sleigh.group.position.x) * Math.min(1, dt * 5);
     this.sleigh.group.position.y += (targetY - this.sleigh.group.position.y) * Math.min(1, dt * 4);
@@ -870,9 +977,22 @@ export class NorthPole3DScene implements HolidayScene {
         g.mesh.visible = false;
         g.onLand?.();
         this.spawnChimneySparks(g.end.x, g.end.y, g.end.z);
-        this.giftsDelivered++;
-        this.lastGiftCb?.(this.giftsDelivered);
-        this.lastAudio?.playChimneyPop();
+        this.comboTimer = 4.2;
+        this.comboCount = Math.min(9, this.comboCount + 1);
+        this.giftsDelivered += 1 + (g.bonusGifts ?? 0);
+        const t = i18n.t();
+        const bonusMsg =
+          g.bonusKind === 'town_tree'
+            ? t.townTreeLitToast
+            : g.bonusKind === 'snowman'
+              ? t.snowmanCrownToast
+              : undefined;
+        this.lastGiftCb?.(this.giftsDelivered, this.comboCount, bonusMsg);
+        if (bonusMsg || this.comboCount >= 3) {
+          this.lastAudio?.playComboFanfare(this.comboCount);
+        } else {
+          this.lastAudio?.playChimneyPop();
+        }
       } else {
         const p = g.t;
         const arc = Math.sin(p * Math.PI) * 9.5;
@@ -897,6 +1017,49 @@ export class NorthPole3DScene implements HolidayScene {
       }
     }
     this.chimneyPts.geometry.attributes.position.needsUpdate = true;
+
+    // 120-Particle Powder Snow Spray behind convoy tires & low sleigh runners
+    if (telemetry.speedKmh > 12) {
+      const emitSpray = (sx: number, sy: number, sz: number, spreadX: number) => {
+        const i = this.sprayCursor;
+        this.sprayCursor = (this.sprayCursor + 1) % SPRAY_COUNT;
+        this.sprayPos[i * 3] = sx + (Math.random() - 0.5) * spreadX;
+        this.sprayPos[i * 3 + 1] = sy + Math.random() * 0.28;
+        this.sprayPos[i * 3 + 2] = sz;
+        this.sprayVel[i * 3] = (Math.random() - 0.5) * (1.8 + speedNorm * 1.6);
+        this.sprayVel[i * 3 + 1] = 1.4 + Math.random() * (1.8 + speedNorm * 1.4);
+        this.sprayVel[i * 3 + 2] = 2.4 + speedNorm * 4.2 + Math.random() * 2.0;
+        this.sprayLife[i] = 1.0;
+      };
+      const nearbyTrucks = this.caravanTrucks.filter(
+        (tr) => tr.zOffset > -48 && tr.zOffset < 10
+      );
+      if (nearbyTrucks.length > 0) {
+        const tr = nearbyTrucks[Math.floor(Math.random() * nearbyTrucks.length)];
+        const tx = tr.handle.group.position.x;
+        const tz = tr.handle.group.position.z + (tr.direction === 1 ? -3.4 : 3.4);
+        emitSpray(tx - 0.72, 0.25, tz, 0.45);
+        emitSpray(tx + 0.72, 0.25, tz, 0.45);
+      }
+      if (this.flightFactor < 0.35) {
+        const sx = this.sleigh.group.position.x;
+        const sz = this.sleigh.group.position.z + 1.1;
+        emitSpray(sx - 0.55, 0.3, sz, 0.5);
+        emitSpray(sx + 0.55, 0.3, sz, 0.5);
+      }
+    }
+    for (let i = 0; i < SPRAY_COUNT; i++) {
+      if (this.sprayLife[i] > 0) {
+        this.sprayLife[i] -= dt * 1.55;
+        this.sprayPos[i * 3] += this.sprayVel[i * 3] * dt;
+        this.sprayPos[i * 3 + 1] = Math.max(0.05, this.sprayPos[i * 3 + 1] + this.sprayVel[i * 3 + 1] * dt);
+        this.sprayPos[i * 3 + 2] += (this.sprayVel[i * 3 + 2] + forwardStep * 0.85) * dt;
+        this.sprayVel[i * 3 + 1] -= 4.2 * dt;
+      } else {
+        this.sprayPos[i * 3 + 1] = -99;
+      }
+    }
+    this.sprayPts.geometry.attributes.position.needsUpdate = true;
 
     // Update 240-Particle Swirling Stardust Wake (dramatically denser, wider & brighter with speed!)
     this.sleigh.getTrailOrigin(this.trailVec);
@@ -1081,8 +1244,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.milestoneCardEl?.remove();
     this.milestoneCardEl = null;
     this.liveSkyRig?.dispose();
+    this.livingWorld?.dispose();
     this.chimneyPts?.geometry.dispose();
     (this.chimneyPts?.material as THREE.Material)?.dispose();
+    this.sprayPts?.geometry.dispose();
+    (this.sprayPts?.material as THREE.Material)?.dispose();
     this.snowyRoad?.dispose();
     this.osmMap?.dispose();
     if (this.fallbackEl) {

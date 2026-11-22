@@ -15,6 +15,7 @@ import { DriveSource, TelemetryEngine, TelemetryFrame } from '../core/telemetry'
 import { FrostCanvasOverlay } from './FrostCanvas';
 
 export interface HudCallbacks {
+  onConvoyHorn?: () => void;
   onBackToMenu: () => void;
   onSwitchMode: (id: SceneId) => void;
   onQuickInteract: () => void;
@@ -59,6 +60,7 @@ export class SceneHUD {
   private osmCheckbox!: HTMLInputElement;
   private osmStatsEl!: HTMLElement;
   private liveStatsEl!: HTMLElement;
+  private hornBtnEl!: HTMLButtonElement;
   private micBtnEl!: HTMLButtonElement;
   private volSlider!: HTMLInputElement;
   private diagTextEl!: HTMLElement;
@@ -178,6 +180,7 @@ export class SceneHUD {
 
     this.bottomActions.innerHTML = `
       <button type="button" class="hud-pill-action" data-hud="interact">${t.modes[this.activeMode].actionLabel}</button>
+      <button type="button" class="hud-pill-action ${this.activeMode === 'flight3d' ? '' : 'hidden'}" data-hud="horn">${t.convoyHornBtn}</button>
       <button type="button" class="hud-pill-action" data-hud="hohoho">${t.hoHoHoBtn}</button>
       <button type="button" class="hud-pill-action ${curCine ? 'is-active' : ''} ${this.activeMode === 'flight3d' ? '' : 'hidden'}" data-hud="toggle-cine">${t.cinematicCamBtn}</button>
       <button type="button" class="hud-pill-action hud-gear-btn" data-hud="toggle-drawer">${t.controlsBtn}</button>
@@ -288,6 +291,7 @@ export class SceneHUD {
           <div class="segmented full">
             <button type="button" class="${curSky === 'midnight' ? 'active' : ''}" data-sky="midnight">${t.skyMidnight}</button>
             <button type="button" class="${curSky === 'twilight' ? 'active' : ''}" data-sky="twilight">${t.skyTwilight}</button>
+            <button type="button" class="${curSky === 'daylight' ? 'active' : ''}" data-sky="daylight">${t.skyDaylight}</button>
             <button type="button" class="${curSky === 'auto' ? 'active' : ''}" data-sky="auto">${t.skyAuto}</button>
           </div>
           <div class="drawer-sublabel" style="margin-top: 4px;">${t.qualityLabel}</div>
@@ -351,7 +355,12 @@ export class SceneHUD {
     this.tempEl = this.topBar.querySelector('[data-hud="temp"]')!;
     this.statusPillEl = this.topBar.querySelector('[data-hud="status"]')!;
     this.actionBtnEl = this.bottomActions.querySelector('[data-hud="interact"]')!;
+    this.hornBtnEl = this.bottomActions.querySelector('[data-hud="horn"]')!;
     this.cineBtnEl = this.bottomActions.querySelector('[data-hud="toggle-cine"]')!;
+    this.hornBtnEl.addEventListener('click', () => {
+      this.audio.unlock();
+      this.callbacks.onConvoyHorn?.();
+    });
 
     this.speedSlider = this.drawer.querySelector('[data-hud="speed-slider"]')!;
     this.speedReadout = this.drawer.querySelector('[data-hud="slider-speed-val"]')!;
@@ -593,14 +602,19 @@ export class SceneHUD {
     this.modeNameEl.textContent = t.modes[mode].title;
     this.actionBtnEl.textContent = t.modes[mode].actionLabel;
     this.cineBtnEl.classList.toggle('hidden', mode !== 'flight3d');
+    this.hornBtnEl?.classList.toggle('hidden', mode !== 'flight3d');
     this.syncDrawerButtons();
   }
 
-  setGiftsDelivered(count: number): void {
+  setGiftsDelivered(count: number, combo = 1, bonusMsg?: string): void {
     this.giftsDelivered = count;
     const t = i18n.t();
-    this.giftPillEl.textContent = `${t.giftsLabel} ${count}`;
+    const comboSuffix = combo >= 2 ? ` · 🔥x${combo}` : '';
+    this.giftPillEl.textContent = `${t.giftsLabel} ${count}${comboSuffix}`;
     this.giftPillEl.classList.toggle('hidden', count <= 0);
+    if (bonusMsg) {
+      this.showToast(bonusMsg);
+    }
   }
 
   resize(width: number, height: number): void {
@@ -689,7 +703,7 @@ export class SceneHUD {
         ? `${leadFlight.isLive ? '✈' : '🎅✈'} ${leadFlight.callsign} (${leadFlight.altitudeM}m)`
         : '—';
       this.liveStatsEl.textContent =
-        `🌌 Kp ${live.kpIndex.toFixed(1)}${live.isAuroraAlert ? ' ALERT!' : ''} · 🛰 ISS ${live.issDistanceKm.toLocaleString()} km · 🚀 ${live.nextSpaceXCountdown} · 💨 ${env.windSpeedKmh} km/h · ${flightTag}`;
+        `☀ ${env.sunriseText}–${env.sunsetText} · 🌌 Kp ${live.kpIndex.toFixed(1)}${live.isAuroraAlert ? ' ALERT!' : ''} · 🛰 ISS ${live.issDistanceKm.toLocaleString()} km · 🚀 ${live.nextSpaceXCountdown} · 💨 ${env.windSpeedKmh} km/h · ${flightTag}`;
     }
 
     this.speedEl.textContent = String(Math.round(telemetry.speedKmh));

@@ -61,6 +61,7 @@ export interface TranslationDict {
   drawerEnvSection: string;
   skyMidnight: string;
   skyTwilight: string;
+  skyDaylight: string;
   skyAuto: string;
   qualityLabel: string;
   qualityUltra: string;
@@ -121,6 +122,11 @@ export interface TranslationDict {
   frostWipeHint: string;
   giftsLabel: string;
   elonTimelineToggleLabel: string;
+  convoyHornBtn: string;
+  townTreeLitToast: string;
+  snowmanCrownToast: string;
+  wishStarToast: string;
+  convoyHornToast: string;
 }
 
 const SV: TranslationDict = {
@@ -178,7 +184,8 @@ const SV: TranslationDict = {
   soundCheckWav: '3 · Julklocka (Audio WAV)',
   drawerEnvSection: 'Himmel, Frost & Språk',
   skyMidnight: 'Julnatt',
-  skyTwilight: 'Skymning',
+  skyTwilight: 'Blå timmen',
+  skyDaylight: 'Vinterdag',
   skyAuto: 'Auto-tid',
   qualityLabel: '3D-Grafik',
   qualityUltra: 'Pixar Ultra',
@@ -308,6 +315,11 @@ const SV: TranslationDict = {
   frostWipeHint: 'Dra fingret på kanterna för att skrapa frost',
   giftsLabel: '🎁',
   elonTimelineToggleLabel: 'Visa Elon-tidslinje längs vägen',
+  convoyHornBtn: '📯 Tuta',
+  townTreeLitToast: '🎄 Torggranen tänd! +5 🎁 Hela kvarteret strålar!',
+  snowmanCrownToast: '⛄ Snögubben jublar med guldkrona! +2 🎁',
+  wishStarToast: '🌠 Fångade ett stjärnfall! +3 Önskebonus 🎁',
+  convoyHornToast: '📯 Konvojen tutar julhälsning · Strålkastarvåg!',
 };
 
 const EN: TranslationDict = {
@@ -365,7 +377,8 @@ const EN: TranslationDict = {
   soundCheckWav: '3 · Holiday Chime (Audio WAV)',
   drawerEnvSection: 'Sky, Frost & Language',
   skyMidnight: 'Holiday Night',
-  skyTwilight: 'Twilight',
+  skyTwilight: 'Blue Hour',
+  skyDaylight: 'Winter Day',
   skyAuto: 'Auto Time',
   qualityLabel: '3D Graphics',
   qualityUltra: 'Pixar Ultra',
@@ -495,6 +508,11 @@ const EN: TranslationDict = {
   frostWipeHint: 'Drag edges to wipe windshield frost',
   giftsLabel: '🎁',
   elonTimelineToggleLabel: 'Show Elon Timeline along road',
+  convoyHornBtn: '📯 Horn',
+  townTreeLitToast: '🎄 Town Square Tree Ignited! +5 🎁 Full Block Glowing!',
+  snowmanCrownToast: '⛄ Snowman Crowned with Gold! +2 🎁',
+  wishStarToast: '🌠 Shooting Star Caught! +3 Wish Bonus 🎁',
+  convoyHornToast: '📯 Convoy Horn Salute · Synchronized Light Flash!',
 };
 
 const DICTS: Record<Locale, TranslationDict> = { sv: SV, en: EN };

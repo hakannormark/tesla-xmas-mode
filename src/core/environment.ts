@@ -1,4 +1,4 @@
-export type SkyMood = 'midnight' | 'twilight' | 'auto';
+export type SkyMood = 'midnight' | 'twilight' | 'daylight' | 'auto';
 export type GraphicsQuality = 'ultra' | 'eco';
 export type HolidayThemeId = 'classic' | 'nordic' | 'cyber2099';
 export type CalendarPreviewMode =
@@ -21,7 +21,12 @@ export interface HolidayCalendarInfo {
 
 export interface EnvironmentState {
   skyMood: SkyMood;
-  effectiveSky: 'midnight' | 'twilight';
+  effectiveSky: 'midnight' | 'twilight' | 'daylight';
+  daylightFactor: number; // 0 = winter night, 0.35 = blue hour, 1 = bright arctic day
+  blueHourFactor: number; // 0..1 dusk/dawn glow boost
+  sunriseText: string;
+  sunsetText: string;
+  fogColor: string;
   quality: GraphicsQuality;
   temperatureC: number;
   windSpeedKmh: number;
@@ -140,6 +145,10 @@ export class EnvironmentManager {
   private windDirDeg = 250;
   private precipMm = 0.4;
   private isSnowingReal = true;
+  private sunriseMin = 8 * 60;
+  private sunsetMin = 15 * 60 + 15;
+  private sunriseText = '08:00';
+  private sunsetText = '15:15';
   private lastWeatherFetchMs = 0;
   private lastLat = 59.33;
   private lastLon = 18.07;
@@ -147,7 +156,12 @@ export class EnvironmentManager {
   constructor() {
     try {
       const savedMood = localStorage.getItem('tesla-xmas-sky');
-      if (savedMood === 'midnight' || savedMood === 'twilight' || savedMood === 'auto') {
+      if (
+        savedMood === 'midnight' ||
+        savedMood === 'twilight' ||
+        savedMood === 'daylight' ||
+        savedMood === 'auto'
+      ) {
         this.skyMood = savedMood;
       }
       const savedQuality = localStorage.getItem('tesla-xmas-quality');
@@ -286,7 +300,7 @@ export class EnvironmentManager {
 
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(
       3
-    )}&current=temperature_2m,snowfall,precipitation,weather_code,wind_speed_10m,wind_direction_10m`;
+    )}&current=temperature_2m,snowfall,precipitation,weather_code,wind_speed_10m,wind_direction_10m&daily=sunrise,sunset&timezone=auto&forecast_days=1`;
 
     fetch(url)
       .then((res) => (res.ok ? res.json() : null))
@@ -315,6 +329,25 @@ export class EnvironmentManager {
           (typeof snowfall === 'number' && snowfall > 0) ||
           (typeof precip === 'number' && precip > 0.2) ||
           snowCodes.has(code);
+
+        const srIso: unknown = data.daily?.sunrise?.[0];
+        const ssIso: unknown = data.daily?.sunset?.[0];
+        if (typeof srIso === 'string' && srIso.includes('T')) {
+          const hm = srIso.split('T')[1].slice(0, 5);
+          const [h, m] = hm.split(':').map(Number);
+          if (Number.isFinite(h) && Number.isFinite(m)) {
+            this.sunriseMin = h * 60 + m;
+            this.sunriseText = hm;
+          }
+        }
+        if (typeof ssIso === 'string' && ssIso.includes('T')) {
+          const hm = ssIso.split('T')[1].slice(0, 5);
+          const [h, m] = hm.split(':').map(Number);
+          if (Number.isFinite(h) && Number.isFinite(m)) {
+            this.sunsetMin = h * 60 + m;
+            this.sunsetText = hm;
+          }
+        }
       })
       .catch(() => {
         // Offline / blocked: keep cozy fallback temperature (-6°C) silently
@@ -323,15 +356,35 @@ export class EnvironmentManager {
 
   getState(): EnvironmentState {
     const now = new Date();
-    let effectiveSky: 'midnight' | 'twilight' = 'midnight';
-    if (this.skyMood === 'twilight') {
+    const curMin = now.getHours() * 60 + now.getMinutes();
+
+    let effectiveSky: 'midnight' | 'twilight' | 'daylight' = 'midnight';
+    let daylightFactor = 0;
+    let blueHourFactor = 0;
+
+    if (this.skyMood === 'daylight') {
+      effectiveSky = 'daylight';
+      daylightFactor = 1.0;
+      blueHourFactor = 0.08;
+    } else if (this.skyMood === 'twilight') {
       effectiveSky = 'twilight';
+      daylightFactor = 0.32;
+      blueHourFactor = 1.0;
     } else if (this.skyMood === 'auto') {
-      const hour = now.getHours();
-      if (hour >= 14 && hour <= 18) {
+      const distRise = Math.abs(curMin - this.sunriseMin);
+      const distSet = Math.abs(curMin - this.sunsetMin);
+      if (distRise <= 42 || distSet <= 48) {
         effectiveSky = 'twilight';
+        daylightFactor = 0.34;
+        blueHourFactor = 1.0;
+      } else if (curMin > this.sunriseMin + 42 && curMin < this.sunsetMin - 48) {
+        effectiveSky = 'daylight';
+        daylightFactor = 0.95;
+        blueHourFactor = 0.1;
       } else {
         effectiveSky = 'midnight';
+        daylightFactor = 0;
+        blueHourFactor = 0;
       }
     }
 
@@ -345,28 +398,43 @@ export class EnvironmentManager {
     let skyTopColor = '#040a1d';
     let skyMidColor = '#0b1a42';
     let skyHorizonColor = '#192d5c';
+    let fogColor = '#0c1b42';
     let horizonWarmGlow = 0.65;
 
     if (this.theme === 'cyber2099') {
-      skyTopColor = '#060318';
-      skyMidColor = '#16093b';
-      skyHorizonColor = '#311259';
+      skyTopColor = effectiveSky === 'daylight' ? '#1e2c64' : '#060318';
+      skyMidColor = effectiveSky === 'daylight' ? '#4a3f92' : '#16093b';
+      skyHorizonColor = effectiveSky === 'daylight' ? '#8c4b86' : '#311259';
+      fogColor = effectiveSky === 'daylight' ? '#4e3978' : '#150b35';
       horizonWarmGlow = 0.85;
+    } else if (effectiveSky === 'daylight') {
+      skyTopColor = '#3a75b8';
+      skyMidColor = '#7cb3e2';
+      skyHorizonColor = '#deebf8';
+      fogColor = '#9cbfe4';
+      horizonWarmGlow = 0.45;
     } else if (this.theme === 'nordic') {
       skyTopColor = '#04122e';
       skyMidColor = '#0e2959';
-      skyHorizonColor = effectiveSky === 'twilight' ? '#4d4166' : '#234472';
-      horizonWarmGlow = 0.78;
+      skyHorizonColor = effectiveSky === 'twilight' ? '#70496c' : '#234472';
+      fogColor = effectiveSky === 'twilight' ? '#2c2c58' : '#132854';
+      horizonWarmGlow = 0.82;
     } else if (effectiveSky === 'twilight') {
-      skyTopColor = '#0b1942';
-      skyMidColor = '#1f3668';
-      skyHorizonColor = '#5c3f58';
-      horizonWarmGlow = 0.9;
+      skyTopColor = '#0b1c48';
+      skyMidColor = '#27427c';
+      skyHorizonColor = '#8c5a74';
+      fogColor = '#233262';
+      horizonWarmGlow = 1.0;
     }
 
     return {
       skyMood: this.skyMood,
       effectiveSky,
+      daylightFactor,
+      blueHourFactor,
+      sunriseText: this.sunriseText,
+      sunsetText: this.sunsetText,
+      fogColor,
       quality: this.quality,
       temperatureC: this.temperatureC,
       windSpeedKmh: this.windSpeedKmh,

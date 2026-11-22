@@ -92,6 +92,7 @@ class TeslaXmasApp {
       onQuickInteract: () => this.triggerSceneInteract(0.5, 0.42),
       onHoHoHo: () => this.activeScene?.triggerReaction?.('hohoho'),
       onLandmarkReaction: () => this.activeScene?.triggerReaction?.('landmark'),
+      onConvoyHorn: () => this.activeScene?.triggerConvoySalute?.(),
     });
 
     // Tapping anywhere fires scene interaction & Gift Cannon; dragging across frosted borders wipes frost!
@@ -233,6 +234,8 @@ class TeslaXmasApp {
       this.hud.syncDrawerButtons();
     } else if (e.key.toLowerCase() === 'e' && this.activeScene) {
       this.elon.triggerNext();
+    } else if (e.key.toLowerCase() === 'h' && this.activeScene) {
+      this.activeScene.triggerConvoySalute?.();
     }
   }
 
@@ -286,7 +289,7 @@ class TeslaXmasApp {
         audio: this.audio,
         osm: osmState,
         live: liveState,
-        onGiftDelivered: (total) => this.hud.setGiftsDelivered(total),
+        onGiftDelivered: (total, combo, bonusMsg) => this.hud.setGiftsDelivered(total, combo, bonusMsg),
       });
 
       // Render Boring Tunnel seamless perspective overlay if active
