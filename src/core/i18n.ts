@@ -92,7 +92,7 @@ export interface TranslationDict {
   osmEnableLabel: string;
   osmNextStopBtn: string;
   osmGreetingPrefix: string;
-  osmBiomes: Record<'village' | 'forest' | 'water' | 'highway', string>;
+  osmBiomes: Record<'village' | 'forest' | 'water' | 'highway' | 'open', string>;
   timelinePrev: string;
   timelineNext: string;
   timelinePassingLabel: string;
@@ -189,9 +189,9 @@ const SV: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        'Flagship Pixar 3D-vinterväg med snövallar, Coca-Cola & ICA-julkaravaner, OpenStreetMap-kvarter med skogsdjur samt Elon-händelser längs vägen!',
+        'Flagship Pixar 3D-vinterväg med snövallar, Coca-Cola & Tesla-julkaravaner, stugor, hus & Gigafactories från OpenStreetMap samt Elon-händelser!',
       badge: 'Disney/Pixar All-in-One ★',
-      actionLabel: '🌟 Stjärnring & Ljusvåg',
+      actionLabel: '✨ Magi & Starlink',
     },
     snowglobe: {
       id: 'snowglobe',
@@ -259,6 +259,7 @@ const SV: TranslationDict = {
     forest: 'Vinterskog',
     water: 'Frusen sjö',
     highway: 'Vinterväg',
+    open: 'Öppet landskap',
   },
   timelinePrev: 'Föregående',
   timelineNext: 'Nästa',
@@ -356,9 +357,9 @@ const EN: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        'Flagship Disney/Pixar winter boulevard fusing Coca-Cola & ICA holiday trucks, OSM wildlife towns, and roadside Elon timeline events!',
+        'Flagship Disney/Pixar winter boulevard fusing Coca-Cola & Tesla holiday Semis, Street-View cottages & Gigafactories from OSM, plus roadside Elon events!',
       badge: 'Disney/Pixar All-in-One ★',
-      actionLabel: '🌟 Star Ring & Light Wave',
+      actionLabel: '✨ Magic & Starlink',
     },
     snowglobe: {
       id: 'snowglobe',
@@ -426,6 +427,7 @@ const EN: TranslationDict = {
     forest: 'Snowy Forest',
     water: 'Frozen Lake',
     highway: 'Winter Highway',
+    open: 'Open Countryside',
   },
   timelinePrev: 'Previous',
   timelineNext: 'Next',

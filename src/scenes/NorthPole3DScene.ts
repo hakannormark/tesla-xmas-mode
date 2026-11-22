@@ -62,6 +62,16 @@ interface CaravanSemiUnit {
   idx: number;
 }
 
+interface SpeedStreak {
+  mesh: THREE.Mesh;
+  angle: number;
+  radius: number;
+  z: number;
+}
+
+const TRAIL_COUNT = 240;
+const BURST_COUNT = 72;
+
 export class NorthPole3DScene implements HolidayScene {
   readonly id: SceneId = 'flight3d';
   private stage: PixarStage | null = null;
@@ -77,8 +87,19 @@ export class NorthPole3DScene implements HolidayScene {
 
   private sleigh!: PixarSleighHandle;
   private sleighTrailPoints!: THREE.Points;
-  private sleighTrailPos = new Float32Array(110 * 3);
+  private sleighTrailMat!: THREE.PointsMaterial;
+  private sleighTrailPos = new Float32Array(TRAIL_COUNT * 3);
   private trailVec = new THREE.Vector3();
+
+  // Interactive Tap Starburst Particle Pool
+  private burstPts!: THREE.Points;
+  private burstPos = new Float32Array(BURST_COUNT * 3);
+  private burstVel = new Float32Array(BURST_COUNT * 3);
+  private burstLife = new Float32Array(BURST_COUNT);
+
+  // High-speed Peripheral Star-Warp Streaks
+  private speedStreaks: SpeedStreak[] = [];
+  private streakMat!: THREE.MeshBasicMaterial;
 
   private snowField!: BokehSnowField;
   private cloudsGroup!: THREE.Group;
@@ -92,7 +113,7 @@ export class NorthPole3DScene implements HolidayScene {
 
   // Roadside Elon Timeline Encounters embedded right along the highway
   private milestoneIndex = 0;
-  private milestoneCooldownM = 28;
+  private milestoneCooldownM = 12;
   private activeSlot: RoadsideMilestoneSlot | null = null;
   private milestoneCardEl: HTMLElement | null = null;
   private mYearEl!: HTMLElement;
@@ -110,9 +131,9 @@ export class NorthPole3DScene implements HolidayScene {
 
   mount(container: HTMLElement): void {
     const res = createPixarStageOrFallback(container, {
-      fov: 54,
+      fov: 50,
       fogColor: '#0c1b42',
-      fogDensity: 0.0046,
+      fogDensity: 0.003,
       bloomStrength: 0.5,
       bloomRadius: 0.58,
       bloomThreshold: 0.74,
@@ -142,62 +163,76 @@ export class NorthPole3DScene implements HolidayScene {
       this.snowyRoad = new PixarSnowyRoad();
       scene.add(this.snowyRoad.mesh);
 
-      // 3. Recycled Roadside Lamps (with warm snow pools) + Ambient Fallback Scenery
-      const totalSpan = 165;
-      const count = 42;
+      // 3. Clean Well-Spaced Victorian Lamps along snowbank outer edges (plus subtle non-OSM fallback)
       const glowTex = getSoftGlowTexture();
-      for (let i = 0; i < count; i++) {
+      const lampCount = 12;
+      const lampSpan = 180;
+      for (let i = 0; i < lampCount; i++) {
         const side: -1 | 1 = i % 2 === 0 ? -1 : 1;
-        let group: THREE.Group;
-        let lateralDist = 11.4 + Math.random() * 11;
-        let cottage: PixarCottageHandle | undefined;
-        let isLamp = false;
+        const lamp = createPixarStreetLamp();
+        lamp.setLit(1);
+        const pool = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: glowTex,
+            color: '#ffbe62',
+            transparent: true,
+            opacity: 0.48,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          })
+        );
+        pool.scale.set(5.4, 3.6, 1);
+        pool.position.set(0, 0.75, 0);
+        lamp.group.add(pool);
 
-        if (i % 6 === 0) {
-          const lamp = createPixarStreetLamp();
-          lamp.setLit(1);
-          // Warm amber glow pool illuminating the snowbank below each lamppost
-          const pool = new THREE.Sprite(
-            new THREE.SpriteMaterial({
-              map: glowTex,
-              color: '#ffbe62',
-              transparent: true,
-              opacity: 0.48,
-              blending: THREE.AdditiveBlending,
-              depthWrite: false,
-            })
-          );
-          pool.scale.set(5.4, 3.6, 1);
-          pool.position.set(0, 0.75, 0);
-          lamp.group.add(pool);
-          group = lamp.group;
-          lateralDist = 5.45;
-          isLamp = true;
-        } else if (i % 12 === 2) {
+        const zOffset = 10 - (i / lampCount) * lampSpan;
+        scene.add(lamp.group);
+        this.roadsideItems.push({
+          group: lamp.group,
+          side,
+          lateralDist: 5.55,
+          zOffset,
+          isLamp: true,
+        });
+      }
+
+      // Only 6 subtle ambient fallback objects (shown ONLY when OSM is disabled by user!)
+      for (let i = 0; i < 6; i++) {
+        const side: -1 | 1 = i % 2 === 0 ? -1 : 1;
+        let grp: THREE.Group;
+        let cottage: PixarCottageHandle | undefined;
+        let lateralDist = 14.5;
+        if (i % 3 === 0) {
           cottage = createPixarCottage(i);
           cottage.setLit(1);
-          group = cottage.group;
-          lateralDist = 13.5 + Math.random() * 3.5;
+          grp = cottage.group;
+          lateralDist = 15.5;
         } else {
           const pine = createPixarPineTree(i % 2 === 0, i);
           pine.setLit(1);
-          pine.group.scale.setScalar(0.9 + Math.random() * 0.55);
-          group = pine.group;
+          pine.group.scale.setScalar(1.0 + (i % 2) * 0.25);
+          grp = pine.group;
         }
-
-        const zOffset = 10 - (i / count) * totalSpan;
-        scene.add(group);
-        this.roadsideItems.push({ group, side, lateralDist, zOffset, isLamp, cottage });
+        grp.visible = false;
+        scene.add(grp);
+        this.roadsideItems.push({
+          group: grp,
+          side,
+          lateralDist,
+          zOffset: -12 - i * 26,
+          isLamp: false,
+          cottage,
+        });
       }
 
-      // 4. Cruising Coca-Cola & ICA Holiday Truck Caravan (3 oncoming + 3 same-dir lanes!)
+      // 4. Cruising Coca-Cola & Tesla Holiday Truck Caravan (3 oncoming + 3 same-dir lanes!)
       const truckSpecs: { livery: SemiLivery; laneX: number; z: number; dir: -1 | 1; spd: number }[] = [
         { livery: 'coca_cola', laneX: -2.45, z: -32, dir: 1, spd: 12.5 },
-        { livery: 'ica', laneX: 2.45, z: -52, dir: -1, spd: 12.0 },
-        { livery: 'ica', laneX: -2.45, z: -104, dir: 1, spd: 13.0 },
+        { livery: 'tesla', laneX: 2.45, z: -52, dir: -1, spd: 12.0 },
+        { livery: 'tesla', laneX: -2.45, z: -104, dir: 1, spd: 13.0 },
         { livery: 'coca_cola', laneX: 2.45, z: -124, dir: -1, spd: 11.5 },
         { livery: 'coca_cola', laneX: -2.45, z: -172, dir: 1, spd: 13.5 },
-        { livery: 'ica', laneX: 2.45, z: -188, dir: -1, spd: 12.5 },
+        { livery: 'tesla', laneX: 2.45, z: -188, dir: -1, spd: 12.5 },
       ];
       truckSpecs.forEach((spec, idx) => {
         const handle = createPixarTeslaSemi(spec.livery);
@@ -215,23 +250,74 @@ export class NorthPole3DScene implements HolidayScene {
 
       // 5. Hero Sculpted 3D Pixar Santa Sleigh hovering proudly above road & convoy!
       this.sleigh = createPixarSantaSleigh();
-      this.sleigh.group.position.set(0, 3.15, 0);
+      this.sleigh.group.position.set(0, 2.95, 0);
       scene.add(this.sleigh.group);
 
-      // 3D Golden Stardust Ribbon Trail
+      // 240-Particle Two-Tone Gold + Ice-Cyan Stardust Wake Ribbon
       const trailGeo = new THREE.BufferGeometry();
+      const trailColors = new Float32Array(TRAIL_COUNT * 3);
+      for (let i = 0; i < TRAIL_COUNT; i++) {
+        this.sleighTrailPos[i * 3 + 1] = -99;
+        const isCyan = i % 3 === 0;
+        trailColors[i * 3] = isCyan ? 0.62 : 1.0;
+        trailColors[i * 3 + 1] = isCyan ? 0.92 : 0.86;
+        trailColors[i * 3 + 2] = isCyan ? 1.0 : 0.48;
+      }
       trailGeo.setAttribute('position', new THREE.BufferAttribute(this.sleighTrailPos, 3));
-      const trailMat = new THREE.PointsMaterial({
+      trailGeo.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+      this.sleighTrailMat = new THREE.PointsMaterial({
         map: getStarSpriteTexture(),
-        color: '#ffe078',
+        vertexColors: true,
         size: 0.72,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.94,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
-      this.sleighTrailPoints = new THREE.Points(trailGeo, trailMat);
+      this.sleighTrailPoints = new THREE.Points(trailGeo, this.sleighTrailMat);
+      this.sleighTrailPoints.frustumCulled = false;
       scene.add(this.sleighTrailPoints);
+
+      // 72-Particle Interactive Screen-Tap Starburst Pool
+      const burstGeo = new THREE.BufferGeometry();
+      for (let i = 0; i < BURST_COUNT; i++) {
+        this.burstPos[i * 3 + 1] = -99;
+      }
+      burstGeo.setAttribute('position', new THREE.BufferAttribute(this.burstPos, 3));
+      this.burstPts = new THREE.Points(
+        burstGeo,
+        new THREE.PointsMaterial({
+          map: getStarSpriteTexture(),
+          color: '#ffe47a',
+          size: 1.05,
+          transparent: true,
+          opacity: 0.95,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        })
+      );
+      this.burstPts.frustumCulled = false;
+      scene.add(this.burstPts);
+
+      // 48 Peripheral Radial Star-Warp Streaks for Dramatic High-Speed & Plaid Flight Feel!
+      this.streakMat = new THREE.MeshBasicMaterial({
+        color: '#d8f2ff',
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const streakGeo = new THREE.BoxGeometry(0.045, 0.045, 4.2);
+      for (let i = 0; i < 48; i++) {
+        const ang = (i / 48) * Math.PI * 2 + (i % 3) * 0.17;
+        const rad = 5.5 + (i % 5) * 1.9;
+        const z = -6 - (i * 2.8) % 110;
+        const m = new THREE.Mesh(streakGeo, this.streakMat);
+        m.position.set(Math.cos(ang) * rad, 4.5 + Math.sin(ang) * rad * 0.65, z);
+        scene.add(m);
+        this.speedStreaks.push({ mesh: m, angle: ang, radius: rad, z });
+      }
 
       // 6. Luminous Clouds revealed above Plaid Altitude
       const clouds = new THREE.Group();
@@ -274,7 +360,7 @@ export class NorthPole3DScene implements HolidayScene {
       this.elonRig = new PixarElonRig();
       scene.add(this.elonRig.group);
 
-      // 8. Real-Geometry OpenStreetMap Forest-Town Layer (Buildings, Churches, Lakes, Wildlife!)
+      // 8. Real-Geometry OpenStreetMap Forest/Open/Town World Layer
       this.frozenLake = createFrozenLakePlane(85, 220);
       this.frozenLake.position.set(58, 0.02, -55);
       scene.add(this.frozenLake);
@@ -314,7 +400,7 @@ export class NorthPole3DScene implements HolidayScene {
     this.mCounterEl = card.querySelector('[data-ftc="counter"]')!;
 
     card.querySelector('[data-ftc-next]')?.addEventListener('click', () => {
-      this.spawnMilestoneAhead((this.milestoneIndex + 1) % ELON_MILESTONES.length);
+      this.spawnMilestoneAhead((this.milestoneIndex + 1) % ELON_MILESTONES.length, -104);
     });
   }
 
@@ -330,7 +416,7 @@ export class NorthPole3DScene implements HolidayScene {
     this.mCounterEl.textContent = `${idx + 1} / ${ELON_MILESTONES.length}`;
   }
 
-  private spawnMilestoneAhead(idx: number): void {
+  private spawnMilestoneAhead(idx: number, startZ = -162): void {
     if (!this.stage) return;
     if (this.activeSlot) {
       this.stage.scene.remove(this.activeSlot.root);
@@ -340,9 +426,9 @@ export class NorthPole3DScene implements HolidayScene {
     this.milestoneIndex = idx;
     this.activeSlot = createRoadsideMilestoneEvent(
       idx,
-      -64,
+      startZ,
       (z) => this.getRoadCurveX(z),
-      11.6
+      13.4
     );
     this.stage.scene.add(this.activeSlot.root);
     this.syncMilestoneCard();
@@ -359,9 +445,13 @@ export class NorthPole3DScene implements HolidayScene {
 
   interact(): void {
     if (!this.stage) return;
-    // Fire golden star ring AND trigger golden holiday light wave across Coca-Cola & ICA Semis!
+    // 1. Trigger Light Show wave across Coca-Cola & Tesla Semis + Santa surprise bounce!
     this.rippleTimer = 0;
-    const geo = new THREE.TorusGeometry(1.75, 0.12, 10, 32);
+    this.landmarkAlert = 1.0;
+    this.sleigh.triggerReaction('gift');
+
+    // 2. Spawn Expanding Star Ring ahead of sleigh
+    const geo = new THREE.TorusGeometry(1.85, 0.14, 10, 32);
     const mat = new THREE.MeshBasicMaterial({
       color: '#ffe588',
       transparent: true,
@@ -370,14 +460,29 @@ export class NorthPole3DScene implements HolidayScene {
       toneMapped: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(this.sleigh.group.position).add(new THREE.Vector3(0, 1.4, -7.5));
+    mesh.position.copy(this.sleigh.group.position).add(new THREE.Vector3(0, 1.3, -7.2));
     this.stage.scene.add(mesh);
     this.rings.push({ mesh, mat, age: 0 });
+
+    // 3. Fire Dramatic 3D Golden Starburst Explosion ahead of Santa!
+    const origin = this.sleigh.group.position;
+    for (let i = 0; i < BURST_COUNT; i++) {
+      this.burstPos[i * 3] = origin.x;
+      this.burstPos[i * 3 + 1] = origin.y + 1.4;
+      this.burstPos[i * 3 + 2] = origin.z - 5.2;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.35) * Math.PI * 0.85;
+      const spd = 4.5 + Math.random() * 10.5;
+      this.burstVel[i * 3] = Math.cos(theta) * Math.cos(phi) * spd;
+      this.burstVel[i * 3 + 1] = Math.sin(phi) * spd + 2.5;
+      this.burstVel[i * 3 + 2] = Math.sin(theta) * Math.cos(phi) * spd - 4.0;
+      this.burstLife[i] = 1.0;
+    }
   }
 
   private getRoadCurveX(z: number): number {
     const distAhead = Math.max(0, 10 - z);
-    return this.smoothCurve * distAhead * distAhead * 0.0052;
+    return this.smoothCurve * distAhead * distAhead * 0.0034;
   }
 
   update(dt: number, frame: SceneFrameContext): void {
@@ -403,8 +508,10 @@ export class NorthPole3DScene implements HolidayScene {
     this.roadScroll += forwardStep;
     this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
 
-    // 2. Real-Geometry OSM Forest-Town Layer (Buildings, Churches, Lakes, Wildlife)
-    this.osmMap.update(dt, telemetry, osm, env.quality, sleighAlert);
+    // 2. Curve-Locked OSM Forest / Open Countryside / Town Layer (NEVER drifts onto curved road!)
+    this.osmMap.update(dt, telemetry, osm, env.quality, sleighAlert, (z) =>
+      this.getRoadCurveX(z)
+    );
     const hasOsmWorld =
       osm.enabled && (osm.buildingCount > 0 || osm.waterCount > 0 || osm.forestCount > 0);
 
@@ -419,8 +526,11 @@ export class NorthPole3DScene implements HolidayScene {
       osm.nearbyLandmark || osm.nearbyChargerName || osm.roadName
     );
     this.signZ += forwardStep;
-    if (this.signZ > 12) this.signZ = -145;
-    this.roadSign.group.position.set(this.getRoadCurveX(this.signZ) + 6.3, 0, this.signZ);
+    if (this.signZ > 12) this.signZ = -165;
+    const signRoadX = this.getRoadCurveX(this.signZ);
+    const signNextX = this.getRoadCurveX(this.signZ - 5);
+    this.roadSign.group.position.set(signRoadX + 6.3, 0, this.signZ);
+    this.roadSign.group.rotation.y = -0.38 + Math.atan2(signRoadX - signNextX, 5);
 
     // 3. Sky Dome & Aurora
     this.skyMat.uniforms.uTime.value = time;
@@ -433,28 +543,28 @@ export class NorthPole3DScene implements HolidayScene {
     const targetFlight = telemetry.isPlaidSpeed ? 1 : 0;
     this.flightFactor += (targetFlight - this.flightFactor) * Math.min(1, dt * 1.4);
 
-    // 4. Roadside Lampposts & Fallback Props
-    const propSpan = 165;
+    // 4. Roadside Lampposts (always hugging snowbanks) & Fallback Scenery
+    const propSpan = 180;
     for (const item of this.roadsideItems) {
       item.zOffset += forwardStep;
       if (item.zOffset > 14) item.zOffset -= propSpan;
       const cx = this.getRoadCurveX(item.zOffset);
+      const nextCx = this.getRoadCurveX(item.zOffset - 5);
       item.group.position.set(cx + item.side * item.lateralDist, 0, item.zOffset);
-      item.group.visible = !hasOsmWorld || !!item.isLamp;
+      item.group.rotation.y = Math.atan2(cx - nextCx, 5);
+      item.group.visible = !!item.isLamp || !hasOsmWorld;
       if (item.group.visible) {
         item.cottage?.update(dt, time);
       }
     }
 
-    // 5. Update 4 Cruising Coca-Cola & ICA Holiday Tesla Semis along Both Highway Lanes!
+    // 5. Update 6 Cruising Coca-Cola & Tesla Holiday Semis along Both Highway Lanes!
     const bounce = Math.sin(time * 15) * 0.025;
     for (const truck of this.caravanTrucks) {
       if (truck.direction === 1) {
-        // Oncoming lane: moves steadily toward viewer (+Z)
         truck.zOffset += (speedMs + truck.speedMps) * dt;
         if (truck.zOffset > 24) truck.zOffset -= 219;
       } else {
-        // Same direction lane: overtakes smoothly when sleigh speeds ahead, pulls ahead when parked
         const relStep = (speedMs * 1.45 - truck.speedMps) * dt;
         truck.zOffset += relStep;
         if (truck.zOffset > 24) truck.zOffset -= 219;
@@ -476,7 +586,7 @@ export class NorthPole3DScene implements HolidayScene {
       truck.handle.update(dt, this.wheelPhase, telemetry.isBraking, rippleBoost, time);
     }
 
-    // 6. Rolling Roadside Elon Timeline Milestone Encounters along the Boulevard!
+    // 6. Early, Towering Roadside Elon Timeline Encounters along the Boulevard!
     if (this.activeSlot) {
       const slot = this.activeSlot;
       slot.zOffset += forwardStep;
@@ -484,10 +594,10 @@ export class NorthPole3DScene implements HolidayScene {
       const nextX = this.getRoadCurveX(slot.zOffset - 5);
       slot.root.rotation.y = Math.atan2(slot.root.position.x - nextX, 5);
 
-      const approach = Math.max(0, Math.min(1, (slot.zOffset + 90) / 86));
+      const approach = Math.max(0, Math.min(1, (slot.zOffset + 150) / 145));
       slot.updater?.(time, dt, approach);
 
-      if (!slot.announced && slot.zOffset >= -62) {
+      if (!slot.announced && slot.zOffset >= -135) {
         slot.announced = true;
         this.landmarkAlert = 1.0;
         this.sleigh?.triggerReaction('landmark');
@@ -495,7 +605,7 @@ export class NorthPole3DScene implements HolidayScene {
       }
 
       if (this.milestoneCardEl) {
-        const showCard = slot.zOffset > -78 && slot.zOffset < 18;
+        const showCard = slot.zOffset > -145 && slot.zOffset < 18;
         this.milestoneCardEl.classList.toggle('visible', showCard);
       }
 
@@ -505,16 +615,16 @@ export class NorthPole3DScene implements HolidayScene {
         this.activeSlot = null;
         this.milestoneCardEl?.classList.remove('visible');
         this.milestoneIndex = (this.milestoneIndex + 1) % ELON_MILESTONES.length;
-        this.milestoneCooldownM = 85;
+        this.milestoneCooldownM = 62;
       }
     } else {
       this.milestoneCooldownM -= forwardStep;
       if (this.milestoneCooldownM <= 0) {
-        this.spawnMilestoneAhead(this.milestoneIndex);
+        this.spawnMilestoneAhead(this.milestoneIndex, -162);
       }
     }
 
-    // 7. Sleigh Flight & Hero Hover Above Caravan Traffic + Clean Plaid Clearance Above Arch Banners
+    // 7. Sleigh Flight & Dynamic Multi-Tier Speed Glitter / Warp Streaks!
     const targetY =
       2.95 + this.flightFactor * 5.6 + Math.sin(time * 2.2) * (0.14 + speedNorm * 0.22);
     const targetX = this.smoothCurve * 1.5;
@@ -525,32 +635,72 @@ export class NorthPole3DScene implements HolidayScene {
     this.sleigh.group.rotation.y = -this.smoothCurve * 0.18;
     this.sleigh.update(dt, telemetry.speedKmh, this.smoothCurve, telemetry.acceleration, time);
 
-    // Update Stardust Trail
+    // Update 240-Particle Swirling Stardust Wake (dramatically denser, wider & brighter with speed!)
     this.sleigh.getTrailOrigin(this.trailVec);
-    for (let i = 109; i > 0; i--) {
-      this.sleighTrailPos[i * 3] = this.sleighTrailPos[(i - 1) * 3];
-      this.sleighTrailPos[i * 3 + 1] = this.sleighTrailPos[(i - 1) * 3 + 1];
-      this.sleighTrailPos[i * 3 + 2] =
-        this.sleighTrailPos[(i - 1) * 3 + 2] + forwardStep * 0.68 + 0.08;
+    const wakeSpeed = 1.6 + forwardStep * 0.85 + speedNorm * 8.5 * dt;
+    for (let i = TRAIL_COUNT - 1; i > 0; i--) {
+      const swirl = (0.04 + speedNorm * 0.18) * dt * 16;
+      this.sleighTrailPos[i * 3] =
+        this.sleighTrailPos[(i - 1) * 3] + Math.sin(time * 5 + i * 0.35) * swirl * 0.12;
+      this.sleighTrailPos[i * 3 + 1] =
+        this.sleighTrailPos[(i - 1) * 3 + 1] + (Math.cos(time * 4 + i * 0.4) * 0.025 + speedNorm * 0.015);
+      this.sleighTrailPos[i * 3 + 2] = this.sleighTrailPos[(i - 1) * 3 + 2] + wakeSpeed * 0.08;
     }
-    this.sleighTrailPos[0] = this.trailVec.x + (Math.random() - 0.5) * 0.65;
-    this.sleighTrailPos[1] = this.trailVec.y + (Math.random() - 0.5) * 0.3;
+    const scatterX = 0.45 + speedNorm * 1.45;
+    const scatterY = 0.22 + speedNorm * 0.65;
+    this.sleighTrailPos[0] = this.trailVec.x + (Math.random() - 0.5) * scatterX;
+    this.sleighTrailPos[1] = this.trailVec.y + (Math.random() - 0.5) * scatterY;
     this.sleighTrailPos[2] = this.trailVec.z;
     this.sleighTrailPoints.geometry.attributes.position.needsUpdate = true;
+    this.sleighTrailMat.size = 0.55 + speedNorm * 0.65 + this.flightFactor * 0.35;
+    this.sleighTrailMat.opacity = 0.68 + speedNorm * 0.32;
 
-    // 8. Chase Camera + Plaid FOV
+    // Update Interactive Tap Starburst Explosion
+    for (let i = 0; i < BURST_COUNT; i++) {
+      if (this.burstLife[i] > 0) {
+        this.burstLife[i] -= dt * 0.85;
+        this.burstPos[i * 3] += this.burstVel[i * 3] * dt;
+        this.burstPos[i * 3 + 1] += this.burstVel[i * 3 + 1] * dt;
+        this.burstPos[i * 3 + 2] += (this.burstVel[i * 3 + 2] + forwardStep * 0.5) * dt;
+        this.burstVel[i * 3 + 1] -= 3.8 * dt;
+      } else {
+        this.burstPos[i * 3 + 1] = -99;
+      }
+    }
+    this.burstPts.geometry.attributes.position.needsUpdate = true;
+
+    // Update 48 High-Speed Peripheral Star-Warp Streaks (fade in smoothly above ~38 km/h -> bright at Plaid!)
+    const streakAlpha = Math.max(0, (speedNorm - 0.32) / 0.68) * (0.38 + this.flightFactor * 0.45);
+    this.streakMat.opacity = streakAlpha;
+    if (streakAlpha > 0.01) {
+      const stretch = 1.0 + speedNorm * 2.6 + this.flightFactor * 1.5;
+      const streakVel = (24 + speedNorm * 68) * dt;
+      for (const s of this.speedStreaks) {
+        s.z += streakVel;
+        if (s.z > 14) s.z -= 114;
+        s.mesh.position.set(
+          Math.cos(s.angle) * s.radius,
+          this.sleigh.group.position.y + 1.2 + Math.sin(s.angle) * s.radius * 0.55,
+          s.z
+        );
+        s.mesh.scale.z = stretch;
+      }
+    }
+
+    // 8. Chase Camera + Progressive Speed FOV (50 deg parked -> 62 cruise -> 70 Plaid!)
     const { camera } = this.stage;
     camera.position.x +=
       (this.sleigh.group.position.x * 0.65 - camera.position.x) * Math.min(1, dt * 4);
     camera.position.y +=
-      (this.sleigh.group.position.y + 3.0 - this.flightFactor * 0.4 - camera.position.y) *
+      (this.sleigh.group.position.y + 3.0 - this.flightFactor * 0.35 - camera.position.y) *
       Math.min(1, dt * 4);
+    camera.position.z += (11.2 + speedNorm * 1.4 - camera.position.z) * Math.min(1, dt * 3);
     camera.lookAt(
       this.sleigh.group.position.x + this.smoothCurve * 4,
       this.sleigh.group.position.y - 0.25,
-      -24
+      -26
     );
-    const targetFov = 54 + this.flightFactor * 13;
+    const targetFov = 50 + speedNorm * 12 + this.flightFactor * 8;
     if (Math.abs(camera.fov - targetFov) > 0.05) {
       camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
       camera.updateProjectionMatrix();
@@ -565,7 +715,7 @@ export class NorthPole3DScene implements HolidayScene {
       }
     }
 
-    this.snowField.update(dt, -this.smoothCurve * 4, forwardStep * 0.8 + 2.0, 2.0 + speedNorm * 1.4);
+    this.snowField.update(dt, -this.smoothCurve * 4, forwardStep * 0.8 + 2.0, 2.0 + speedNorm * 2.2);
 
     this.moon.position.x = 28 - this.smoothCurve * 24;
     this.alpineBackdrop.position.x = -this.smoothCurve * 16;

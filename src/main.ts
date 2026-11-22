@@ -116,6 +116,19 @@ class TeslaXmasApp {
     if (!this.activeScene) return;
     this.audio.unlock();
     this.activeScene.interact(nx, ny);
+
+    // Tapping Flight Deck (or panorama/caravan) also fires an exciting Elon sky event if none just started!
+    if (
+      this.activeScene.id === 'flight3d' ||
+      this.activeScene.id === 'express' ||
+      this.activeScene.id === 'caravan'
+    ) {
+      const curEv = this.elon.getActiveEvent();
+      if (!curEv || curEv.elapsed > 2.4) {
+        this.elon.triggerNext();
+      }
+    }
+
     if (this.activeScene.id === 'caravan') {
       this.audio.playLightWaveChime();
     } else if (this.activeScene.id === 'snowglobe') {

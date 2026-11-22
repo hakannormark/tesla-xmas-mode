@@ -15,16 +15,214 @@ interface PadVoice {
   gains: GainNode[];
 }
 
-const CHORD_PROGRESSION: number[][] = [
-  [261.63, 329.63, 392.0, 493.88, 587.33], // Cmaj9
-  [174.61, 261.63, 349.23, 440.0, 523.25], // Fmaj7
-  [220.0, 261.63, 329.63, 392.0, 493.88], // Am9
-  [196.0, 293.66, 349.23, 440.0, 523.25], // G13sus4
-  [155.56, 233.08, 311.13, 392.0, 466.16], // Ebmaj7
-  [207.65, 261.63, 311.13, 392.0, 466.16], // Abmaj7
-  [196.0, 261.63, 329.63, 392.0, 493.88], // G13 -> C
-  [196.0, 293.66, 349.23, 493.88, 587.33], // G9sus4
+interface MelodyStep {
+  lead: number; // MIDI note (e.g. 72 = C5)
+  beats: number;
+  bass?: number; // MIDI bass note played at step onset
+  chord?: number[]; // MIDI chord for string pad & harp fill
+}
+
+interface HolidaySong {
+  bpm: number;
+  steps: MelodyStep[];
+}
+
+function midiToHz(midi: number): number {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+const C_MAJ = [60, 64, 67, 71, 74];
+const F_MAJ = [65, 69, 72, 76, 79];
+const G_DOM = [62, 67, 71, 74, 77];
+const A_MIN = [60, 64, 69, 72, 76];
+const D_MIN = [62, 65, 69, 72, 76];
+const D_DOM = [62, 66, 69, 72, 76];
+const E_MIN = [64, 67, 71, 74, 79];
+
+const HOLIDAY_MEDLEY: HolidaySong[] = [
+  // 1. Jingle Bells (Joyful C Major)
+  {
+    bpm: 132,
+    steps: [
+      { lead: 76, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 1 },
+      { lead: 76, beats: 2, bass: 43 },
+      { lead: 76, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 1 },
+      { lead: 76, beats: 2, bass: 43 },
+      { lead: 76, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 79, beats: 1 },
+      { lead: 72, beats: 1.5, bass: 43 },
+      { lead: 74, beats: 0.5 },
+      { lead: 76, beats: 4, bass: 48, chord: C_MAJ },
+
+      { lead: 77, beats: 1, bass: 41, chord: F_MAJ },
+      { lead: 77, beats: 1 },
+      { lead: 77, beats: 1.5, bass: 48 },
+      { lead: 77, beats: 0.5 },
+      { lead: 77, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 1 },
+      { lead: 76, beats: 1, bass: 43 },
+      { lead: 76, beats: 0.5 },
+      { lead: 76, beats: 0.5 },
+      { lead: 76, beats: 1, bass: 38, chord: D_DOM },
+      { lead: 74, beats: 1 },
+      { lead: 74, beats: 1, bass: 45 },
+      { lead: 76, beats: 1 },
+      { lead: 74, beats: 2, bass: 43, chord: G_DOM },
+      { lead: 79, beats: 2, bass: 50 },
+
+      { lead: 76, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 1 },
+      { lead: 76, beats: 2, bass: 43 },
+      { lead: 76, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 1 },
+      { lead: 76, beats: 2, bass: 43 },
+      { lead: 76, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 79, beats: 1 },
+      { lead: 72, beats: 1.5, bass: 43 },
+      { lead: 74, beats: 0.5 },
+      { lead: 76, beats: 4, bass: 48, chord: C_MAJ },
+
+      { lead: 77, beats: 1, bass: 41, chord: F_MAJ },
+      { lead: 77, beats: 1 },
+      { lead: 77, beats: 1.5, bass: 48 },
+      { lead: 77, beats: 0.5 },
+      { lead: 77, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 1 },
+      { lead: 76, beats: 1, bass: 43 },
+      { lead: 76, beats: 0.5 },
+      { lead: 76, beats: 0.5 },
+      { lead: 79, beats: 1, bass: 43, chord: G_DOM },
+      { lead: 79, beats: 1 },
+      { lead: 77, beats: 1, bass: 50 },
+      { lead: 74, beats: 1 },
+      { lead: 72, beats: 4, bass: 48, chord: C_MAJ },
+    ],
+  },
+  // 2. We Wish You a Merry Christmas (3/4 Waltz in G Major)
+  {
+    bpm: 138,
+    steps: [
+      { lead: 62, beats: 1, bass: 43, chord: G_DOM },
+      { lead: 67, beats: 1, bass: 43, chord: G_DOM },
+      { lead: 67, beats: 0.5 },
+      { lead: 69, beats: 0.5 },
+      { lead: 67, beats: 0.5 },
+      { lead: 66, beats: 0.5 },
+      { lead: 64, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 64, beats: 1 },
+      { lead: 64, beats: 1 },
+      { lead: 69, beats: 1, bass: 45, chord: A_MIN },
+      { lead: 69, beats: 0.5 },
+      { lead: 71, beats: 0.5 },
+      { lead: 69, beats: 0.5 },
+      { lead: 67, beats: 0.5 },
+      { lead: 66, beats: 1, bass: 38, chord: D_DOM },
+      { lead: 62, beats: 1 },
+      { lead: 62, beats: 1 },
+      { lead: 71, beats: 1, bass: 47, chord: E_MIN },
+      { lead: 71, beats: 0.5 },
+      { lead: 72, beats: 0.5 },
+      { lead: 71, beats: 0.5 },
+      { lead: 69, beats: 0.5 },
+      { lead: 67, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 64, beats: 1 },
+      { lead: 62, beats: 0.5 },
+      { lead: 62, beats: 0.5 },
+      { lead: 64, beats: 1, bass: 38, chord: D_DOM },
+      { lead: 69, beats: 1 },
+      { lead: 66, beats: 1 },
+      { lead: 67, beats: 3, bass: 43, chord: G_DOM },
+    ],
+  },
+  // 3. Deck the Halls (Festive C Major)
+  {
+    bpm: 124,
+    steps: [
+      { lead: 79, beats: 1.5, bass: 48, chord: C_MAJ },
+      { lead: 77, beats: 0.5 },
+      { lead: 76, beats: 1, bass: 43 },
+      { lead: 74, beats: 1 },
+      { lead: 72, beats: 1, bass: 48, chord: A_MIN },
+      { lead: 74, beats: 1 },
+      { lead: 76, beats: 1, bass: 45 },
+      { lead: 72, beats: 1 },
+      { lead: 74, beats: 0.5, bass: 41, chord: F_MAJ },
+      { lead: 76, beats: 0.5 },
+      { lead: 77, beats: 0.5 },
+      { lead: 74, beats: 0.5 },
+      { lead: 76, beats: 1.5, bass: 43, chord: G_DOM },
+      { lead: 74, beats: 0.5 },
+      { lead: 72, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 71, beats: 1 },
+      { lead: 72, beats: 2, bass: 48 },
+
+      { lead: 79, beats: 1.5, bass: 48, chord: C_MAJ },
+      { lead: 77, beats: 0.5 },
+      { lead: 76, beats: 1, bass: 43 },
+      { lead: 74, beats: 1 },
+      { lead: 72, beats: 1, bass: 48, chord: A_MIN },
+      { lead: 74, beats: 1 },
+      { lead: 76, beats: 1, bass: 45 },
+      { lead: 72, beats: 1 },
+      { lead: 74, beats: 0.5, bass: 41, chord: D_MIN },
+      { lead: 76, beats: 0.5 },
+      { lead: 77, beats: 0.5 },
+      { lead: 74, beats: 0.5 },
+      { lead: 76, beats: 1.5, bass: 43, chord: G_DOM },
+      { lead: 74, beats: 0.5 },
+      { lead: 72, beats: 1, bass: 48, chord: C_MAJ },
+      { lead: 71, beats: 1 },
+      { lead: 72, beats: 2, bass: 48 },
+    ],
+  },
+  // 4. Stilla Natt / Silent Night (Dreamy Music-Box Lullaby in C Major)
+  {
+    bpm: 96,
+    steps: [
+      { lead: 67, beats: 1.5, bass: 48, chord: C_MAJ },
+      { lead: 69, beats: 0.5 },
+      { lead: 67, beats: 1 },
+      { lead: 64, beats: 3, bass: 48, chord: C_MAJ },
+      { lead: 67, beats: 1.5, bass: 48 },
+      { lead: 69, beats: 0.5 },
+      { lead: 67, beats: 1 },
+      { lead: 64, beats: 3, bass: 48, chord: C_MAJ },
+      { lead: 74, beats: 2, bass: 43, chord: G_DOM },
+      { lead: 74, beats: 1 },
+      { lead: 71, beats: 3, bass: 43 },
+      { lead: 72, beats: 2, bass: 48, chord: C_MAJ },
+      { lead: 72, beats: 1 },
+      { lead: 67, beats: 3, bass: 48 },
+      { lead: 69, beats: 2, bass: 41, chord: F_MAJ },
+      { lead: 69, beats: 1 },
+      { lead: 72, beats: 1.5, bass: 45 },
+      { lead: 71, beats: 0.5 },
+      { lead: 69, beats: 1 },
+      { lead: 67, beats: 1.5, bass: 48, chord: C_MAJ },
+      { lead: 69, beats: 0.5 },
+      { lead: 67, beats: 1 },
+      { lead: 64, beats: 3, bass: 48 },
+      { lead: 74, beats: 2, bass: 43, chord: G_DOM },
+      { lead: 74, beats: 1 },
+      { lead: 77, beats: 1.5, bass: 43 },
+      { lead: 74, beats: 0.5 },
+      { lead: 71, beats: 1 },
+      { lead: 72, beats: 3, bass: 48, chord: C_MAJ },
+      { lead: 76, beats: 3, bass: 48 },
+      { lead: 72, beats: 1.5, bass: 43, chord: G_DOM },
+      { lead: 67, beats: 0.5 },
+      { lead: 64, beats: 1 },
+      { lead: 67, beats: 1.5, bass: 43 },
+      { lead: 65, beats: 0.5 },
+      { lead: 62, beats: 1 },
+      { lead: 60, beats: 4, bass: 48, chord: C_MAJ },
+    ],
+  },
 ];
+
+const DEFAULT_PAD_CHORD = C_MAJ.map(midiToHz);
 
 function createNoiseBuffer(ctx: AudioContext, durationSec: number, pink = false): AudioBuffer {
   const length = Math.floor(ctx.sampleRate * durationSec);
@@ -143,11 +341,10 @@ export class HolidayAudioEngine {
   private routing: AudioRouting = 'direct';
   private volume = 0.72;
 
-  private chordIdx = 0;
-  private chordTimer = 0;
+  private songIdx = 0;
+  private stepIdx = 0;
+  private stepWaitSec = 0.25;
   private bellTimer = 0;
-  private arpTimer = 0;
-  private arpStep = 0;
   private prevBraking = false;
   private lastEventTriggered: string | null = null;
 
@@ -320,7 +517,7 @@ export class HolidayAudioEngine {
     this.musicBus.connect(this.dryBus);
     this.musicBus.connect(this.reverbBus);
 
-    const chord = CHORD_PROGRESSION[0];
+    const chord = DEFAULT_PAD_CHORD;
     const oscs: OscillatorNode[] = [];
     const gains: GainNode[] = [];
 
@@ -331,7 +528,7 @@ export class HolidayAudioEngine {
       osc.detune.value = (i - 2) * 3.5;
 
       const g = this.ctx.createGain();
-      g.gain.value = 0.08;
+      g.gain.value = 0.065;
       osc.connect(g);
       g.connect(this.padFilter);
       osc.start();
@@ -384,32 +581,50 @@ export class HolidayAudioEngine {
     const now = this.ctx.currentTime;
     const speedRatio = Math.min(1, telemetry.speedKmh / 120);
 
-    // 1. Dynamic Pad Filter & Chord Progression (Full Mix)
+    // 1. Dynamic Orchestral Holiday Medley: Harmony Pad + Melody Celesta + Plucked Bass + Harp (Full Mix)
     if (this.mixMode === 'full' && this.padVoice && this.padFilter) {
-      const targetCutoff = 440 + speedRatio * 780 + (telemetry.inTunnel ? -120 : 0);
+      const targetCutoff = 480 + speedRatio * 780 + (telemetry.inTunnel ? -120 : 0);
       this.padFilter.frequency.setTargetAtTime(Math.max(260, targetCutoff), now, 0.25);
 
-      this.chordTimer += dt;
-      const chordDuration = telemetry.isPlaidSpeed ? 4.2 : 5.6;
-      if (this.chordTimer >= chordDuration) {
-        this.chordTimer = 0;
-        this.chordIdx = (this.chordIdx + 1) % CHORD_PROGRESSION.length;
-        const nextChord = CHORD_PROGRESSION[this.chordIdx];
-        this.padVoice.oscs.forEach((osc, idx) => {
-          const f = nextChord[idx % nextChord.length];
-          osc.frequency.setTargetAtTime(f, now, 0.45);
-        });
-      }
+      this.stepWaitSec -= dt;
+      if (this.stepWaitSec <= 0) {
+        const song = HOLIDAY_MEDLEY[this.songIdx];
+        const step = song.steps[this.stepIdx];
+        const tempoScale = telemetry.speedKmh < 3 ? 0.92 : 1.0 + speedRatio * 0.16;
+        const secPerBeat = 60 / (song.bpm * tempoScale);
+        const durSec = step.beats * secPerBeat;
+        this.stepWaitSec = durSec;
 
-      // Celesta arpeggio sparkling faster as speed increases
-      this.arpTimer += dt;
-      const arpInterval = telemetry.speedKmh < 3 ? 1.45 : Math.max(0.24, 0.85 - speedRatio * 0.56);
-      if (this.arpTimer >= arpInterval) {
-        this.arpTimer = 0;
-        const chord = CHORD_PROGRESSION[this.chordIdx];
-        const note = chord[this.arpStep % chord.length] * (this.arpStep % 2 === 0 ? 2 : 4);
-        this.arpStep++;
-        this.playCelestaNote(note, 0.055 + speedRatio * 0.04, 1.15);
+        if (step.chord) {
+          const chordHz = step.chord.map(midiToHz);
+          this.padVoice.oscs.forEach((osc, idx) => {
+            osc.frequency.setTargetAtTime(chordHz[idx % chordHz.length], now, 0.18);
+          });
+        }
+
+        if (step.bass) {
+          this.playBassNote(midiToHz(step.bass), 0.14, Math.min(1.4, durSec * 1.1));
+        }
+
+        // Celesta lead melody note with sparkling harmonic shimmer
+        this.playCelestaNote(midiToHz(step.lead), 0.11 + speedRatio * 0.025, Math.max(0.32, durSec * 1.15));
+
+        // Gentle off-beat harp twinkle inside sustained melody notes
+        if (step.beats >= 1.5 && step.chord) {
+          const midNote = midiToHz(step.chord[2] + 12);
+          const halfMs = Math.round(durSec * 500);
+          setTimeout(() => {
+            if (this.ctx && this.ctx.state === 'running' && this.mixMode === 'full') {
+              this.playCelestaNote(midNote, 0.055, 0.55);
+            }
+          }, halfMs);
+        }
+
+        this.stepIdx++;
+        if (this.stepIdx >= song.steps.length) {
+          this.stepIdx = 0;
+          this.songIdx = (this.songIdx + 1) % HOLIDAY_MEDLEY.length;
+        }
       }
     }
 
@@ -490,6 +705,30 @@ export class HolidayAudioEngine {
     harm.start(now);
     osc.stop(now + duration + 0.05);
     harm.stop(now + duration + 0.05);
+  }
+
+  private playBassNote(freq: number, level: number, duration: number): void {
+    if (!this.ctx || !this.musicBus) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(520, now);
+    lp.frequency.exponentialRampToValueAtTime(160, now + duration);
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(level, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc.connect(lp);
+    lp.connect(g);
+    g.connect(this.musicBus);
+    osc.start(now);
+    osc.stop(now + duration + 0.04);
   }
 
   private triggerSleighBell(intensity: number, pan = 0, destOverride?: AudioNode): void {

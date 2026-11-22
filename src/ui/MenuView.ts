@@ -532,7 +532,7 @@ export class MenuView {
     ctx.arc((vx + w * 0.5) * 0.5, h * 0.62, 24, Math.PI, 0);
     ctx.stroke();
 
-    // Mini Coca-Cola (left oncoming crimson) & ICA (right white/red) holiday Semis
+    // Mini Coca-Cola (left oncoming crimson) & Tesla (right pearlescent-white/red) holiday Semis
     ctx.fillStyle = '#d41432';
     ctx.fillRect(w * 0.34, h * 0.7, 16, 12);
     ctx.fillStyle = '#ffecad';

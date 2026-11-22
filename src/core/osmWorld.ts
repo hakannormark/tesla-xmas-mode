@@ -1,7 +1,12 @@
 import { DriveSource } from './telemetry';
 
-export type OsmBiome = 'village' | 'forest' | 'water' | 'highway';
-export type OsmBuildingKind = 'house' | 'apartment' | 'church' | 'commercial' | 'landmark';
+export type OsmBiome = 'village' | 'forest' | 'water' | 'highway' | 'open';
+export type OsmBuildingKind =
+  | 'small_cottage'
+  | 'medium_house'
+  | 'large_building'
+  | 'gigafactory'
+  | 'church';
 
 export interface OsmPoint2D {
   x: number; // +East meters relative to snapshot origin
@@ -13,6 +18,9 @@ export interface OsmBuilding {
   footprint: OsmPoint2D[];
   centerX: number;
   centerZ: number;
+  widthM: number;
+  depthM: number;
+  areaM2: number;
   heightM: number;
   kind: OsmBuildingKind;
   name: string | null;
@@ -48,6 +56,7 @@ export interface OsmPoi {
 
 export interface OsmMapSnapshot {
   version: number;
+  biome: OsmBiome;
   originLat: number;
   originLon: number;
   buildings: OsmBuilding[];
@@ -95,13 +104,13 @@ const SWEDISH_WINTER_TOUR: DemoStop[] = [
     lon: 18.0815,
   },
   {
-    placeName: 'Mälaren',
-    roadName: 'Riddarfjärden',
-    biome: 'water',
-    nearbyLandmark: 'Spegelblank Vintervik',
+    placeName: 'Upplandsslätten',
+    roadName: 'Landsväg 255',
+    biome: 'open',
+    nearbyLandmark: 'Vintervidderna',
     nearbyChargerName: null,
-    lat: 59.322,
-    lon: 18.042,
+    lat: 59.721,
+    lon: 17.785,
   },
   {
     placeName: 'Roslagen',
@@ -113,11 +122,11 @@ const SWEDISH_WINTER_TOUR: DemoStop[] = [
     lon: 18.705,
   },
   {
-    placeName: 'Upplands Väsby',
-    roadName: 'E4 Norr',
+    placeName: 'Giga Nord',
+    roadName: 'E4 Express',
     biome: 'highway',
-    nearbyLandmark: null,
-    nearbyChargerName: 'Supercharger InfraCity',
+    nearbyLandmark: 'Tesla Gigafactory Nord',
+    nearbyChargerName: 'Supercharger Giga Nord',
     lat: 59.506,
     lon: 17.921,
   },
@@ -125,7 +134,7 @@ const SWEDISH_WINTER_TOUR: DemoStop[] = [
     placeName: 'Sigtuna',
     roadName: 'Stora Gatan',
     biome: 'village',
-    nearbyLandmark: 'Sigtuna Julmarknad',
+    nearbyLandmark: 'Mariakyrkan',
     nearbyChargerName: null,
     lat: 59.617,
     lon: 17.723,
@@ -181,10 +190,20 @@ function rectFootprint(cx: number, cz: number, w: number, d: number, yawRad = 0)
   }));
 }
 
-function polygonStats(pts: OsmPoint2D[]): { area: number; cx: number; cz: number } {
+function polygonStats(pts: OsmPoint2D[]): {
+  area: number;
+  cx: number;
+  cz: number;
+  widthM: number;
+  depthM: number;
+} {
   let areaSum = 0;
   let cx = 0;
   let cz = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
   const n = pts.length;
   for (let i = 0; i < n; i++) {
     const a = pts[i];
@@ -192,11 +211,17 @@ function polygonStats(pts: OsmPoint2D[]): { area: number; cx: number; cz: number
     areaSum += a.x * b.z - b.x * a.z;
     cx += a.x;
     cz += a.z;
+    minX = Math.min(minX, a.x);
+    maxX = Math.max(maxX, a.x);
+    minZ = Math.min(minZ, a.z);
+    maxZ = Math.max(maxZ, a.z);
   }
   return {
     area: Math.abs(areaSum * 0.5),
     cx: cx / Math.max(1, n),
     cz: cz / Math.max(1, n),
+    widthM: Math.max(3, maxX - minX),
+    depthM: Math.max(3, maxZ - minZ),
   };
 }
 
@@ -227,27 +252,50 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
     if (Number.isFinite(lv) && lv > 0) heightM = lv * 3.4 + 1.5;
   }
 
-  let kind: OsmBuildingKind = 'house';
-  if (bTag === 'church' || bTag === 'cathedral' || amenity === 'place_of_worship' || /kyrka|cathedral/i.test(name)) {
+  let kind: OsmBuildingKind = 'small_cottage';
+  const isIndustrialOrHuge =
+    bTag === 'industrial' ||
+    bTag === 'warehouse' ||
+    bTag === 'factory' ||
+    bTag === 'supermarket' ||
+    bTag === 'retail' ||
+    bTag === 'hangar' ||
+    tags.landuse === 'industrial';
+
+  if (
+    bTag === 'church' ||
+    bTag === 'cathedral' ||
+    amenity === 'place_of_worship' ||
+    /kyrka|cathedral|chapel/i.test(name)
+  ) {
     kind = 'church';
     if (!heightM) heightM = 16;
-  } else if (tags.tourism === 'attraction' || tags.historic || /slott|palace|muse/i.test(name)) {
-    kind = 'landmark';
-    if (!heightM) heightM = 18;
-  } else if (bTag === 'commercial' || bTag === 'retail' || bTag === 'office' || bTag === 'industrial' || bTag === 'supermarket') {
-    kind = 'commercial';
-    if (!heightM) heightM = 10 + Math.min(12, area * 0.012);
-  } else if (bTag === 'apartments' || bTag === 'residential' || area > 220) {
-    kind = 'apartment';
-    if (!heightM) heightM = 11 + Math.min(16, area * 0.015);
+  } else if (
+    (isIndustrialOrHuge && area >= 280) ||
+    area >= 660 ||
+    /giga|factory|warehouse|hall|center|fabrik/i.test(name)
+  ) {
+    kind = 'gigafactory';
+    if (!heightM) heightM = 13.5 + Math.min(6, area * 0.004);
+  } else if (
+    area >= 290 ||
+    Boolean(tags.tourism === 'attraction' || tags.historic) ||
+    heightM >= 14 ||
+    /slott|palace|muse|school|skola|hospital/i.test(name)
+  ) {
+    kind = 'large_building';
+    if (!heightM) heightM = 15 + Math.min(14, area * 0.012);
+  } else if (area >= 115 || bTag === 'apartments' || bTag === 'residential' || bTag === 'terrace') {
+    kind = 'medium_house';
+    if (!heightM) heightM = 8.5 + Math.min(8, area * 0.02);
   } else {
-    kind = 'house';
-    if (!heightM) heightM = 6.2 + (area > 95 ? 2.8 : 0);
+    kind = 'small_cottage';
+    if (!heightM) heightM = 4.8 + (area > 60 ? 1.5 : 0);
   }
 
   return {
     kind,
-    heightM: Math.max(4.5, Math.min(36, heightM)),
+    heightM: Math.max(4.4, Math.min(34, heightM)),
   };
 }
 
@@ -275,6 +323,9 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
       footprint: rectFootprint(cx, cz, w, d, yaw),
       centerX: cx,
       centerZ: cz,
+      widthM: w,
+      depthM: d,
+      areaM2: w * d,
       heightM,
       kind,
       name,
@@ -282,11 +333,11 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
   };
 
   if (stop.placeName === 'Stockholm') {
-    // Waterfront boulevard: historic Nordic mansions on East (+X), frozen Riddarfjärden bay on West (-X)
+    // Urban boulevard: medium_house townhouses lining East, frozen Nybroviken bay West, grand Palace landmark
     waters.push({
       points: [
-        { x: -17, z: 30 },
-        { x: -17, z: -240 },
+        { x: -16, z: 30 },
+        { x: -16, z: -240 },
         { x: -110, z: -240 },
         { x: -110, z: 30 },
       ],
@@ -294,79 +345,67 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
       widthM: 80,
       name: 'Nybroviken',
     });
-    for (let i = 0; i < 9; i++) {
-      const bz = -8 - i * 24;
-      addBoxBuilding(`sthlm-a-${i}`, 21, bz, 15, 16, 15 + (i % 3) * 3, 'apartment');
-      addBoxBuilding(`sthlm-b-${i}`, 43, bz - 6, 18, 16, 17 + ((i + 1) % 3) * 3, 'apartment');
+    for (let i = 0; i < 8; i++) {
+      const bz = -14 - i * 26;
+      addBoxBuilding(`sthlm-a-${i}`, 22, bz, 15, 16, 12.5 + (i % 3) * 2.5, 'medium_house');
+      if (i % 2 === 0) {
+        addBoxBuilding(`sthlm-b-${i}`, 44, bz - 6, 17, 15, 14 + (i % 2) * 3, 'medium_house');
+      }
     }
-    addBoxBuilding('sthlm-palace', -28, -125, 22, 34, 21, 'landmark', 'Kungliga Slottet');
+    addBoxBuilding('sthlm-palace', -30, -125, 22, 32, 19, 'large_building', 'Kungliga Slottet');
     pois.push({ x: -13, z: -125, kind: 'landmark', name: 'Kungliga Slottet' });
-    roads.push({ points: [{ x: 10, z: -56 }, { x: 75, z: -56 }], widthM: 6, isMajor: false, name: 'Torggatan' });
-    roads.push({ points: [{ x: 10, z: -128 }, { x: 75, z: -128 }], widthM: 6, isMajor: false, name: 'Slottsbacken' });
+    roads.push({ points: [{ x: 11, z: -60 }, { x: 75, z: -60 }], widthM: 6, isMajor: false, name: 'Torggatan' });
+    roads.push({ points: [{ x: 11, z: -134 }, { x: 75, z: -134 }], widthM: 6, isMajor: false, name: 'Slottsbacken' });
+    // Minimal crisp city park accents (no pine wall!)
     forests.push(
-      { centerX: -14, centerZ: -35, radiusM: 12, density: 0.75 },
-      { centerX: 13, centerZ: -90, radiusM: 14, density: 0.85 },
-      { centerX: -14, centerZ: -175, radiusM: 9, density: 0.9 },
-      { centerX: 32, centerZ: -195, radiusM: 16, density: 0.85 }
+      { centerX: -14, centerZ: -45, radiusM: 8, density: 0.35 },
+      { centerX: 14, centerZ: -102, radiusM: 8, density: 0.35 }
     );
-  } else if (stop.placeName === 'Mälaren') {
-    waters.push(
-      {
-        points: [
-          { x: -15, z: 30 },
-          { x: -17, z: -240 },
-          { x: -105, z: -240 },
-          { x: -105, z: 30 },
-        ],
-        isPolygon: true,
-        widthM: 80,
-        name: 'Mälaren Väst',
-      },
-      {
-        points: [
-          { x: 15, z: 30 },
-          { x: 17, z: -240 },
-          { x: 105, z: -240 },
-          { x: 105, z: 30 },
-        ],
-        isPolygon: true,
-        widthM: 80,
-        name: 'Riddarfjärden',
-      }
-    );
-    for (let i = 0; i < 6; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const cz = -24 - i * 32;
-      addBoxBuilding(`mal-cot-${i}`, side * 26, cz, 8.5, 7, 6.2, 'house', i === 2 ? 'Ekerö Brygga' : null, side * 0.2);
-      forests.push({ centerX: side * 36, centerZ: cz - 6, radiusM: 14, density: 0.9 });
-    }
-    pois.push({ x: -13, z: -88, kind: 'landmark', name: 'Spegelblank Vintervik' });
+  } else if (stop.placeName === 'Upplandsslätten') {
+    // Wide-open snowy Swedish agricultural countryside! Almost zero trees, vast horizon, one cute red stuga!
+    addBoxBuilding('upp-stuga', -22, -92, 7.6, 6.2, 5.2, 'small_cottage', 'Lillstugan', 0.14);
+    addBoxBuilding('upp-stuga-2', 26, -158, 7.2, 5.8, 5.0, 'small_cottage', null, -0.18);
+    // Just 1 tiny lonely roadside birch/pine grove far off on horizon
+    forests.push({ centerX: -48, centerZ: -140, radiusM: 10, density: 0.28 });
+    pois.push({ x: 13, z: -88, kind: 'landmark', name: 'Vintervidderna' });
   } else if (stop.placeName === 'Roslagen') {
-    // Deep enchanting Nordic winter forest with winding side forest lanes & warm cabins
-    for (let i = 0; i < 10; i++) {
+    // True enchanted deep Nordic winter pine forest with tucked-in warm small timber cottages
+    for (let i = 0; i < 9; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const cz = -15 - i * 21;
-      forests.push({ centerX: side * (18 + (i % 3) * 8), centerZ: cz, radiusM: 18, density: 1.0 });
-      if (i % 3 === 1) {
-        addBoxBuilding(`ros-cabin-${i}`, side * 21, cz, 8, 6.8, 5.8, 'house', i === 4 ? 'Skogstorpet' : null, side * -0.15);
+      const cz = -18 - i * 23;
+      forests.push({
+        centerX: side * (22 + (i % 3) * 9),
+        centerZ: cz,
+        radiusM: 18,
+        density: 0.85,
+      });
+      if (i === 2) {
+        addBoxBuilding('ros-cottage-1', -20, cz, 8.2, 6.6, 5.4, 'small_cottage', 'Skogstorpet', 0.18);
+      } else if (i === 5) {
+        addBoxBuilding('ros-cottage-2', 21, cz, 7.8, 6.4, 5.2, 'small_cottage', 'Jägarstugan', -0.2);
       }
     }
-    roads.push({ points: [{ x: 10, z: -72 }, { x: 68, z: -88 }], widthM: 4.5, isMajor: false, name: 'Skogsvägen' });
-    pois.push({ x: 13, z: -72, kind: 'landmark', name: 'Glittrande Granskog' });
-  } else if (stop.placeName === 'Upplands Väsby') {
-    // Highway + Supercharger plaza + Nordic commercial hubs wrapped in snowy pines
-    for (let i = 0; i < 7; i++) {
-      const cz = -20 - i * 28;
-      if (i !== 2) {
-        addBoxBuilding(`uv-com-${i}`, i % 2 === 0 ? -26 : 28, cz, 19, 14, 11.5, 'commercial');
-      }
-      forests.push({ centerX: i % 2 === 0 ? 20 : -22, centerZ: cz, radiusM: 15, density: 0.85 });
-    }
-    addBoxBuilding('uv-mall', -26, -76, 22, 18, 12.5, 'commercial', 'InfraCity Julcenter');
-    pois.push({ x: 15, z: -76, kind: 'charger', name: 'Supercharger InfraCity' });
-    roads.push({ points: [{ x: -75, z: -76 }, { x: 75, z: -76 }], widthM: 8, isMajor: true, name: 'E4 Avfart' });
+    roads.push({ points: [{ x: 11, z: -76 }, { x: 68, z: -92 }], widthM: 4.5, isMajor: false, name: 'Skogsvägen' });
+    pois.push({ x: 13, z: -76, kind: 'landmark', name: 'Glittrande Granskog' });
+  } else if (stop.placeName === 'Giga Nord') {
+    // Open winter highway flanking a massive recognizable Tesla Gigafactory + V4 Supercharger!
+    addBoxBuilding(
+      'giga-factory-1',
+      -34,
+      -96,
+      26,
+      44,
+      14.5,
+      'gigafactory',
+      'Tesla Gigafactory Nord'
+    );
+    addBoxBuilding('giga-office-2', 28, -148, 22, 18, 12.0, 'large_building', 'Giga Design Hub');
+    addBoxBuilding('giga-cottage-gate', 22, -46, 8, 6.5, 5.4, 'small_cottage', 'Entrévakt', -0.15);
+    pois.push({ x: 15, z: -96, kind: 'charger', name: 'Supercharger Giga Nord' });
+    roads.push({ points: [{ x: -75, z: -64 }, { x: 75, z: -64 }], widthM: 8, isMajor: true, name: 'Giga Allé' });
+    forests.push({ centerX: 46, centerZ: -64, radiusM: 14, density: 0.45 });
   } else if (stop.placeName === 'Sigtuna') {
-    // Historic Swedish wooden town + Mariakyrkan church spire + waterfront
+    // Cozy historic Swedish wooden small town: small cottages + medium inns + Mariakyrkan church spire
     waters.push({
       points: [
         { x: -34, z: 30 },
@@ -378,49 +417,59 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
       widthM: 70,
       name: 'Sigtunafjärden',
     });
-    for (let i = 0; i < 11; i++) {
-      const cz = -10 - i * 18;
-      addBoxBuilding(`sig-l-${i}`, -18, cz, 9.2, 8.4, 6.8 + (i % 2) * 1.4, 'house');
-      addBoxBuilding(`sig-r-${i}`, 18, cz - 5, 9.6, 8.4, 7.0 + ((i + 1) % 2) * 1.6, 'house');
+    for (let i = 0; i < 8; i++) {
+      const cz = -16 - i * 24;
+      addBoxBuilding(
+        `sig-l-${i}`,
+        -19,
+        cz,
+        i % 2 === 0 ? 7.8 : 11.2,
+        i % 2 === 0 ? 6.4 : 9.0,
+        i % 2 === 0 ? 5.4 : 8.5,
+        i % 2 === 0 ? 'small_cottage' : 'medium_house'
+      );
+      addBoxBuilding(
+        `sig-r-${i}`,
+        19,
+        cz - 6,
+        i % 2 === 1 ? 8.0 : 12.0,
+        i % 2 === 1 ? 6.6 : 9.4,
+        i % 2 === 1 ? 5.6 : 9.0,
+        i % 2 === 1 ? 'small_cottage' : 'medium_house'
+      );
     }
-    addBoxBuilding('sig-church', 28, -110, 14, 22, 18, 'church', 'Mariakyrkan');
+    addBoxBuilding('sig-church', 31, -110, 14, 22, 18, 'church', 'Mariakyrkan');
     pois.push({ x: 13, z: -92, kind: 'landmark', name: 'Sigtuna Julmarknad' });
     roads.push({ points: [{ x: -34, z: -92 }, { x: 64, z: -92 }], widthM: 5, isMajor: false, name: 'Stora Torget' });
-    forests.push(
-      { centerX: -28, centerZ: -46, radiusM: 13, density: 0.9 },
-      { centerX: 32, centerZ: -165, radiusM: 16, density: 0.9 }
-    );
+    forests.push({ centerX: -30, centerZ: -175, radiusM: 12, density: 0.42 });
   } else {
-    // Uppsala: Frozen Fyrisån river + University halls + Twin-spire Uppsala Domkyrka!
+    // Uppsala: Frozen Fyrisån river + medium townhouses + twin-spire Uppsala Domkyrka!
     waters.push({
       points: [
-        { x: -18, z: 30 },
-        { x: -20, z: -110 },
-        { x: -25, z: -240 },
+        { x: -20, z: 30 },
+        { x: -22, z: -110 },
+        { x: -27, z: -240 },
       ],
       isPolygon: false,
       widthM: 16,
       name: 'Fyrisån',
     });
-    for (let i = 0; i < 8; i++) {
-      const cz = -14 - i * 25;
-      addBoxBuilding(`upp-r-${i}`, 21, cz, 15, 14, 13.5 + (i % 2) * 3, 'apartment');
+    for (let i = 0; i < 7; i++) {
+      const cz = -18 - i * 28;
+      addBoxBuilding(`upp-r-${i}`, 22, cz, 14.5, 13.5, 11.5 + (i % 2) * 3, 'medium_house');
       if (i % 2 === 0) {
-        addBoxBuilding(`upp-l-${i}`, -38, cz - 8, 13, 12, 11.5, 'house');
+        addBoxBuilding(`upp-l-${i}`, -39, cz - 8, 12, 11, 10.5, 'medium_house');
       }
     }
-    addBoxBuilding('upp-dom', -38, -116, 20, 32, 26, 'church', 'Uppsala Domkyrka');
-    pois.push({ x: -17, z: -116, kind: 'church', name: 'Uppsala Domkyrka' });
+    addBoxBuilding('upp-dom', -40, -116, 20, 32, 26, 'church', 'Uppsala Domkyrka');
+    pois.push({ x: -16, z: -116, kind: 'church', name: 'Uppsala Domkyrka' });
     roads.push({ points: [{ x: -65, z: -116 }, { x: 65, z: -116 }], widthM: 6, isMajor: false, name: 'Dombron' });
-    forests.push(
-      { centerX: 14, centerZ: -45, radiusM: 13, density: 0.85 },
-      { centerX: 30, centerZ: -180, radiusM: 16, density: 0.9 },
-      { centerX: -46, centerZ: -185, radiusM: 18, density: 0.9 }
-    );
+    forests.push({ centerX: 34, centerZ: -182, radiusM: 14, density: 0.42 });
   }
 
   return {
     version,
+    biome: stop.biome,
     originLat: stop.lat,
     originLon: stop.lon,
     buildings,
@@ -525,14 +574,14 @@ export class OsmWorldDirector {
       const movedM =
         this.lastFetchMs === 0 ? 9999 : haversineMeters(this.lastFetchLat, this.lastFetchLon, lat, lon);
 
-      if ((this.lastFetchMs === 0 || (now - this.lastFetchMs >= 25000 && movedM >= 110))) {
+      if (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 25000 && movedM >= 110)) {
         this.lastFetchMs = now;
         this.lastFetchLat = lat;
         this.lastFetchLon = lon;
         void this.fetchLiveOsm(lat, lon);
       }
     } else {
-      // Offline curated Swedish winter cityscape corridor (zero external network calls)
+      // Curated offline Swedish Street-View corridors
       if (this.isLiveOsm) {
         this.isLiveOsm = false;
         this.snapshotVersion++;
@@ -562,7 +611,7 @@ export class OsmWorldDirector {
 
       const fLat = lat.toFixed(4);
       const fLon = lon.toFixed(4);
-      const overpassQuery = `[out:json][timeout:6];(way(around:230,${fLat},${fLon})["building"];way(around:250,${fLat},${fLon})["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|service"];way(around:320,${fLat},${fLon})["natural"~"water|wood"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|meadow|grass|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
+      const overpassQuery = `[out:json][timeout:6];(way(around:240,${fLat},${fLon})["building"];way(around:250,${fLat},${fLon})["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|service"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
 
       const [nomRes, ovRes] = await Promise.all([
         fetch(nomUrl, { signal: ctrl.signal }),
@@ -582,7 +631,7 @@ export class OsmWorldDirector {
         nextRoad = addr.road || addr.neighbourhood || nextPlace;
       }
 
-      let nextBiome: OsmBiome = 'village';
+      let nextBiome: OsmBiome = 'open';
       let nextLandmark: string | null = null;
       let nextCharger: string | null = null;
       let nextTunnel = false;
@@ -606,7 +655,9 @@ export class OsmWorldDirector {
         const els: OverpassEl[] = ovData?.elements ?? [];
         let hasWater = false;
         let hasForest = false;
-        let hasResidential = false;
+        let hasUrban = false;
+        let hasOpenFields = false;
+        let hasHighwayOnly = false;
 
         for (const el of els) {
           const tags = el.tags;
@@ -637,10 +688,11 @@ export class OsmWorldDirector {
           const pts = el.geometry.map((g) => geoDeltaMeters(lat, lon, g.lat, g.lon));
 
           if (tags.building) {
-            hasResidential = true;
-            const ring = pts.length > 3 && Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].z - pts[pts.length - 1].z) < 0.3
-              ? pts.slice(0, -1)
-              : pts;
+            const ring =
+              pts.length > 3 &&
+              Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].z - pts[pts.length - 1].z) < 0.3
+                ? pts.slice(0, -1)
+                : pts;
             if (ring.length < 3) continue;
             const stats = polygonStats(ring);
             if (stats.area < 8) continue;
@@ -650,6 +702,9 @@ export class OsmWorldDirector {
               footprint: decimatePoints(ring, 16),
               centerX: stats.cx,
               centerZ: stats.cz,
+              widthM: stats.widthM,
+              depthM: stats.depthM,
+              areaM2: stats.area,
               heightM: cls.heightM,
               kind: cls.kind,
               name: tags.name ?? null,
@@ -660,6 +715,7 @@ export class OsmWorldDirector {
           } else if (tags.highway) {
             const hw = tags.highway;
             const isMajor = hw === 'motorway' || hw === 'trunk' || hw === 'primary' || hw === 'secondary';
+            if (isMajor) hasHighwayOnly = true;
             const widthM = isMajor ? 8.5 : hw === 'tertiary' || hw === 'residential' ? 6.2 : 4.2;
             roads.push({
               points: decimatePoints(pts, 18),
@@ -678,14 +734,7 @@ export class OsmWorldDirector {
               widthM: tags.waterway === 'river' || tags.waterway === 'canal' ? 14 : 7,
               name: tags.name ?? null,
             });
-          } else if (
-            tags.natural === 'wood' ||
-            tags.landuse === 'forest' ||
-            tags.landuse === 'meadow' ||
-            tags.landuse === 'grass' ||
-            tags.landuse === 'recreation_ground' ||
-            tags.leisure === 'park'
-          ) {
+          } else if (tags.natural === 'wood' || tags.landuse === 'forest' || tags.leisure === 'park') {
             hasForest = true;
             const stats = polygonStats(pts);
             const estRadius = Math.max(8, Math.min(34, Math.sqrt(Math.max(50, stats.area) / Math.PI)));
@@ -693,36 +742,39 @@ export class OsmWorldDirector {
               centerX: stats.cx,
               centerZ: stats.cz,
               radiusM: estRadius,
-              density: tags.natural === 'wood' || tags.landuse === 'forest' ? 1.0 : 0.72,
+              density: tags.leisure === 'park' ? 0.45 : 0.88,
             });
+          } else if (
+            tags.landuse === 'farmland' ||
+            tags.landuse === 'meadow' ||
+            tags.landuse === 'field' ||
+            tags.landuse === 'farmyard' ||
+            tags.landuse === 'pasture' ||
+            tags.natural === 'grassland' ||
+            tags.natural === 'heath'
+          ) {
+            hasOpenFields = true;
+          } else if (
+            tags.landuse === 'residential' ||
+            tags.landuse === 'commercial' ||
+            tags.landuse === 'retail'
+          ) {
+            hasUrban = true;
           }
         }
 
-        if (hasWater) nextBiome = 'water';
-        else if (hasForest && !hasResidential) nextBiome = 'forest';
-        else if (hasResidential) nextBiome = 'village';
+        // Strict Street-View land-use reflection: NO fake forests injected in open land!
+        if (hasWater && waters.length > 0) nextBiome = 'water';
+        else if (hasForest && buildings.length < 7) nextBiome = 'forest';
+        else if (buildings.length >= 4 || hasUrban) nextBiome = 'village';
+        else if (hasOpenFields || (!hasForest && buildings.length <= 3 && !hasHighwayOnly)) nextBiome = 'open';
         else nextBiome = 'highway';
       }
 
-      // Sort by closest proximity to car and cap counts cleanly for MCU/WebGL performance
       const distSq = (x: number, z: number) => x * x + z * z;
       buildings.sort((a, b) => distSq(a.centerX, a.centerZ) - distSq(b.centerX, b.centerZ));
       forests.sort((a, b) => distSq(a.centerX, a.centerZ) - distSq(b.centerX, b.centerZ));
       pois.sort((a, b) => distSq(a.x, a.z) - distSq(b.x, b.z));
-
-      // Always weave enchanting forest perimeter rings around recognizable OSM neighborhoods!
-      const cappedForests = forests.slice(0, 14);
-      if (cappedForests.length < 6) {
-        const ringAngles = [0.4, 1.3, 2.2, 3.1, 4.1, 5.2];
-        for (const a of ringAngles) {
-          cappedForests.push({
-            centerX: Math.cos(a) * 62,
-            centerZ: Math.sin(a) * 62,
-            radiusM: 18,
-            density: 0.85,
-          });
-        }
-      }
 
       const placeChanged =
         nextPlace !== this.placeName || nextBiome !== this.biome || nextLandmark !== this.nearbyLandmark;
@@ -736,12 +788,13 @@ export class OsmWorldDirector {
       this.snapshotVersion++;
       this.snapshot = {
         version: this.snapshotVersion,
+        biome: nextBiome,
         originLat: lat,
         originLon: lon,
         buildings: buildings.slice(0, 42),
         roads: roads.slice(0, 26),
         waters: waters.slice(0, 10),
-        forests: cappedForests,
+        forests: forests.slice(0, 14),
         pois: pois.slice(0, 8),
       };
 

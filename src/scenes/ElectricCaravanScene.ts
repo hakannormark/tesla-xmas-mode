@@ -128,7 +128,7 @@ export class ElectricCaravanScene implements HolidayScene {
     }
 
     const convoyZ = [-8, 12, 32];
-    const liveries = ['coca_cola', 'ica', 'coca_cola'] as const;
+    const liveries = ['coca_cola', 'tesla', 'coca_cola'] as const;
     convoyZ.forEach((zPos, idx) => {
       const semi = createPixarTeslaSemi(liveries[idx % liveries.length]);
       semi.group.position.set(0, 0, zPos);

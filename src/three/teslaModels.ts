@@ -2,14 +2,14 @@ import * as THREE from 'three';
 import { tryLoadOptionalGlb } from './glbModelLoader';
 import {
   createCocaColaTrailerTexture,
-  createIcaTrailerTexture,
   createSparklingSnowMaterial,
+  createTeslaTrailerTexture,
   createTruckRearDoorTexture,
   createVolumetricBeamMaterial,
   getSoftGlowTexture,
 } from './pixarMaterials';
 
-export type SemiLivery = 'coca_cola' | 'ica';
+export type SemiLivery = 'coca_cola' | 'tesla';
 
 const sharedSideTex: Partial<Record<SemiLivery, THREE.CanvasTexture>> = {};
 const sharedRearTex: Partial<Record<SemiLivery, THREE.CanvasTexture>> = {};
@@ -19,7 +19,7 @@ let sharedTeslaBadgeTex: THREE.CanvasTexture | null = null;
 function getSideTex(livery: SemiLivery): THREE.CanvasTexture {
   if (!sharedSideTex[livery]) {
     sharedSideTex[livery] =
-      livery === 'ica' ? createIcaTrailerTexture() : createCocaColaTrailerTexture();
+      livery === 'tesla' ? createTeslaTrailerTexture() : createCocaColaTrailerTexture();
   }
   return sharedSideTex[livery]!;
 }
@@ -208,14 +208,14 @@ export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): Accur
   const group = new THREE.Group();
 
   const cabPaint = new THREE.MeshPhysicalMaterial({
-    color: livery === 'ica' ? '#f2f6fc' : '#c40d2a',
-    metalness: livery === 'ica' ? 0.25 : 0.42,
+    color: livery === 'tesla' ? '#f2f6fc' : '#c40d2a',
+    metalness: livery === 'tesla' ? 0.28 : 0.42,
     roughness: 0.14,
     clearcoat: 1.0,
     clearcoatRoughness: 0.08,
   });
   const crimsonPaint = new THREE.MeshPhysicalMaterial({
-    color: livery === 'ica' ? '#dc0820' : '#c40d2a',
+    color: livery === 'tesla' ? '#dc1230' : '#c40d2a',
     metalness: 0.38,
     roughness: 0.16,
     clearcoat: 1.0,

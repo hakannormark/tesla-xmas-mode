@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { ELON_MILESTONES, TimelineDioramaKind } from '../core/elonTimelineData';
 import { i18n } from '../core/i18n';
-import { createSparklingSnowMaterial, getSoftGlowTexture } from './pixarMaterials';
+import {
+  createSparklingSnowMaterial,
+  createVolumetricBeamMaterial,
+  getSoftGlowTexture,
+} from './pixarMaterials';
 import { createPixarCottage } from './pixarModels';
 import {
   createAccurateCybertruck,
@@ -130,7 +134,7 @@ export function createRoadsideMilestoneEvent(
   milestoneIndex: number,
   zOffset: number,
   getRoadX: (z: number) => number,
-  lateralOffset = 11.4,
+  lateralOffset = 13.4,
   sideOverride?: -1 | 1
 ): RoadsideMilestoneSlot {
   const m = ELON_MILESTONES[milestoneIndex];
@@ -167,7 +171,7 @@ export function createRoadsideMilestoneEvent(
     '#ffd87a',
     640,
     128,
-    5.8
+    6.2
   );
   headerSign.position.set(0, portalRadius + 2.25, 0.15);
   archGroup.add(headerSign);
@@ -178,10 +182,12 @@ export function createRoadsideMilestoneEvent(
   let updater: ((time: number, dt: number, approachProgress: number) => void) | undefined;
 
   if (isOverhead) {
-    spec.position.set(0, 0, -4);
+    spec.position.set(0, 0, -2);
   } else {
-    spec.position.set(side * lateralOffset, 0, -4);
-    spec.rotation.y = side > 0 ? -0.52 : 0.52;
+    // Anchored at local z = 0 perpendicular to curving road so turns NEVER swing stage onto asphalt!
+    spec.position.set(side * lateralOffset, 0, 0);
+    spec.scale.setScalar(1.42);
+    spec.rotation.y = side > 0 ? -0.45 : 0.45;
 
     // Pillowy Pixar snow mound apron with soft colored holiday rim glow
     const mound = new THREE.Mesh(
@@ -193,11 +199,11 @@ export function createRoadsideMilestoneEvent(
     spec.add(mound);
 
     const glowRing = new THREE.Mesh(
-      new THREE.RingGeometry(4.6, 5.1, 28),
+      new THREE.RingGeometry(4.6, 5.15, 28),
       new THREE.MeshBasicMaterial({
         color: m.accentHex,
         transparent: true,
-        opacity: 0.45,
+        opacity: 0.62,
         side: THREE.DoubleSide,
         toneMapped: false,
       })
@@ -205,6 +211,33 @@ export function createRoadsideMilestoneEvent(
     glowRing.rotation.x = -Math.PI * 0.5;
     glowRing.position.y = 0.06;
     spec.add(glowRing);
+
+    // Tall skyward volumetric spotlight beacon visible from 160m down the highway!
+    const beaconBeam = new THREE.Mesh(
+      new THREE.ConeGeometry(3.4, 24, 16, 1, true),
+      createVolumetricBeamMaterial(m.accentHex, 0.18)
+    );
+    beaconBeam.rotation.x = Math.PI;
+    beaconBeam.position.set(0, 12.2, 0);
+    spec.add(beaconBeam);
+
+    // Tall Illuminated Roadside Monument Billboard next to stage for instant readability ahead
+    const postMat = mats.gold;
+    for (const bx of [-1.8, 1.8]) {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4.6, 8), postMat);
+      p.position.set(bx, 2.3, -2.9);
+      spec.add(p);
+    }
+    const monumentBoard = createTimelineSignPlane(
+      formatMarqueeText(m.year, m[i18n.getLocale()].title, 26),
+      '#1e0918',
+      m.accentHex,
+      640,
+      192,
+      4.6
+    );
+    monumentBoard.position.set(0, 4.9, -2.9);
+    spec.add(monumentBoard);
   }
 
   const kind: TimelineDioramaKind = m.diorama;

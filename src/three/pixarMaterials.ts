@@ -301,7 +301,31 @@ export function createCocaColaTrailerTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-export function createIcaTrailerTexture(): THREE.CanvasTexture {
+function drawTeslaCrestPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = '#e31937';
+  // Signature curved top bar
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.68, -size * 0.28);
+  ctx.quadraticCurveTo(0, -size * 0.46, size * 0.68, -size * 0.28);
+  ctx.lineTo(size * 0.56, -size * 0.16);
+  ctx.quadraticCurveTo(0, -size * 0.31, -size * 0.56, -size * 0.16);
+  ctx.closePath();
+  ctx.fill();
+  // T body & tapered stem
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.52, -size * 0.08);
+  ctx.quadraticCurveTo(0, -size * 0.21, size * 0.52, -size * 0.08);
+  ctx.lineTo(size * 0.14, size * 0.04);
+  ctx.lineTo(0, size * 0.68);
+  ctx.lineTo(-size * 0.14, size * 0.04);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+export function createTeslaTrailerTexture(): THREE.CanvasTexture {
   const w = 512;
   const h = 192;
   const canvas = document.createElement('canvas');
@@ -310,21 +334,21 @@ export function createIcaTrailerTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d')!;
 
   const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, '#c60619');
-  bg.addColorStop(0.5, '#e81028');
-  bg.addColorStop(1, '#a80414');
+  bg.addColorStop(0, '#a80c24');
+  bg.addColorStop(0.5, '#dc1230');
+  bg.addColorStop(1, '#84081a');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  // Crisp festive white frost trim top & bottom + evergreen border accents
-  ctx.fillStyle = 'rgba(255, 250, 244, 0.92)';
+  // Sleek pearlescent winter-white top & bottom holiday stripe + golden trim
+  ctx.fillStyle = 'rgba(244, 248, 255, 0.94)';
   ctx.fillRect(0, 0, w, 12);
   ctx.fillRect(0, h - 12, w, 12);
-  ctx.strokeStyle = '#ffe08a';
+  ctx.strokeStyle = '#ffd878';
   ctx.lineWidth = 3;
   ctx.strokeRect(10, 14, w - 20, h - 28);
 
-  // Sparkling gold winter snowflakes
+  // Sparkling snowflakes
   for (let i = 0; i < 22; i++) {
     const sx = (i * 47 + 22) % w;
     const sy = ((i * 31 + 19) % (h - 48)) + 24;
@@ -334,11 +358,11 @@ export function createIcaTrailerTexture(): THREE.CanvasTexture {
     ctx.fill();
   }
 
-  // Signature snow-white rounded ICA emblem badge
-  const bx = 42;
-  const by = 40;
-  const bw = 136;
-  const bh = 86;
+  // Glowing frosted white rounded Tesla crest medallion on left
+  const bx = 38;
+  const by = 38;
+  const bw = 114;
+  const bh = 102;
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.roundRect(bx, by, bw, bh, 20);
@@ -347,29 +371,27 @@ export function createIcaTrailerTexture(): THREE.CanvasTexture {
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  ctx.fillStyle = '#dc041c';
-  ctx.font = '900 54px Inter, "Arial Black", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('ICA', bx + bw * 0.5, by + bh * 0.54);
+  drawTeslaCrestPath(ctx, bx + bw * 0.5, by + bh * 0.52, 46);
 
   ctx.fillStyle = '#fff9eb';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-  ctx.shadowBlur = 10;
-  ctx.font = '700 30px "Cinzel", Georgia, serif';
-  ctx.fillText('GOD JUL FRÅN ICA', w * 0.64, h * 0.42);
+  ctx.shadowColor = 'rgba(255, 218, 125, 0.75)';
+  ctx.shadowBlur = 14;
+  ctx.font = '700 42px "Cinzel", Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('T E S L A', w * 0.64, h * 0.41);
 
   ctx.shadowBlur = 6;
   ctx.fillStyle = '#ffe099';
   ctx.font = '600 16px Inter, sans-serif';
-  ctx.fillText('✦  TOMTENS JULBORD EXPRESS  ✦', w * 0.64, h * 0.71);
+  ctx.fillText('✦  ELECTRIC HOLIDAY EXPRESS · GOD JUL  ✦', w * 0.64, h * 0.72);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-export function createTruckRearDoorTexture(livery: 'coca_cola' | 'ica'): THREE.CanvasTexture {
+export function createTruckRearDoorTexture(livery: 'coca_cola' | 'tesla'): THREE.CanvasTexture {
   const s = 256;
   const canvas = document.createElement('canvas');
   canvas.width = s;
@@ -377,7 +399,7 @@ export function createTruckRearDoorTexture(livery: 'coca_cola' | 'ica'): THREE.C
   const ctx = canvas.getContext('2d')!;
 
   const grad = ctx.createLinearGradient(0, 0, 0, s);
-  grad.addColorStop(0, livery === 'ica' ? '#df1026' : '#c40d28');
+  grad.addColorStop(0, livery === 'tesla' ? '#dc1230' : '#c40d28');
   grad.addColorStop(1, '#7a0616');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, s, s);
@@ -386,19 +408,17 @@ export function createTruckRearDoorTexture(livery: 'coca_cola' | 'ica'): THREE.C
   ctx.lineWidth = 8;
   ctx.strokeRect(10, 10, s - 20, s - 20);
 
-  if (livery === 'ica') {
+  if (livery === 'tesla') {
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.roundRect(48, 44, 160, 84, 18);
+    ctx.roundRect(58, 36, 140, 104, 20);
     ctx.fill();
-    ctx.fillStyle = '#dc041c';
-    ctx.font = '900 56px Inter, sans-serif';
+    drawTeslaCrestPath(ctx, 128, 90, 48);
+    ctx.fillStyle = '#fff6de';
+    ctx.font = '700 26px "Cinzel", Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('ICA', 128, 90);
-    ctx.fillStyle = '#fff6de';
-    ctx.font = '700 28px "Cinzel", Georgia, serif';
-    ctx.fillText('GOD JUL!', 128, 178);
+    ctx.fillText('TESLA · GOD JUL!', 128, 186);
   } else {
     ctx.fillStyle = '#fff8ee';
     ctx.font = 'italic 700 44px Georgia, serif';
