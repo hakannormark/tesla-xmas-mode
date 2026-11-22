@@ -604,6 +604,12 @@ export class OsmWorldDirector {
     return this.getState();
   }
 
+  async loadAt(lat: number, lon: number): Promise<OsmWorldState> {
+    await this.fetchLiveOsm(lat, lon);
+    if (!this.isLiveOsm) throw new Error('Map unavailable');
+    return this.getState();
+  }
+
   private async fetchLiveOsm(lat: number, lon: number): Promise<void> {
     this.inflightAbort?.abort();
     const ctrl = new AbortController();

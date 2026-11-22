@@ -1,4 +1,5 @@
 import './styles/main.css';
+import { LocalDemoDrive, demoStart } from './core/localDemo';
 import { AudioMixMode, HolidayAudioEngine } from './core/audioEngine';
 import { BoringTunnelRenderer } from './core/boringTunnel';
 import { ElonEventDirector } from './core/elonEvents';
@@ -48,6 +49,8 @@ class TeslaXmasApp {
   private menu: MenuView;
   private hud: SceneHUD;
 
+  private winterLight = false;
+  private localDemo?: LocalDemoDrive;
   private activeScene: HolidayScene | null = null;
   private wakeLockSentinel: WakeLockSentinel | null = null;
   private lastTimeMs = performance.now();
@@ -172,6 +175,8 @@ class TeslaXmasApp {
     }
     this.stageEl.innerHTML = '';
 
+    this.winterLight = winterLight;
+    this.localDemo = undefined;
     const scene = createSceneById(id, winterLight);
     scene.mount(this.stageEl);
     this.activeScene = scene;
@@ -185,6 +190,8 @@ class TeslaXmasApp {
   }
 
   returnToMenu(): void {
+    this.winterLight = false;
+    this.localDemo = undefined;
     if (this.activeScene) {
       this.activeScene.dispose();
       this.activeScene = null;
@@ -267,10 +274,16 @@ class TeslaXmasApp {
     this.lastTimeMs = nowMs;
 
     const frame = this.telemetry.update(dt);
+    if (this.winterLight && frame.source === 'demo' && this.osm.isEnabled()) {
+      this.localDemo ??= new LocalDemoDrive();
+      this.localDemo.advance(frame, dt);
+    } else {
+      this.localDemo = undefined;
+    }
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
     this.audio.setMusicStyle(envState.theme);
-    const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
+    const osmState = this.localDemo?.data?.map ?? this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
     this.live.update(frame.latitude, frame.longitude);
     const liveState = this.live.getState();
 
@@ -283,6 +296,10 @@ class TeslaXmasApp {
       this.audio.update(dt, frame, activeEvent?.type ?? null);
 
       this.activeScene.update(dt, {
+        localDemo: !!this.localDemo?.data,
+        demoNotice: this.localDemo && !this.localDemo.data
+          ? (this.localDemo.failed ? 'Kartan kunde inte hämtas · Reservdemo' : 'Hämtar ' + demoStart + ' · Djursholm')
+          : this.localDemo?.data && frame.tripKm < 0.025 ? demoStart + ' · Djursholm' : undefined,
         telemetry: frame,
         env: envState,
         elonEvent: activeEvent,

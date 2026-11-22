@@ -106,7 +106,7 @@ export class MenuView {
       </header>
 
       <button type="button" class="winter-entry" data-winter-light>
-        <strong>${locale === 'sv' ? 'Prova Vinterljus' : 'Try Winter Light'}</strong>
+        <strong>${locale === 'sv' ? 'Vinterljus · Djursholm' : 'Winter Light · Djursholm'}</strong>
         <span>North Pole Flight Deck · ${locale === 'sv' ? 'Filmisk prototyp' : 'Cinematic prototype'} →</span>
       </button>
       <main class="mode-grid">

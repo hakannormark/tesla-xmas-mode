@@ -789,7 +789,7 @@ export class NorthPole3DScene implements HolidayScene {
 
     // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Wet Reflections & Glitter
     this.roadScroll += forwardStep;
-    const liveMap = this.winterLight && osm.enabled && osm.isLiveOsm && telemetry.source === 'gps' && telemetry.gpsStatus === 'active';
+    const liveMap = this.winterLight && osm.enabled && osm.isLiveOsm && (frame.localDemo || (telemetry.source === 'gps' && telemetry.gpsStatus === 'active'));
     if (!liveMap) {
       this.street = undefined;
       this.mapVersion = -1;
@@ -813,7 +813,7 @@ export class NorthPole3DScene implements HolidayScene {
     if (this.signCaption) {
       this.signCaption.hidden = !osm.enabled || (telemetry.source === 'gps' && !this.street);
       const roadName = this.street ? this.street.name : osm.roadName;
-      const caption = [roadName, osm.placeName].filter(Boolean).join(' · ');
+      const caption = frame.demoNotice ?? [roadName, osm.placeName].filter(Boolean).join(' · ');
       this.signCaption.classList.toggle('mapped', !!this.street);
       if (this.signCaption.textContent !== caption) this.signCaption.textContent = caption;
     }
