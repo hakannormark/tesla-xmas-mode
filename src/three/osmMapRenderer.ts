@@ -1,3 +1,4 @@
+import { streetGeometry } from './mappedRoads';
 import * as THREE from 'three';
 import { GraphicsQuality, HolidayThemeId } from '../core/environment';
 import {
@@ -381,7 +382,7 @@ export class OsmMapLayer {
   private theme: HolidayThemeId = 'classic';
   private targetVec = new THREE.Vector3();
 
-  constructor() {
+  constructor(private readonly mappedStreets = false) {
     this.mapPivot.add(this.mapInner);
     this.group.add(this.mapPivot);
   }
@@ -772,6 +773,7 @@ export class OsmMapLayer {
     this.builtVersion = snapshot.version;
     this.builtQuality = quality;
     this.builtIsLiveOsm = isLiveOsm;
+    this.wasLiveOsm = false;
     this.originLat = snapshot.originLat;
     this.originLon = snapshot.originLon;
 
@@ -844,7 +846,11 @@ export class OsmMapLayer {
 
     // 2. Secondary OSM Cross-Streets & Neighborhood Roads
     const roadLimit = quality === 'eco' ? 14 : 26;
-    for (const road of snapshot.roads.slice(0, roadLimit)) {
+    const renderNetwork = this.mappedStreets && isLiveOsm;
+    if (renderNetwork) {
+      this.mapInner.add(new THREE.Mesh(streetGeometry(snapshot.roads), mats.road));
+    }
+    for (const road of renderNetwork ? [] : snapshot.roads.slice(0, roadLimit)) {
       for (let i = 0; i < road.points.length - 1; i++) {
         const a = road.points[i];
         const b = road.points[i + 1];

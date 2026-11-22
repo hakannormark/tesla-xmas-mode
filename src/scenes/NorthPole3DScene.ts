@@ -1,3 +1,5 @@
+import { streetAtCar } from '../three/mappedRoads';
+import { geoDeltaMeters, type OsmPoint2D, type OsmRoadRibbon } from '../core/osmWorld';
 import { WinterGrove } from '../three/winterGrove';
 import * as THREE from 'three';
 import { ELON_MILESTONES } from '../core/elonTimelineData';
@@ -102,6 +104,14 @@ export class NorthPole3DScene implements HolidayScene {
   private stage: PixarStage | null = null;
   private fallbackEl: HTMLElement | null = null;
 
+  private valley!: THREE.Mesh;
+  private signCaption?: HTMLDivElement;
+  private street?: OsmRoadRibbon;
+  private localStreet: OsmPoint2D[] = [];
+  private fixLat = NaN;
+  private fixLon = NaN;
+  private fixHeading = NaN;
+  private mapVersion = -1;
   private grove?: WinterGrove;
   constructor(private readonly winterLight = false) {}
 
@@ -227,7 +237,8 @@ export class NorthPole3DScene implements HolidayScene {
       scene.add(this.alpineBackdrop);
 
       // 2. Rolling Undulating Pixar Valley + Continuous Sculpted Snowbank Boulevard
-      scene.add(createPixarValleyTerrain());
+      this.valley = createPixarValleyTerrain();
+      scene.add(this.valley);
 
       this.snowyRoad = new PixarSnowyRoad();
       scene.add(this.snowyRoad.mesh);
@@ -502,7 +513,15 @@ export class NorthPole3DScene implements HolidayScene {
       this.swedishSign.group.rotation.y = 0.24;
       scene.add(this.swedishSign.group);
 
-      this.osmMap = new OsmMapLayer();
+      if (this.winterLight) {
+        this.signCaption = document.createElement('div');
+        this.signCaption.className = 'winter-road-caption';
+        container.appendChild(this.signCaption);
+        this.swedishSign.group.scale.setScalar(1.4);
+        this.roadSign.group.scale.setScalar(1.35);
+        trailGeo.setDrawRange(0, 38);
+      }
+      this.osmMap = new OsmMapLayer(this.winterLight);
       scene.add(this.osmMap.group);
 
       this.livingWorld = new LivingWorldRig(() => this.osmMap.lightUpNeighborhood());
@@ -715,6 +734,14 @@ export class NorthPole3DScene implements HolidayScene {
   }
 
   private getRoadCurveX(z: number): number {
+    if (this.street) {
+      for (let i = 1; i < this.localStreet.length; i++) {
+        const a = this.localStreet[i - 1], b = this.localStreet[i];
+        if ((a.z - z) * (b.z - z) <= 0 && Math.abs(b.z - a.z) > 0.01) {
+          return a.x + (z - a.z) * (b.x - a.x) / (b.z - a.z);
+        }
+      }
+    }
     const distAhead = Math.max(0, 10 - z);
     return this.smoothCurve * distAhead * distAhead * 0.0034;
   }
@@ -762,8 +789,37 @@ export class NorthPole3DScene implements HolidayScene {
 
     // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Wet Reflections & Glitter
     this.roadScroll += forwardStep;
-    this.grove?.update(this.roadScroll, (z) => this.getRoadCurveX(z));
-    this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
+    const liveMap = this.winterLight && osm.enabled && osm.isLiveOsm && telemetry.source === 'gps' && telemetry.gpsStatus === 'active';
+    if (!liveMap) {
+      this.street = undefined;
+      this.mapVersion = -1;
+    } else if (this.mapVersion !== osm.snapshot.version || this.fixLat !== telemetry.latitude ||
+               this.fixLon !== telemetry.longitude || this.fixHeading !== telemetry.headingDeg) {
+      this.street = streetAtCar(osm.snapshot, telemetry);
+      const pos = geoDeltaMeters(osm.snapshot.originLat, osm.snapshot.originLon, telemetry.latitude, telemetry.longitude);
+      const angle = telemetry.headingDeg * Math.PI / 180;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      this.localStreet = (this.street?.points ?? []).map(p => ({
+        x: (p.x - pos.x) * c + (p.z - pos.z) * s,
+        z: (p.z - pos.z) * c - (p.x - pos.x) * s,
+      }));
+      this.mapVersion = osm.snapshot.version;
+      this.fixLat = telemetry.latitude;
+      this.fixLon = telemetry.longitude;
+      this.fixHeading = telemetry.headingDeg;
+    }
+    this.snowyRoad.mesh.visible = !this.street;
+    this.valley.scale.y = this.street ? 0.001 : 1;
+    if (this.signCaption) {
+      this.signCaption.hidden = !osm.enabled || (telemetry.source === 'gps' && !this.street);
+      const roadName = this.street ? this.street.name : osm.roadName;
+      const caption = [roadName, osm.placeName].filter(Boolean).join(' · ');
+      this.signCaption.classList.toggle('mapped', !!this.street);
+      if (this.signCaption.textContent !== caption) this.signCaption.textContent = caption;
+    }
+    if (this.grove) this.grove.group.visible = !this.street;
+    if (!this.street) this.grove?.update(this.roadScroll, (z) => this.getRoadCurveX(z));
+    if (!this.street) this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
     const auroraHex =
       env.theme === 'cyber2099' ? '#3eeeff' : env.theme === 'nordic' ? '#7fd6ff' : '#3ce8b4';
     const auroraBoost = env.theme === 'cyber2099' ? 1.25 : 1.0 + live.auroraLiveBoost * 0.45;
@@ -788,7 +844,8 @@ export class NorthPole3DScene implements HolidayScene {
     (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
     this.frozenLake.visible = this.lakeBlend > 0.02;
 
-    this.roadSign.group.visible = osm.enabled;
+    const showSigns = osm.enabled && (!this.winterLight || telemetry.source !== 'gps' || !!this.street);
+    this.roadSign.group.visible = showSigns;
     this.roadSign.setText(
       `GOD JUL, ${osm.placeName.toUpperCase()}`,
       osm.nearbyLandmark || osm.nearbyChargerName || osm.roadName
@@ -801,11 +858,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.roadSign.group.rotation.y = -0.38 + Math.atan2(signRoadX - signNextX, 5);
 
     // Swedish Trafikverket Motorway Signboard with live OSM place & North Pole distance
-    this.swedishSign.group.visible = osm.enabled;
+    this.swedishSign.group.visible = showSigns;
     this.swedishSign.setDirections(
       telemetry.northPoleDistanceKm,
       osm.placeName,
-      osm.roadName
+      this.street?.name || osm.roadName
     );
     this.swedishSignZ += forwardStep;
     if (this.swedishSignZ > 14) this.swedishSignZ = -175;
@@ -1077,7 +1134,7 @@ export class NorthPole3DScene implements HolidayScene {
     // Update 240-Particle Swirling Stardust Wake (dramatically denser, wider & brighter with speed!)
     this.sleigh.getTrailOrigin(this.trailVec);
     const wakeSpeed = 1.6 + forwardStep * 0.85 + speedNorm * 8.5 * dt;
-    for (let i = TRAIL_COUNT - 1; i > 0; i--) {
+    for (let i = (this.winterLight ? 38 : TRAIL_COUNT) - 1; i > 0; i--) {
       const swirl = (0.04 + speedNorm * 0.18) * dt * 16;
       this.sleighTrailPos[i * 3] =
         this.sleighTrailPos[(i - 1) * 3] + Math.sin(time * 5 + i * 0.35) * swirl * 0.12;
@@ -1093,6 +1150,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.sleighTrailPoints.geometry.attributes.position.needsUpdate = true;
     this.sleighTrailMat.size = 0.55 + speedNorm * 0.65 + this.flightFactor * 0.35 + beat * 0.22;
     this.sleighTrailMat.opacity = Math.min(1.0, 0.68 + speedNorm * 0.32 + beat * 0.15);
+
+    if (this.winterLight) {
+      this.sleighTrailMat.size *= 0.48;
+      this.sleighTrailMat.opacity *= 0.32;
+    }
 
     // Update Interactive Tap Starburst Explosion
     for (let i = 0; i < BURST_COUNT; i++) {
@@ -1263,6 +1325,7 @@ export class NorthPole3DScene implements HolidayScene {
     }
     this.milestoneCardEl?.remove();
     this.milestoneCardEl = null;
+    this.signCaption?.remove();
     this.grove?.dispose();
     this.liveSkyRig?.dispose();
     this.livingWorld?.dispose();

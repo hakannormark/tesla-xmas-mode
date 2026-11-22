@@ -1246,3 +1246,22 @@ button {
   cursor: pointer;
 }
 .winter-entry strong { font-size: 1.2em; }
+
+.winter-road-caption {
+  position: absolute;
+  bottom: clamp(76px, 16vh, 120px);
+  left: 1rem;
+  max-width: min(70vw, 34rem);
+  padding: .35em .75em;
+  border: 2px solid #edf5ff;
+  border-radius: .35em;
+  background: #153859;
+  color: white;
+  font: 650 clamp(16px, 2.2vw, 28px)/1.2 system-ui, sans-serif;
+  pointer-events: none;
+}
+.winter-road-caption.mapped::after {
+  content: '© OpenStreetMap contributors';
+  display: block;
+  font: 11px/1.5 system-ui, sans-serif;
+}

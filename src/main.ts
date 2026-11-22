@@ -270,7 +270,7 @@ class TeslaXmasApp {
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
     this.audio.setMusicStyle(envState.theme);
-    const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh);
+    const osmState = this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
     this.live.update(frame.latitude, frame.longitude);
     const liveState = this.live.getState();
 

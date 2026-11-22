@@ -559,13 +559,19 @@ export class OsmWorldDirector {
     lat: number,
     lon: number,
     isMoving: boolean,
-    speedKmh = 55
+    speedKmh = 55,
+    gpsReady = true
   ): OsmWorldState {
     if (this.landmarkPulse > 0) {
       this.landmarkPulse = Math.max(0, this.landmarkPulse - dt * 0.25);
     }
 
-    if (!this.enabled) {
+    if ((!this.enabled || source !== 'gps') && this.inflightAbort) {
+      this.inflightAbort.abort();
+      this.inflightAbort = null;
+    }
+    if (!this.enabled || source !== 'gps') this.lastFetchMs = 0;
+    if (!this.enabled || (source === 'gps' && !gpsReady)) {
       return this.getState();
     }
 
@@ -574,7 +580,7 @@ export class OsmWorldDirector {
       const movedM =
         this.lastFetchMs === 0 ? 9999 : haversineMeters(this.lastFetchLat, this.lastFetchLon, lat, lon);
 
-      if (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 25000 && movedM >= 110)) {
+      if (!this.inflightAbort && (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 12000 && movedM >= 150) || (now - this.lastFetchMs >= 30000 && !this.isLiveOsm))) {
         this.lastFetchMs = now;
         this.lastFetchLat = lat;
         this.lastFetchLon = lon;
@@ -607,14 +613,15 @@ export class OsmWorldDirector {
     try {
       const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(
         5
-      )}&lon=${lon.toFixed(5)}&zoom=14&addressdetails=1`;
+      )}&lon=${lon.toFixed(5)}&zoom=18&addressdetails=1`;
 
       const fLat = lat.toFixed(4);
       const fLon = lon.toFixed(4);
-      const overpassQuery = `[out:json][timeout:6];(way(around:240,${fLat},${fLon})["building"];way(around:250,${fLat},${fLon})["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|service"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
+      const streets = `way(around:420,${fLat},${fLon})["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]`;
+      const overpassQuery = `[out:json][timeout:6];${streets};out body geom;(way(around:240,${fLat},${fLon})["building"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
 
       const [nomRes, ovRes] = await Promise.all([
-        fetch(nomUrl, { signal: ctrl.signal }),
+        fetch(nomUrl, { signal: ctrl.signal }).catch(() => null),
         fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
           body: `data=${encodeURIComponent(overpassQuery)}`,
@@ -622,9 +629,9 @@ export class OsmWorldDirector {
         }),
       ]);
 
-      let nextPlace = this.placeName;
-      let nextRoad = this.roadName;
-      if (nomRes.ok) {
+      let nextPlace = this.isLiveOsm ? this.placeName : '';
+      let nextRoad = this.isLiveOsm ? this.roadName : '';
+      if (nomRes?.ok) {
         const nomData = await nomRes.json();
         const addr = nomData?.address ?? {};
         nextPlace = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || nextPlace;
@@ -642,7 +649,8 @@ export class OsmWorldDirector {
       const forests: OsmForestPatch[] = [];
       const pois: OsmPoi[] = [];
 
-      if (ovRes.ok) {
+      if (!ovRes.ok) throw new Error("OSM request failed");
+      {
         const ovData = await ovRes.json();
         interface OverpassEl {
           type: 'node' | 'way' | 'relation';
@@ -718,7 +726,7 @@ export class OsmWorldDirector {
             if (isMajor) hasHighwayOnly = true;
             const widthM = isMajor ? 8.5 : hw === 'tertiary' || hw === 'residential' ? 6.2 : 4.2;
             roads.push({
-              points: decimatePoints(pts, 18),
+              points: pts,
               widthM,
               isMajor,
               name: tags.name ?? null,
@@ -778,6 +786,7 @@ export class OsmWorldDirector {
 
       const placeChanged =
         nextPlace !== this.placeName || nextBiome !== this.biome || nextLandmark !== this.nearbyLandmark;
+      if (ctrl.signal.aborted) return;
       this.isLiveOsm = true;
       this.placeName = nextPlace;
       this.roadName = nextRoad;
@@ -792,7 +801,7 @@ export class OsmWorldDirector {
         originLat: lat,
         originLon: lon,
         buildings: buildings.slice(0, 42),
-        roads: roads.slice(0, 26),
+        roads,
         waters: waters.slice(0, 10),
         forests: forests.slice(0, 14),
         pois: pois.slice(0, 8),
@@ -806,6 +815,7 @@ export class OsmWorldDirector {
       // Offline / rate-limited / blocked: keep last snapshot quietly
     } finally {
       clearTimeout(timer);
+      if (this.inflightAbort === ctrl) this.inflightAbort = null;
     }
   }
 
