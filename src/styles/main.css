@@ -156,13 +156,13 @@ button {
   background: rgba(20, 32, 74, 0.88);
 }
 
-/* 5-Card Bento Mode Selection Grid (3 compact top + 2 hero bottom) */
+/* 5-Card Bento Mode Selection Grid (2 hero top + 3 compact bottom) */
 .mode-grid {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1.05fr);
+  grid-template-rows: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -1002,6 +1002,89 @@ button {
   box-shadow: 0 0 14px rgba(217, 22, 54, 0.55);
 }
 
+/* --- Mode 3 Auto-Fading Roadside Elon Encounter Card --- */
+.flight-timeline-card {
+  position: absolute;
+  top: 76px;
+  left: 20px;
+  width: min(330px, calc(100vw - 40px));
+  z-index: 12;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(8, 16, 42, 0.84);
+  border: 1px solid rgba(255, 214, 122, 0.42);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.flight-timeline-card.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.flight-timeline-card:not(.visible) {
+  pointer-events: none;
+}
+
+.ftc-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ftc-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff6d8;
+  background: rgba(217, 22, 54, 0.35);
+  border: 1.5px solid var(--gold);
+}
+
+.ftc-counter {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ftc-next-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 214, 122, 0.35);
+  color: #ffe8a8;
+}
+
+.ftc-next-btn:hover {
+  background: rgba(255, 214, 122, 0.22);
+}
+
+.ftc-title {
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff5db;
+  margin-bottom: 4px;
+}
+
+.ftc-text {
+  font-size: 12.5px;
+  line-height: 1.42;
+  color: rgba(235, 240, 252, 0.88);
+}
+
 @media (max-width: 900px) {
   .menu-gallery {
     padding: 14px;
@@ -1038,13 +1121,21 @@ button {
     max-width: 95px;
   }
 
-  .timeline-story-card {
+  .elon-toast {
     top: 68px;
+    max-width: calc(100vw - 24px);
+    padding: 7px 14px;
+    font-size: 12px;
+  }
+
+  .timeline-story-card,
+  .flight-timeline-card {
+    top: 126px;
     left: 12px;
     right: 12px;
     width: auto;
-    max-width: 390px;
-    padding: 12px 14px;
+    max-width: 380px;
+    padding: 11px 14px;
   }
 
   .timeline-bar {

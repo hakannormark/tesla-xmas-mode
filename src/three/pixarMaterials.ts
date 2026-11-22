@@ -244,7 +244,7 @@ export function createWarmWindowTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-export function createTrailerBillboardTexture(): THREE.CanvasTexture {
+export function createCocaColaTrailerTexture(): THREE.CanvasTexture {
   const w = 512;
   const h = 192;
   const canvas = document.createElement('canvas');
@@ -254,50 +254,169 @@ export function createTrailerBillboardTexture(): THREE.CanvasTexture {
 
   const bg = ctx.createLinearGradient(0, 0, w, h);
   bg.addColorStop(0, '#8d081e');
-  bg.addColorStop(0.5, '#d41232');
-  bg.addColorStop(1, '#7b0618');
+  bg.addColorStop(0.5, '#d91234');
+  bg.addColorStop(1, '#780618');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  ctx.strokeStyle = 'rgba(255, 232, 165, 0.92)';
-  ctx.lineWidth = 8;
+  // Classic holiday swirling white & gold dynamic ribbons
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.lineWidth = 9;
   ctx.beginPath();
-  ctx.moveTo(-10, h * 0.74);
-  ctx.bezierCurveTo(w * 0.25, h * 0.25, w * 0.68, h * 1.05, w + 10, h * 0.3);
+  ctx.moveTo(-10, h * 0.76);
+  ctx.bezierCurveTo(w * 0.25, h * 0.2, w * 0.68, h * 1.05, w + 10, h * 0.26);
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255, 224, 140, 0.85)';
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(-10, h * 0.82);
-  ctx.bezierCurveTo(w * 0.28, h * 0.35, w * 0.65, h * 1.08, w + 10, h * 0.38);
+  ctx.moveTo(-10, h * 0.84);
+  ctx.bezierCurveTo(w * 0.28, h * 0.34, w * 0.65, h * 1.1, w + 10, h * 0.36);
   ctx.stroke();
 
   for (let i = 0; i < 24; i++) {
     const sx = (i * 53) % w;
     const sy = ((i * 37) % (h - 32)) + 16;
-    ctx.fillStyle = 'rgba(255, 244, 200, 0.55)';
+    ctx.fillStyle = 'rgba(255, 244, 200, 0.6)';
     ctx.beginPath();
     ctx.arc(sx, sy, 2.2 + (i % 3), 0, Math.PI * 2);
     ctx.fill();
   }
 
-  ctx.fillStyle = '#fff8e2';
-  ctx.shadowColor = 'rgba(255, 204, 102, 0.9)';
+  ctx.fillStyle = '#fff9ee';
+  ctx.shadowColor = 'rgba(255, 210, 115, 0.9)';
   ctx.shadowBlur = 16;
-  ctx.font = '700 40px "Cinzel", Georgia, serif';
+  ctx.font = 'italic 700 46px Georgia, "Cinzel", serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('HOLIDAY EXPRESS', w * 0.5, h * 0.44);
+  ctx.fillText('Coca-Cola', w * 0.5, h * 0.41);
 
   ctx.shadowBlur = 8;
-  ctx.fillStyle = '#ffe099';
-  ctx.font = '600 17px Inter, sans-serif';
-  ctx.fillText('✦  NORTH POLE ELECTRIC CARAVAN  ✦', w * 0.5, h * 0.73);
+  ctx.fillStyle = '#ffe29c';
+  ctx.font = '700 17px Inter, sans-serif';
+  ctx.fillText('✦  HOLIDAY EXPRESS · JULKARAVAN  ✦', w * 0.5, h * 0.74);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+export function createIcaTrailerTexture(): THREE.CanvasTexture {
+  const w = 512;
+  const h = 192;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#c60619');
+  bg.addColorStop(0.5, '#e81028');
+  bg.addColorStop(1, '#a80414');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Crisp festive white frost trim top & bottom + evergreen border accents
+  ctx.fillStyle = 'rgba(255, 250, 244, 0.92)';
+  ctx.fillRect(0, 0, w, 12);
+  ctx.fillRect(0, h - 12, w, 12);
+  ctx.strokeStyle = '#ffe08a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(10, 14, w - 20, h - 28);
+
+  // Sparkling gold winter snowflakes
+  for (let i = 0; i < 22; i++) {
+    const sx = (i * 47 + 22) % w;
+    const sy = ((i * 31 + 19) % (h - 48)) + 24;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 246, 210, 0.72)' : 'rgba(255, 255, 255, 0.62)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.0 + (i % 3), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Signature snow-white rounded ICA emblem badge
+  const bx = 42;
+  const by = 40;
+  const bw = 136;
+  const bh = 86;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 20);
+  ctx.fill();
+  ctx.strokeStyle = '#ffd166';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = '#dc041c';
+  ctx.font = '900 54px Inter, "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('ICA', bx + bw * 0.5, by + bh * 0.54);
+
+  ctx.fillStyle = '#fff9eb';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = 10;
+  ctx.font = '700 30px "Cinzel", Georgia, serif';
+  ctx.fillText('GOD JUL FRÅN ICA', w * 0.64, h * 0.42);
+
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = '#ffe099';
+  ctx.font = '600 16px Inter, sans-serif';
+  ctx.fillText('✦  TOMTENS JULBORD EXPRESS  ✦', w * 0.64, h * 0.71);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createTruckRearDoorTexture(livery: 'coca_cola' | 'ica'): THREE.CanvasTexture {
+  const s = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, s);
+  grad.addColorStop(0, livery === 'ica' ? '#df1026' : '#c40d28');
+  grad.addColorStop(1, '#7a0616');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, s, s);
+
+  ctx.strokeStyle = '#ffe08a';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(10, 10, s - 20, s - 20);
+
+  if (livery === 'ica') {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(48, 44, 160, 84, 18);
+    ctx.fill();
+    ctx.fillStyle = '#dc041c';
+    ctx.font = '900 56px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('ICA', 128, 90);
+    ctx.fillStyle = '#fff6de';
+    ctx.font = '700 28px "Cinzel", Georgia, serif';
+    ctx.fillText('GOD JUL!', 128, 178);
+  } else {
+    ctx.fillStyle = '#fff8ee';
+    ctx.font = 'italic 700 44px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Coca-Cola', 128, 92);
+    ctx.fillStyle = '#ffe29c';
+    ctx.font = '700 26px "Cinzel", Georgia, serif';
+    ctx.fillText('GOD JUL!', 128, 172);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createTrailerBillboardTexture(): THREE.CanvasTexture {
+  return createCocaColaTrailerTexture();
 }
 
 export function createMoonSurfaceTexture(): THREE.CanvasTexture {

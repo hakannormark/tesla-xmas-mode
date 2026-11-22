@@ -383,19 +383,34 @@ export class OsmMapLayer {
       g.add(rCone);
       topY = h + 3.2;
     } else {
-      // Snow blanket parapet + warm golden roof-edge fairy-light trim
-      const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.48, bevelEnabled: false });
-      roofGeo.rotateX(-Math.PI * 0.5);
-      const roofCap = new THREE.Mesh(roofGeo, mats.snowRoof);
-      roofCap.position.y = h + 0.02;
-      g.add(roofCap);
+      // Storybook European snow-blanketed Mansard/hip roof + warm golden fairy-light roof trim
+      if (spanX < 42 && spanZ < 42) {
+        const roofGeo = new THREE.CylinderGeometry(0.22, 0.707, 1, 4);
+        roofGeo.rotateY(Math.PI * 0.25);
+        const roofMesh = new THREE.Mesh(roofGeo, mats.spire);
+        const roofH = Math.min(3.4, Math.max(1.8, Math.min(spanX, spanZ) * 0.16));
+        roofMesh.scale.set(spanX * 1.03, roofH, spanZ * 1.03);
+        roofMesh.position.y = h + roofH * 0.5;
 
-      const rimPts = relPts.map((p) => new THREE.Vector3(p.x, h + 0.52, p.z));
+        const snowRoofMesh = new THREE.Mesh(roofGeo.clone(), mats.snowRoof);
+        snowRoofMesh.scale.set(spanX * 1.05, roofH * 0.85, spanZ * 1.05);
+        snowRoofMesh.position.y = h + roofH * 0.55 + 0.14;
+        g.add(roofMesh, snowRoofMesh);
+        topY = h + roofH + 0.4;
+      } else {
+        const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.48, bevelEnabled: false });
+        roofGeo.rotateX(-Math.PI * 0.5);
+        const roofCap = new THREE.Mesh(roofGeo, mats.snowRoof);
+        roofCap.position.y = h + 0.02;
+        g.add(roofCap);
+        topY = h + 0.9;
+      }
+
+      const rimPts = relPts.map((p) => new THREE.Vector3(p.x, h + 0.18, p.z));
       if (rimPts.length > 0) rimPts.push(rimPts[0].clone());
       const rimGeo = new THREE.BufferGeometry().setFromPoints(rimPts);
       const rimLine = new THREE.Line(rimGeo, mats.fairy);
       g.add(rimLine);
-      topY = h + 0.9;
     }
 
     let label: THREE.Mesh | undefined;
@@ -430,7 +445,7 @@ export class OsmMapLayer {
   }
 
   private pointNearOccupied(x: number, z: number, snapshot: OsmMapSnapshot, padM: number): boolean {
-    if (Math.abs(x) < 6.8 && z > -245 && z < 45) return true; // Keep center hero sleigh corridor clear
+    if (Math.abs(x) < 10.6 && z > -245 && z < 45) return true; // Keep sculpted snowbanks & 2-lane caravan corridor clear
     for (const b of snapshot.buildings) {
       if (Math.hypot(x - b.centerX, z - b.centerZ) < 10 + padM) return true;
     }
@@ -628,7 +643,7 @@ export class OsmMapLayer {
         const lz = b.centerZ - this.smoothCarZ;
         const wx = lx * cosP + lz * sinP;
         const wz = -lx * sinP + lz * cosP;
-        const nearCamera = Math.abs(wx) < b.radius + 3.2 && wz > -14 && wz < 14;
+        const nearCamera = Math.abs(wx) < b.radius + 7.2 && wz > -16 && wz < 16;
         b.group.visible = !nearCamera;
       }
     } else {

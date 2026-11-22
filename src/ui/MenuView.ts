@@ -17,7 +17,7 @@ interface MenuSnow {
   phase: number;
 }
 
-const MODE_ORDER: SceneId[] = ['express', 'caravan', 'flight3d', 'snowglobe', 'timeline'];
+const MODE_ORDER: SceneId[] = ['flight3d', 'timeline', 'express', 'caravan', 'snowglobe'];
 
 export class MenuView {
   private root: HTMLElement;
@@ -109,7 +109,7 @@ export class MenuView {
         ${MODE_ORDER.map((id) => {
           const m = t.modes[id];
           const variantClass =
-            id === 'snowglobe' || id === 'timeline' ? 'mode-card--hero' : 'mode-card--compact';
+            id === 'flight3d' || id === 'timeline' ? 'mode-card--hero' : 'mode-card--compact';
           return `
             <button type="button" class="mode-card ${variantClass}" data-mode="${id}">
               <div class="mode-thumb-wrap">
@@ -494,30 +494,69 @@ export class MenuView {
       ctx.stroke();
     }
 
-    // Curving 3D winter road
-    const vx = w * 0.5 + Math.sin(t * 1.2) * 30;
-    ctx.fillStyle = '#20325a';
+    // Smooth curvy Pixar winter boulevard with sculpted snowbanks
+    const vx = w * 0.5 + Math.sin(t * 1.1) * 26;
+    ctx.fillStyle = '#a8c6ed';
     ctx.beginPath();
-    ctx.moveTo(vx - 12, h * 0.5);
-    ctx.lineTo(vx + 12, h * 0.5);
-    ctx.lineTo(w * 0.86, h);
-    ctx.lineTo(w * 0.14, h);
+    ctx.moveTo(0, h * 0.52);
+    ctx.quadraticCurveTo(w * 0.5, h * 0.45, w, h * 0.52);
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
     ctx.closePath();
     ctx.fill();
+
+    // Winding twilight roadbed
+    ctx.fillStyle = '#20325c';
+    ctx.beginPath();
+    ctx.moveTo(vx - 10, h * 0.48);
+    ctx.quadraticCurveTo(w * 0.5 + (vx - w * 0.5) * 0.35 - 52, h * 0.72, w * 0.2, h);
+    ctx.lineTo(w * 0.8, h);
+    ctx.quadraticCurveTo(w * 0.5 + (vx - w * 0.5) * 0.35 + 52, h * 0.72, vx + 10, h * 0.48);
+    ctx.closePath();
+    ctx.fill();
+
+    // Soft curved glowing snowbank ridges along both shoulders
+    ctx.strokeStyle = '#e8f3ff';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(vx - 11, h * 0.48);
+    ctx.quadraticCurveTo(w * 0.5 + (vx - w * 0.5) * 0.35 - 54, h * 0.72, w * 0.18, h);
+    ctx.moveTo(vx + 11, h * 0.48);
+    ctx.quadraticCurveTo(w * 0.5 + (vx - w * 0.5) * 0.35 + 54, h * 0.72, w * 0.82, h);
+    ctx.stroke();
+
+    // Golden roadside Elon arch over highway
+    ctx.strokeStyle = 'rgba(255, 214, 118, 0.78)';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.arc((vx + w * 0.5) * 0.5, h * 0.62, 24, Math.PI, 0);
+    ctx.stroke();
+
+    // Mini Coca-Cola (left oncoming crimson) & ICA (right white/red) holiday Semis
+    ctx.fillStyle = '#d41432';
+    ctx.fillRect(w * 0.34, h * 0.7, 16, 12);
+    ctx.fillStyle = '#ffecad';
+    ctx.fillRect(w * 0.36, h * 0.78, 3, 2);
+    ctx.fillRect(w * 0.41, h * 0.78, 3, 2);
+
+    ctx.fillStyle = '#f2f6fc';
+    ctx.fillRect(w * 0.61, h * 0.66, 15, 11);
+    ctx.fillStyle = '#e01224';
+    ctx.fillRect(w * 0.62, h * 0.68, 13, 6);
 
     // Glowing center perspective dashes
     ctx.fillStyle = '#ffe59c';
     for (let i = 0; i < 4; i++) {
-      const p = ((i / 4 + t * 0.7) % 1);
-      const y = h * 0.52 + p * p * (h * 0.48);
+      const p = (i / 4 + t * 0.7) % 1;
+      const y = h * 0.5 + p * p * (h * 0.5);
       const px = vx + (w * 0.5 - vx) * p;
-      ctx.fillRect(px - 2, y, 4, 4 + p * 8);
+      ctx.fillRect(px - 1.5, y, 3, 3 + p * 7);
     }
 
-    // Chase sleigh + golden stardust bloom
-    const sy = h * 0.64 + Math.sin(t * 3) * 4;
+    // Hero Chase Santa Sleigh + golden stardust bloom hovering above trucks
+    const sy = h * 0.55 + Math.sin(t * 3) * 3.5;
     const bloom = ctx.createRadialGradient(w * 0.5, sy + 4, 2, w * 0.5, sy + 4, 34);
-    bloom.addColorStop(0, 'rgba(255, 216, 118, 0.75)');
+    bloom.addColorStop(0, 'rgba(255, 216, 118, 0.78)');
     bloom.addColorStop(1, 'rgba(255, 180, 70, 0)');
     ctx.fillStyle = bloom;
     ctx.beginPath();
@@ -526,7 +565,7 @@ export class MenuView {
 
     ctx.fillStyle = '#d91636';
     ctx.beginPath();
-    ctx.roundRect(w * 0.5 - 14, sy - 6, 28, 14, 5);
+    ctx.roundRect(w * 0.5 - 14, sy - 6, 28, 13, 5);
     ctx.fill();
   }
 

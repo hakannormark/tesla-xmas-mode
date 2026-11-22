@@ -1,19 +1,34 @@
 import * as THREE from 'three';
 import { tryLoadOptionalGlb } from './glbModelLoader';
 import {
+  createCocaColaTrailerTexture,
+  createIcaTrailerTexture,
   createSparklingSnowMaterial,
-  createTrailerBillboardTexture,
+  createTruckRearDoorTexture,
   createVolumetricBeamMaterial,
   getSoftGlowTexture,
 } from './pixarMaterials';
 
-let sharedTrailerTex: THREE.CanvasTexture | null = null;
+export type SemiLivery = 'coca_cola' | 'ica';
+
+const sharedSideTex: Partial<Record<SemiLivery, THREE.CanvasTexture>> = {};
+const sharedRearTex: Partial<Record<SemiLivery, THREE.CanvasTexture>> = {};
 let sharedHeatTileTex: THREE.CanvasTexture | null = null;
 let sharedTeslaBadgeTex: THREE.CanvasTexture | null = null;
 
-function getTrailerTex(): THREE.CanvasTexture {
-  if (!sharedTrailerTex) sharedTrailerTex = createTrailerBillboardTexture();
-  return sharedTrailerTex;
+function getSideTex(livery: SemiLivery): THREE.CanvasTexture {
+  if (!sharedSideTex[livery]) {
+    sharedSideTex[livery] =
+      livery === 'ica' ? createIcaTrailerTexture() : createCocaColaTrailerTexture();
+  }
+  return sharedSideTex[livery]!;
+}
+
+function getRearTex(livery: SemiLivery): THREE.CanvasTexture {
+  if (!sharedRearTex[livery]) {
+    sharedRearTex[livery] = createTruckRearDoorTexture(livery);
+  }
+  return sharedRearTex[livery]!;
 }
 
 function getHeatTileTex(): THREE.CanvasTexture {
@@ -189,13 +204,20 @@ export interface AccurateSemiHandle {
   update(dt: number, wheelPhase: number, isBraking: boolean, rippleBoost: number, time: number): void;
 }
 
-export function createAccurateTeslaSemi(): AccurateSemiHandle {
+export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): AccurateSemiHandle {
   const group = new THREE.Group();
 
-  const crimsonPaint = new THREE.MeshPhysicalMaterial({
-    color: '#c40d2a',
-    metalness: 0.42,
+  const cabPaint = new THREE.MeshPhysicalMaterial({
+    color: livery === 'ica' ? '#f2f6fc' : '#c40d2a',
+    metalness: livery === 'ica' ? 0.25 : 0.42,
     roughness: 0.14,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
+  });
+  const crimsonPaint = new THREE.MeshPhysicalMaterial({
+    color: livery === 'ica' ? '#dc0820' : '#c40d2a',
+    metalness: 0.38,
+    roughness: 0.16,
     clearcoat: 1.0,
     clearcoatRoughness: 0.08,
   });
@@ -241,7 +263,7 @@ export function createAccurateTeslaSemi(): AccurateSemiHandle {
     new THREE.Vector3(hw * 0.88, by, z),
   ]);
 
-  const cabMesh = new THREE.Mesh(buildLoftedHull(stations), crimsonPaint);
+  const cabMesh = new THREE.Mesh(buildLoftedHull(stations), cabPaint);
   group.add(cabMesh);
 
   // Dark Sculpted Front Aero Bumper Lip
@@ -366,12 +388,14 @@ export function createAccurateTeslaSemi(): AccurateSemiHandle {
   roofSnow.position.set(0, 4.08, 3.3);
   group.add(roofSnow);
 
-  // Illuminated "HOLIDAY EXPRESS" Side Panels
+  // Illuminated Side Panels & Glowing Holiday Rear Door Panel
+  const sideTex = getSideTex(livery);
+  const rearTex = getRearTex(livery);
   const panelMat = new THREE.MeshStandardMaterial({
-    map: getTrailerTex(),
-    emissiveMap: getTrailerTex(),
+    map: sideTex,
+    emissiveMap: sideTex,
     emissive: new THREE.Color('#ffda99'),
-    emissiveIntensity: 0.75,
+    emissiveIntensity: 0.85,
     roughness: 0.24,
   });
   for (const side of [-1, 1]) {
@@ -380,6 +404,16 @@ export function createAccurateTeslaSemi(): AccurateSemiHandle {
     panel.position.set(side * 1.33, 2.44, 3.3);
     group.add(panel);
   }
+  const rearPanelMat = new THREE.MeshStandardMaterial({
+    map: rearTex,
+    emissiveMap: rearTex,
+    emissive: new THREE.Color('#ffda99'),
+    emissiveIntensity: 0.78,
+    roughness: 0.24,
+  });
+  const rearPanel = new THREE.Mesh(new THREE.PlaneGeometry(2.35, 2.55), rearPanelMat);
+  rearPanel.position.set(0, 2.55, 7.87);
+  group.add(rearPanel);
 
   // ~76 Blooming 3D Golden Perimeter Fairy Bulbs!
   const bulbGeo = new THREE.SphereGeometry(0.085, 6, 6);
@@ -451,7 +485,8 @@ export function createAccurateTeslaSemi(): AccurateSemiHandle {
         const boost = twinkle + rippleBoost * 1.4;
         bm.color.setRGB(1.28 * boost, 0.98 * boost, 0.45 * boost);
       });
-      panelMat.emissiveIntensity = 0.75 + rippleBoost * 0.9;
+      panelMat.emissiveIntensity = 0.85 + rippleBoost * 0.9;
+      rearPanelMat.emissiveIntensity = 0.78 + rippleBoost * 0.85;
       beamMat.uniforms.uOpacity.value = 0.24 + rippleBoost * 0.14;
       tailMat.color.setRGB(isBraking ? 2.3 : 0.9, isBraking ? 0.22 : 0.1, isBraking ? 0.26 : 0.16);
     },

@@ -189,9 +189,9 @@ const SV: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        '3D-flygning genom verkliga OpenStreetMap-kvarter, kyrktorn och sjöar omskapade till magisk skog med renar, rävar, harar och ugglor.',
-      badge: '3D OSM Skogsvärld',
-      actionLabel: '🌟 Stjärnring',
+        'Flagship Pixar 3D-vinterväg med snövallar, Coca-Cola & ICA-julkaravaner, OpenStreetMap-kvarter med skogsdjur samt Elon-händelser längs vägen!',
+      badge: 'Disney/Pixar All-in-One ★',
+      actionLabel: '🌟 Stjärnring & Ljusvåg',
     },
     snowglobe: {
       id: 'snowglobe',
@@ -356,9 +356,9 @@ const EN: TranslationDict = {
       id: 'flight3d',
       title: 'North Pole Flight Deck',
       subtitle:
-        '3D flight through recognizable OpenStreetMap buildings, churches & lakes transformed into an enchanted snowy forest teeming with wildlife.',
-      badge: '3D OSM Forest World',
-      actionLabel: '🌟 Star Ring',
+        'Flagship Disney/Pixar winter boulevard fusing Coca-Cola & ICA holiday trucks, OSM wildlife towns, and roadside Elon timeline events!',
+      badge: 'Disney/Pixar All-in-One ★',
+      actionLabel: '🌟 Star Ring & Light Wave',
     },
     snowglobe: {
       id: 'snowglobe',

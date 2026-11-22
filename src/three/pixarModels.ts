@@ -16,6 +16,7 @@ import {
   createAccurateCybertruck,
   createAccurateOptimusGen2,
   createAccurateTeslaSemi,
+  SemiLivery,
 } from './teslaModels';
 
 let timberWallTex: THREE.CanvasTexture | null = null;
@@ -1285,8 +1286,8 @@ export interface PixarTeslaSemiHandle {
   update(dt: number, wheelPhase: number, isBraking: boolean, rippleBoost: number, time: number): void;
 }
 
-export function createPixarTeslaSemi(): PixarTeslaSemiHandle {
-  return createAccurateTeslaSemi();
+export function createPixarTeslaSemi(livery: SemiLivery = 'coca_cola'): PixarTeslaSemiHandle {
+  return createAccurateTeslaSemi(livery);
 }
 
 export interface PixarCybertruckHandle {

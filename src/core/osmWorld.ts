@@ -282,11 +282,11 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
   };
 
   if (stop.placeName === 'Stockholm') {
-    // Waterfront boulevard: historic Nordic mansions on East (+X), frozen Riddarfjärden/Nybroviken bay on West (-X)
+    // Waterfront boulevard: historic Nordic mansions on East (+X), frozen Riddarfjärden bay on West (-X)
     waters.push({
       points: [
-        { x: -16, z: 30 },
-        { x: -16, z: -240 },
+        { x: -17, z: 30 },
+        { x: -17, z: -240 },
         { x: -110, z: -240 },
         { x: -110, z: 30 },
       ],
@@ -296,25 +296,25 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
     });
     for (let i = 0; i < 9; i++) {
       const bz = -8 - i * 24;
-      addBoxBuilding(`sthlm-a-${i}`, 18, bz, 15, 16, 15 + (i % 3) * 3, 'apartment');
-      addBoxBuilding(`sthlm-b-${i}`, 40, bz - 6, 18, 16, 17 + ((i + 1) % 3) * 3, 'apartment');
+      addBoxBuilding(`sthlm-a-${i}`, 21, bz, 15, 16, 15 + (i % 3) * 3, 'apartment');
+      addBoxBuilding(`sthlm-b-${i}`, 43, bz - 6, 18, 16, 17 + ((i + 1) % 3) * 3, 'apartment');
     }
-    addBoxBuilding('sthlm-palace', -26, -125, 22, 34, 21, 'landmark', 'Kungliga Slottet');
-    pois.push({ x: -12, z: -125, kind: 'landmark', name: 'Kungliga Slottet' });
-    roads.push({ points: [{ x: 4, z: -56 }, { x: 75, z: -56 }], widthM: 6, isMajor: false, name: 'Torggatan' });
-    roads.push({ points: [{ x: 4, z: -128 }, { x: 75, z: -128 }], widthM: 6, isMajor: false, name: 'Slottsbacken' });
+    addBoxBuilding('sthlm-palace', -28, -125, 22, 34, 21, 'landmark', 'Kungliga Slottet');
+    pois.push({ x: -13, z: -125, kind: 'landmark', name: 'Kungliga Slottet' });
+    roads.push({ points: [{ x: 10, z: -56 }, { x: 75, z: -56 }], widthM: 6, isMajor: false, name: 'Torggatan' });
+    roads.push({ points: [{ x: 10, z: -128 }, { x: 75, z: -128 }], widthM: 6, isMajor: false, name: 'Slottsbacken' });
     forests.push(
-      { centerX: -12, centerZ: -35, radiusM: 12, density: 0.75 },
-      { centerX: 10, centerZ: -90, radiusM: 14, density: 0.85 },
-      { centerX: -11, centerZ: -175, radiusM: 9, density: 0.9 },
-      { centerX: 30, centerZ: -195, radiusM: 16, density: 0.85 }
+      { centerX: -14, centerZ: -35, radiusM: 12, density: 0.75 },
+      { centerX: 13, centerZ: -90, radiusM: 14, density: 0.85 },
+      { centerX: -14, centerZ: -175, radiusM: 9, density: 0.9 },
+      { centerX: 32, centerZ: -195, radiusM: 16, density: 0.85 }
     );
   } else if (stop.placeName === 'Mälaren') {
     waters.push(
       {
         points: [
-          { x: -13, z: 30 },
-          { x: -15, z: -240 },
+          { x: -15, z: 30 },
+          { x: -17, z: -240 },
           { x: -105, z: -240 },
           { x: -105, z: 30 },
         ],
@@ -324,8 +324,8 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
       },
       {
         points: [
-          { x: 14, z: 30 },
-          { x: 16, z: -240 },
+          { x: 15, z: 30 },
+          { x: 17, z: -240 },
           { x: 105, z: -240 },
           { x: 105, z: 30 },
         ],
@@ -337,33 +337,33 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
     for (let i = 0; i < 6; i++) {
       const side = i % 2 === 0 ? -1 : 1;
       const cz = -24 - i * 32;
-      addBoxBuilding(`mal-cot-${i}`, side * 24, cz, 8.5, 7, 6.2, 'house', i === 2 ? 'Ekerö Brygga' : null, side * 0.2);
-      forests.push({ centerX: side * 34, centerZ: cz - 6, radiusM: 14, density: 0.9 });
+      addBoxBuilding(`mal-cot-${i}`, side * 26, cz, 8.5, 7, 6.2, 'house', i === 2 ? 'Ekerö Brygga' : null, side * 0.2);
+      forests.push({ centerX: side * 36, centerZ: cz - 6, radiusM: 14, density: 0.9 });
     }
-    pois.push({ x: -12, z: -88, kind: 'landmark', name: 'Spegelblank Vintervik' });
+    pois.push({ x: -13, z: -88, kind: 'landmark', name: 'Spegelblank Vintervik' });
   } else if (stop.placeName === 'Roslagen') {
     // Deep enchanting Nordic winter forest with winding side forest lanes & warm cabins
     for (let i = 0; i < 10; i++) {
       const side = i % 2 === 0 ? -1 : 1;
       const cz = -15 - i * 21;
-      forests.push({ centerX: side * (16 + (i % 3) * 8), centerZ: cz, radiusM: 18, density: 1.0 });
+      forests.push({ centerX: side * (18 + (i % 3) * 8), centerZ: cz, radiusM: 18, density: 1.0 });
       if (i % 3 === 1) {
-        addBoxBuilding(`ros-cabin-${i}`, side * 19, cz, 8, 6.8, 5.8, 'house', i === 4 ? 'Skogstorpet' : null, side * -0.15);
+        addBoxBuilding(`ros-cabin-${i}`, side * 21, cz, 8, 6.8, 5.8, 'house', i === 4 ? 'Skogstorpet' : null, side * -0.15);
       }
     }
-    roads.push({ points: [{ x: 4, z: -72 }, { x: 68, z: -88 }], widthM: 4.5, isMajor: false, name: 'Skogsvägen' });
-    pois.push({ x: 12, z: -72, kind: 'landmark', name: 'Glittrande Granskog' });
+    roads.push({ points: [{ x: 10, z: -72 }, { x: 68, z: -88 }], widthM: 4.5, isMajor: false, name: 'Skogsvägen' });
+    pois.push({ x: 13, z: -72, kind: 'landmark', name: 'Glittrande Granskog' });
   } else if (stop.placeName === 'Upplands Väsby') {
     // Highway + Supercharger plaza + Nordic commercial hubs wrapped in snowy pines
     for (let i = 0; i < 7; i++) {
       const cz = -20 - i * 28;
       if (i !== 2) {
-        addBoxBuilding(`uv-com-${i}`, i % 2 === 0 ? -24 : 26, cz, 19, 14, 11.5, 'commercial');
+        addBoxBuilding(`uv-com-${i}`, i % 2 === 0 ? -26 : 28, cz, 19, 14, 11.5, 'commercial');
       }
-      forests.push({ centerX: i % 2 === 0 ? 18 : -20, centerZ: cz, radiusM: 15, density: 0.85 });
+      forests.push({ centerX: i % 2 === 0 ? 20 : -22, centerZ: cz, radiusM: 15, density: 0.85 });
     }
-    addBoxBuilding('uv-mall', -24, -76, 22, 18, 12.5, 'commercial', 'InfraCity Julcenter');
-    pois.push({ x: 14, z: -76, kind: 'charger', name: 'Supercharger InfraCity' });
+    addBoxBuilding('uv-mall', -26, -76, 22, 18, 12.5, 'commercial', 'InfraCity Julcenter');
+    pois.push({ x: 15, z: -76, kind: 'charger', name: 'Supercharger InfraCity' });
     roads.push({ points: [{ x: -75, z: -76 }, { x: 75, z: -76 }], widthM: 8, isMajor: true, name: 'E4 Avfart' });
   } else if (stop.placeName === 'Sigtuna') {
     // Historic Swedish wooden town + Mariakyrkan church spire + waterfront
@@ -380,23 +380,23 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
     });
     for (let i = 0; i < 11; i++) {
       const cz = -10 - i * 18;
-      addBoxBuilding(`sig-l-${i}`, -15, cz, 9.2, 8.4, 6.8 + (i % 2) * 1.4, 'house');
-      addBoxBuilding(`sig-r-${i}`, 15, cz - 5, 9.6, 8.4, 7.0 + ((i + 1) % 2) * 1.6, 'house');
+      addBoxBuilding(`sig-l-${i}`, -18, cz, 9.2, 8.4, 6.8 + (i % 2) * 1.4, 'house');
+      addBoxBuilding(`sig-r-${i}`, 18, cz - 5, 9.6, 8.4, 7.0 + ((i + 1) % 2) * 1.6, 'house');
     }
-    addBoxBuilding('sig-church', 26, -110, 14, 22, 18, 'church', 'Mariakyrkan');
+    addBoxBuilding('sig-church', 28, -110, 14, 22, 18, 'church', 'Mariakyrkan');
     pois.push({ x: 13, z: -92, kind: 'landmark', name: 'Sigtuna Julmarknad' });
     roads.push({ points: [{ x: -34, z: -92 }, { x: 64, z: -92 }], widthM: 5, isMajor: false, name: 'Stora Torget' });
     forests.push(
-      { centerX: -26, centerZ: -46, radiusM: 13, density: 0.9 },
-      { centerX: 30, centerZ: -165, radiusM: 16, density: 0.9 }
+      { centerX: -28, centerZ: -46, radiusM: 13, density: 0.9 },
+      { centerX: 32, centerZ: -165, radiusM: 16, density: 0.9 }
     );
   } else {
     // Uppsala: Frozen Fyrisån river + University halls + Twin-spire Uppsala Domkyrka!
     waters.push({
       points: [
-        { x: -17, z: 30 },
-        { x: -19, z: -110 },
-        { x: -24, z: -240 },
+        { x: -18, z: 30 },
+        { x: -20, z: -110 },
+        { x: -25, z: -240 },
       ],
       isPolygon: false,
       widthM: 16,
@@ -404,17 +404,17 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
     });
     for (let i = 0; i < 8; i++) {
       const cz = -14 - i * 25;
-      addBoxBuilding(`upp-r-${i}`, 19, cz, 15, 14, 13.5 + (i % 2) * 3, 'apartment');
+      addBoxBuilding(`upp-r-${i}`, 21, cz, 15, 14, 13.5 + (i % 2) * 3, 'apartment');
       if (i % 2 === 0) {
-        addBoxBuilding(`upp-l-${i}`, -36, cz - 8, 13, 12, 11.5, 'house');
+        addBoxBuilding(`upp-l-${i}`, -38, cz - 8, 13, 12, 11.5, 'house');
       }
     }
-    addBoxBuilding('upp-dom', -36, -116, 20, 32, 26, 'church', 'Uppsala Domkyrka');
-    pois.push({ x: -16, z: -116, kind: 'church', name: 'Uppsala Domkyrka' });
+    addBoxBuilding('upp-dom', -38, -116, 20, 32, 26, 'church', 'Uppsala Domkyrka');
+    pois.push({ x: -17, z: -116, kind: 'church', name: 'Uppsala Domkyrka' });
     roads.push({ points: [{ x: -65, z: -116 }, { x: 65, z: -116 }], widthM: 6, isMajor: false, name: 'Dombron' });
     forests.push(
-      { centerX: 12, centerZ: -45, radiusM: 13, density: 0.85 },
-      { centerX: 28, centerZ: -180, radiusM: 16, density: 0.9 },
+      { centerX: 14, centerZ: -45, radiusM: 13, density: 0.85 },
+      { centerX: 30, centerZ: -180, radiusM: 16, density: 0.9 },
       { centerX: -46, centerZ: -185, radiusM: 18, density: 0.9 }
     );
   }
