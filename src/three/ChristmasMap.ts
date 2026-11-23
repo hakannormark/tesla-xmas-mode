@@ -3,8 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld';
 import { createSnowTextures, createTimberWallTexture } from './pixarMaterials';
 import { streetGeometry } from './mappedRoads';
+import { createWinterRoad } from './winterSurfaces';
 
-const asphalt = new THREE.MeshStandardMaterial({color: '#33445c', roughness: 0.94});
+const asphalt = createWinterRoad();
 const verge = new THREE.MeshStandardMaterial({color: '#d3e6ed', roughness: 0.96});
 const snowTexture = createSnowTextures().bumpMap;
 snowTexture.wrapS = snowTexture.wrapT = THREE.RepeatWrapping;
@@ -68,7 +69,42 @@ const windowTexture = new THREE.CanvasTexture(windowCanvas);
 windowTexture.colorSpace = THREE.SRGBColorSpace;
 const glass = new THREE.MeshBasicMaterial({map: windowTexture});
 const pane = new THREE.PlaneGeometry(1, 1);
-const tree = new THREE.ConeGeometry(1, 1, 10);
+const icicle = new THREE.ConeGeometry(1,1,5).rotateZ(Math.PI);
+const trunk = new THREE.CylinderGeometry(0.68,1,1,7);
+const bark = new THREE.MeshStandardMaterial({color:'#524145',roughness:0.95});
+const icicleMaterial = new THREE.MeshStandardMaterial({color:'#c6e7f1',roughness:0.32,metalness:0.06});
+const lantern = new THREE.MeshBasicMaterial({color:'#ffbe66'});
+
+// Scallops give the snow cap the outline of individual laden branches.
+function spruceTier(snowCap: boolean): THREE.BufferGeometry {
+  const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
+  const sides = 18;
+  const rings = snowCap ? [{y:0.08,r:0.87},{y:0.25,r:0.82},{y:0.64,r:0.44},{y:0.99,r:0.025}]
+    : [{y:0.0,r:0.22},{y:0.02,r:1.0},{y:0.24,r:0.82},{y:0.64,r:0.41},{y:1,r:0.021}];
+  rings.forEach(({y,r}, ring) => {
+    for (let i = 0; i <= sides; i++) {
+      const angle = i / sides * Math.PI * 2;
+      const scallop = Math.cos(angle*6);
+      const radius = r*(1+scallop*(1-y)*0.12);
+      positions.push(radius*Math.cos(angle),y-scallop*r*0.043,radius*Math.sin(angle));
+      uvs.push(i/sides,y);
+      if (ring && i < sides) {
+        const k = ring*(sides+1)+i;
+        indices.push(k-sides-1,k,k+1,k-sides-1,k+1,k-sides);
+      }
+    }
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+const spruce = spruceTier(false);
+const spruceSnow = spruceTier(true);
+
 
 function outline(points: OsmPoint2D[]): THREE.Shape {
   return new THREE.Shape(points.map(p => new THREE.Vector2(p.x, -p.z)));
@@ -217,7 +253,8 @@ export class ChristmasMap {
           const center = face.reduce((point,i) => point.add(corners[i]), new THREE.Vector2()).divideScalar(3);
           const size = Math.min(0.85,b.widthM*0.12,b.depthM*0.12);
           addDetail(brick,center.x,height+(rise+0.8)/2,-center.y,0,size,rise+0.8,size);
-          addDetail(snow,center.x,height+rise+0.83,-center.y,0,size*1.22,0.16,size*1.22);
+          addDetail(eave,center.x,height+rise+0.72,-center.y,0,size*1.14,0.16,size*1.14);
+          addDetail(snow,center.x,height+rise+0.86,-center.y,0,size*1.28,0.15,size*1.28);
         }
       }
       const winding = THREE.ShapeUtils.isClockWise(shape.getPoints()) ? 1 : -1;
@@ -243,7 +280,17 @@ export class ChristmasMap {
           detail(crest,0.5,height*0.72,Math.min(11,length*0.8),Math.min(2,height*0.3));
         }
         const hasDoor = home && i === mainFace && length > 2.8;
-        if (hasDoor) detail(door,0.5,1.025,1.25,2.05);
+        if (hasDoor) {
+          detail(door,0.5,1.025,1.25,2.05);
+          detail(eave,0.5,2.17,1.7,0.14,0.68,0.28);
+          detail(snow,0.5,2.25,1.78,0.12,0.76,0.28);
+          detail(eave,0.5,0.08,1.38,0.16,0.74,0.3);
+          for (const side of [-1,1]) {
+            const position = 0.5 + side*0.94/length;
+            detail(eave,position,1.88,0.17,0.37,0.18,0.14);
+            detail(lantern,position,1.88,0.13,0.22,0.12,0.235);
+          }
+        }
         const slots = Math.min(15, Math.floor(length / (factory ? 6 : 2.55)));
         for (let j = 0; j < slots; j++) {
           const t = (j + 0.5) / slots;
@@ -256,6 +303,15 @@ export class ChristmasMap {
           if (home && height > 4.4) detail(glass,t,height-1.05,width*0.84,1);
         }
         if (length > 1) detail(cable,0.5,height-0.27,length,0.03,0.03,0.14);
+        if (home) {
+          detail(eave,0.5,0.17,length,0.32,0.12);
+          const icicles = Math.min(9,Math.floor(length/0.83));
+          for (let j = 0; j < icicles; j++) {
+            const t = (j+0.65)/(icicles+0.5);
+            const length = 0.17 + ((j*7+i*3)%8)*0.038;
+            detail(icicleMaterial,t,height+0.01-length/2,0.06,length,0.05,0.16);
+          }
+        }
         const ornaments = Math.min(32,Math.floor(length / 0.68));
         for (let j = 0; j < ornaments; j++) {
           const t = (j+0.5)/ornaments;
@@ -273,7 +329,7 @@ export class ChristmasMap {
       parts.forEach(part => part.dispose());
     }
     for (const [material, matrices] of details) {
-      const geometry = lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
+      const geometry = material === icicleMaterial ? icicle : lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
         [glass,crest,door].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));
@@ -295,15 +351,37 @@ export class ChristmasMap {
       if (planted.some(q => Math.hypot(p.x-q.x,p.z-q.z) < 4)) continue;
       planted.push(p);
     }
-    for (const [material, radius, height, y] of [[pine,1.7,5.5,2.9],[snow,1.35,4.3,3.65]] as const) {
-      const mesh = new THREE.InstancedMesh(tree, material, planted.length);
-      planted.forEach((p,i) => {
-        transform.position.set(p.x,y,p.z);
-        transform.rotation.set(0,0,0);
-        transform.scale.set(radius,height,radius);
+    const tiers = [{y:0.84,r:1.75,h:2.05},{y:1.79,r:1.43,h:1.87},
+      {y:2.74,r:1.07,h:1.6},{y:3.62,r:0.74,h:1.49}];
+    const treeScale = (p: OsmPoint2D) => 0.82 + Math.abs(Math.sin(p.x*16.84+p.z*9.15))*0.36;
+    const trunks = new THREE.InstancedMesh(trunk,bark,planted.length);
+    const foliage = new THREE.InstancedMesh(spruce,pine,planted.length*tiers.length);
+    const caps = new THREE.InstancedMesh(spruceSnow,snow,planted.length*tiers.length);
+    planted.forEach((p,i) => {
+      const scale = treeScale(p);
+      const yaw = (p.x+p.z)*0.7;
+      transform.position.set(p.x,0.65*scale,p.z);
+      transform.rotation.set(0,yaw,0);
+      transform.scale.set(0.15*scale,1.3*scale,0.15*scale);
+      transform.updateMatrix();
+      trunks.setMatrixAt(i,transform.matrix);
+      tiers.forEach(({y,r,h},j) => {
+        transform.position.y = y*scale;
+        transform.rotation.y = yaw+j*0.24;
+        transform.scale.set(r*scale,h*scale,r*scale);
         transform.updateMatrix();
-        mesh.setMatrixAt(i,transform.matrix);
+        const index = i*tiers.length+j;
+        foliage.setMatrixAt(index,transform.matrix);
+        transform.position.y += 0.095*scale;
+        transform.scale.x *= 1.05;
+        transform.scale.z *= 1.05;
+        transform.updateMatrix();
+        caps.setMatrixAt(index,transform.matrix);
       });
+    });
+    for (const mesh of [trunks,foliage,caps]) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       this.instances.push(mesh);
       this.group.add(mesh);
     }

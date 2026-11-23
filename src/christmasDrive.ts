@@ -6,6 +6,7 @@ import { LiveWorldDataManager, type LiveFlight } from './core/liveWorldData';
 import { geoDeltaMeters, OsmWorldDirector } from './core/osmWorld';
 import { TelemetryEngine } from './core/telemetry';
 import { ChristmasMap } from './three/ChristmasMap';
+import { createWinterGround, shapeChristmasSky } from './three/winterSurfaces';
 import { streetAtCar } from './three/mappedRoads';
 import { createBokehSnowField, createPixarSkyDome, getSoftGlowTexture } from './three/pixarMaterials';
 import { createPixarSantaSleigh } from './three/pixarModels';
@@ -59,7 +60,7 @@ root.innerHTML = `
 const get = <T extends HTMLElement = HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
 const world = get('.drive-world');
 const { stage } = createPixarStageOrFallback(world, {
-  fov: 49, far: 850, fogColor: '#677e99', fogDensity: 0.0024,
+  fov: 58, far: 850, fogColor: '#677e99', fogDensity: 0.0024,
   bloomStrength: 0.27, bloomThreshold: 0.84, initialQuality: 'eco', exposure: 1.05,
 });
 
@@ -70,10 +71,11 @@ if (stage) {
   orbit.dampingFactor = 0.13;
   orbit.minDistance = 11;
   orbit.maxDistance = 140;
-  orbit.maxPolarAngle = Math.PI * 0.49;
+  orbit.maxPolarAngle = Math.PI * 0.66;
   orbit.touches.ONE = THREE.TOUCH.ROTATE;
   orbit.touches.TWO = THREE.TOUCH.DOLLY_PAN;
   const avatar = new THREE.Group();
+  avatar.name = "GPS vehicle";
   const sleigh = createPixarSantaSleigh();
   const semi = createAccurateTeslaSemi();
   const truck = createAccurateCybertruck(false);
@@ -94,18 +96,15 @@ if (stage) {
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.set(0, 0.093, -2);
   avatar.add(shadow);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),
-    new THREE.MeshStandardMaterial({color: '#b5cde1', roughness: 0.97}));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600,1600), createWinterGround());
   ground.rotation.x = -Math.PI / 2;
   const sky = createPixarSkyDome(730);
-  sky.material.uniforms.uTopColor.value.set('#08162f');
-  sky.material.uniforms.uMidColor.value.set('#254269');
-  sky.material.uniforms.uHorizonColor.value.set('#7793aa');
+  shapeChristmasSky(sky.material);
   const snowfall = createBokehSnowField(310, {minX:-45,maxX:45,minY:1,maxY:38,minZ:-55,maxZ:55});
   const map = new ChristmasMap();
   scene.add(ground, sky.mesh, map.group, avatar, snowfall.group);
-  stage.setAtmosphere(0.08, 0.9, '#7288a6');
-  const warm = new THREE.DirectionalLight('#ffd4aa', 1.0);
+  stage.setAtmosphere(0.04, 0.72, '#8a91af');
+  const warm = new THREE.DirectionalLight('#ffd4ba', 0.95);
   warm.castShadow = true;
   warm.shadow.mapSize.set(1024,1024);
   warm.shadow.camera.left = warm.shadow.camera.bottom = -60;
@@ -142,7 +141,7 @@ if (stage) {
   const arrow = get('[data-north-arrow]');
   const distance = get('[data-distance]');
   const followButton = get<HTMLButtonElement>('[data-follow]');
-  let following = true;
+  let alignWithHeading = true;
   let heading = 0;
   let hasPosition = false;
   let previous = performance.now();
@@ -151,19 +150,28 @@ if (stage) {
   const cameraOffset = new THREE.Vector3();
   const currentOffset = new THREE.Vector3();
   const desiredTarget = new THREE.Vector3();
+  const movement = new THREE.Vector3();
+  const shadowOffset = new THREE.Vector3(-52,54,32);
   let liveState = live.getState();
   let activeFlights: LiveFlight[] = [];
   let wheelPhase = 0;
 
+  function drivingView() {
+    const east = Math.sin(heading), north = Math.cos(heading);
+    desiredTarget.set(avatar.position.x + 10*east, 8, avatar.position.z - 10*north);
+    cameraOffset.set(-45*east, -0.6, 45*north);
+  }
+
   function follow() {
-    following = true;
-    orbit.target.copy(avatar.position).add(new THREE.Vector3(0, 2, 0));
-    camera.position.copy(orbit.target).add(new THREE.Vector3(-31*Math.sin(heading), 11.5, 31*Math.cos(heading)));
+    alignWithHeading = true;
+    drivingView();
+    orbit.target.copy(desiredTarget);
+    camera.position.copy(orbit.target).add(cameraOffset);
     orbit.update();
     followButton.setAttribute('aria-pressed','true');
   }
   orbit.addEventListener('start', () => {
-    following = false;
+    alignWithHeading = false;
     followButton.setAttribute('aria-pressed','false');
   });
   followButton.addEventListener('click', follow);
@@ -201,10 +209,13 @@ if (stage) {
     const rebase = Math.hypot(dx,dz) > 90;
     if (snapshot && (fix || hasPosition)) {
       const ease = !hasPosition || rebase ? 1 : 1-Math.exp(-dt*8);
-      avatar.position.x += dx*ease;
-      avatar.position.z += dz*ease;
-      if (!hasPosition && following) follow();
-      if (rebase && !following && hasPosition) { camera.position.x += dx; camera.position.z += dz; orbit.target.x += dx; orbit.target.z += dz; }
+      // Translate both ends of the camera rig by exactly the smoothed GPS motion.
+      // Drag, pan and pinch only change the offset from the car.
+      movement.set(dx*ease, 0, dz*ease);
+      avatar.position.add(movement);
+      camera.position.add(movement);
+      orbit.target.add(movement);
+      if (!hasPosition && alignWithHeading) follow();
       hasPosition = true;
     }
     avatar.rotation.y = -heading;
@@ -213,19 +224,20 @@ if (stage) {
     wheelPhase += frame.speedKmh * dt;
     if (semi.group.visible) semi.update(dt,wheelPhase,frame.isBraking,0,time);
     if (truck.group.visible) truck.update(wheelPhase,time);
-    if (following) {
+    if (alignWithHeading) {
       currentOffset.copy(camera.position).sub(orbit.target);
-      cameraOffset.set(-31*Math.sin(heading),11.5,31*Math.cos(heading));
+      drivingView();
       currentOffset.lerp(cameraOffset,Math.min(1,dt*2.4));
-      desiredTarget.set(avatar.position.x + 9*Math.sin(heading), 4,avatar.position.z - 9*Math.cos(heading));
       orbit.target.lerp(desiredTarget,rebase ? 1 : Math.min(1,dt*6));
       camera.position.copy(orbit.target).add(currentOffset);
     }
     orbit.update();
+    camera.position.y = Math.max(1.5, camera.position.y);
+    camera.lookAt(orbit.target);
     camera.updateMatrixWorld();
     ground.position.set(avatar.position.x,0,avatar.position.z);
     warm.target.position.copy(orbit.target);
-    warm.position.copy(warm.target.position).add(new THREE.Vector3(-52,54,32));
+    warm.position.copy(warm.target.position).add(shadowOffset);
     sky.mesh.position.copy(camera.position);
     sky.material.uniforms.uTime.value = time;
     snowfall.group.position.copy(avatar.position);
@@ -270,7 +282,7 @@ if (stage) {
       model.scale.setScalar(1.6+radius/65);
       model.visible = projectFlight(flight).visible;
     }
-    sky.material.uniforms.uAuroraBoost.value = liveState.auroraLiveBoost * 0.68;
+    sky.material.uniforms.uAuroraBoost.value = THREE.MathUtils.clamp(liveState.auroraLiveBoost, 0.95, 1.7) * 1.14;
     festivities.update(dt, time, frame, snapshot, avatar.position, heading, liveState);
     flightStars.update(activeFlights,frame,projectFlight);
     stage!.render();

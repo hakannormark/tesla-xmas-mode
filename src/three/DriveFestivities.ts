@@ -51,7 +51,7 @@ export class DriveFestivities {
     this.status = root.querySelector('[data-festive-status]')!;
     this.audio.setMixMode('muted');
     this.effects.add(this.sky.group,this.events.group,this.moon);
-    this.moon.position.set(-30,41,-120);
+    this.moon.position.set(-38,26,-143);
     scene.add(this.effects,this.gift,this.sparkle);
     this.gift.visible = this.sparkle.visible = false;
     this.gift.add(new THREE.Mesh(new THREE.BoxGeometry(0.64,0.64,0.64),new THREE.MeshStandardMaterial({color:'#c6234b',roughness:0.55})));

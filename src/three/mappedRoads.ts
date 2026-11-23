@@ -6,9 +6,11 @@ import type { TelemetryFrame } from '../core/telemetry';
 export function streetGeometry(roads: OsmRoadRibbon[]): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
+  const uvs: number[] = [];
   for (const road of roads) {
     const points = road.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.z !== all[i - 1].z);
     if (points.length < 2) continue;
+    let traveled = 0;
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       const prev = points[Math.max(0, i - 1)];
@@ -16,6 +18,8 @@ export function streetGeometry(roads: OsmRoadRibbon[]): THREE.BufferGeometry {
       const length = Math.hypot(next.x - prev.x, next.z - prev.z) || 1;
       const dx = (next.z - prev.z) * road.widthM / (2 * length);
       const dz = (prev.x - next.x) * road.widthM / (2 * length);
+      if (i) traveled += Math.hypot(p.x-prev.x,p.z-prev.z);
+      uvs.push(0,traveled,1,traveled);
       const j = positions.length / 3;
       positions.push(p.x + dx, 0.04, p.z + dz, p.x - dx, 0.04, p.z - dz);
       if (i) indices.push(j - 2, j - 1, j, j, j - 1, j + 1);
@@ -24,6 +28,7 @@ export function streetGeometry(roads: OsmRoadRibbon[]): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
+  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
   geometry.computeVertexNormals();
   return geometry;
 }
