@@ -90,3 +90,21 @@ button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid
   font-weight:700;
 }
 [data-live-launch] { grid-column:1 / -1; padding:.4rem .5rem; color:#d5e3f0; font-size:.83rem; }
+.terrain-trial {
+  position:fixed; top:4.8rem; right:1rem; z-index:2; max-width:min(18rem,42vw);
+  display:grid; gap:.4rem; padding:.75rem 1rem; border:1px solid #b5ccdb75; border-radius:11px;
+  background:#152840f2; color:#e4eef8; font-size:.83rem;
+}
+.terrain-trial strong { color:#ffe1a7; font-family:Cinzel, Georgia, serif; }
+.terrain-trial button { min-height:38px; padding:.32rem .52rem; border-radius:7px; border:1px solid #b5ccdb75; background:#2c4260; cursor:pointer; }
+.terrain-trial a { color:#cbdbef; font-size:.69rem; }
+@media (min-width:621px) { #app:has(.terrain-trial:not([hidden])) .drive-timeline { transform:translateY(8.6rem); } }
+@media (max-width:620px) {
+  .terrain-trial { top:auto; right:.65rem; bottom:9rem; max-width:80vw; }
+}
+.starman-marker { transform:translate(-50%,-50%); min-width:56px; min-height:48px; padding:0; }
+.starman-marker span {
+  position:absolute; left:50%; bottom:-.9rem; transform:translateX(-50%);
+  pointer-events:none; white-space:nowrap; padding:.08rem .24rem; border-radius:4px;
+  background:#14263cb8;
+}

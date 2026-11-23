@@ -32,6 +32,9 @@ export class FlightStars {
       button.className = 'flight-star';
       button.textContent = id === 'pole' ? '✧ N' : '✦';
       button.onclick = () => { void this.show(id); };
+      button.addEventListener('pointerdown',event => {
+        if (event.button === 0 && event.isPrimary) (event.currentTarget as HTMLButtonElement).setPointerCapture(event.pointerId);
+      });
       this.root.append(button);
       this.buttons.set(id, button);
     }
@@ -76,7 +79,7 @@ export class FlightStars {
     }
   }
 
-  update(flights: LiveFlight[], car: TelemetryFrame, project?: (flight: LiveFlight) => {x: number; y: number; visible: boolean}): void {
+  update(flights: LiveFlight[], car: TelemetryFrame, project?: (flight: LiveFlight) => {x: number; y: number; visible: boolean; width?: number; height?: number}): void {
     this.poleKm = Math.round(car.northPoleDistanceKm);
     this.flights.clear();
     const pole = this.button('pole', 'Visa Nordpolen');
@@ -88,11 +91,18 @@ export class FlightStars {
       const button = this.button(id, 'Visa flyg ' + f.callsign);
       if (project) {
         button.classList.add('starman-marker');
-        button.textContent = f.callsign;
+        let label = button.querySelector('span');
+        if (!label) {
+          label = document.createElement('span');
+          button.replaceChildren(label);
+        }
+        if (label.textContent !== f.callsign) label.textContent = f.callsign;
         const p = project(f);
         button.hidden = !p.visible;
         button.style.left = p.x + '%';
         button.style.top = p.y + '%';
+        if (p.width !== undefined) button.style.width = p.width + '%';
+        if (p.height !== undefined) button.style.height = p.height + '%';
         continue;
       }
       const angle = f.isLive ? ((f.bearingDeg - car.headingDeg + 540) % 360) - 180 : ((f.bearingDeg + 180) % 360) - 180;

@@ -54,7 +54,7 @@ export class DriveTimeline {
   }
 
   update(dt: number, time: number, moved: number, snapshot: OsmMapSnapshot | undefined,
-    road: OsmRoadRibbon | undefined, center: THREE.Vector3, heading: number): void {
+    road: OsmRoadRibbon | undefined, center: THREE.Vector3, heading: number, groundAt: (x: number,z: number) => number): void {
     if (!this.enabled) return;
     this.nextDistance -= moved;
     this.nextTime -= dt;
@@ -77,7 +77,7 @@ export class DriveTimeline {
     }
     if (this.slot && this.anchor && snapshot) {
       const point = geoDeltaMeters(snapshot.originLat,snapshot.originLon,this.anchor.latitude,this.anchor.longitude);
-      this.slot.root.position.set(point.x,0,point.z);
+      this.slot.root.position.set(point.x,groundAt(point.x,point.z),point.z);
       this.slot.root.rotation.y = -this.anchor.heading;
       const distance = Math.hypot(point.x-center.x,point.z-center.z);
       this.slot.root.visible = distance <= 145;

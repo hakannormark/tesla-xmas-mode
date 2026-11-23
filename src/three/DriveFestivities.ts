@@ -184,7 +184,7 @@ export class DriveFestivities {
   }
 
   update(dt: number, time: number, frame: TelemetryFrame, map: OsmMapSnapshot | undefined,
-    center: THREE.Vector3, heading: number, live: LiveWorldState): void {
+    center: THREE.Vector3, heading: number, live: LiveWorldState, groundAt = (_x: number,_z: number) => 0): void {
     this.time = time;
     this.lastHeading = heading;
     if (this.statusUntil && time > this.statusUntil) {
@@ -233,12 +233,12 @@ export class DriveFestivities {
       this.matchedAt = time;
     }
     const street = this.matchedStreet;
-    this.timeline.update(dt,time,traveled,map,street,center,heading);
+    this.timeline.update(dt,time,traveled,map,street,center,heading,groundAt);
     const charger = event?.type === 'supercharger' && map?.pois.find(p =>
       p.tesla && p.kind === 'charger' && Math.hypot(p.x-center.x,p.z-center.z) < 180);
     this.effects.updateMatrixWorld();
     if (event?.type === 'supercharger' && event.elapsed <= dt && !charger) this.announce('Ingen kartlagd Tesla Supercharger i närheten');
-    const mappedSupercharger = charger ? this.effects.worldToLocal(new THREE.Vector3(charger.x,0,charger.z)) : null;
+    const mappedSupercharger = charger ? this.effects.worldToLocal(new THREE.Vector3(charger.x,groundAt(charger.x,charger.z),charger.z)) : null;
     const plow = event?.type === 'cyberplow' && street && pointAlongStreet(street,center,heading,100-event.progress*109);
     this.events.update(event,dt,time,{
       moonPos:this.starmanAnchor.copy(moonDirection).multiplyScalar(145).applyAxisAngle(this.vertical,this.eventHeading),
@@ -250,6 +250,7 @@ export class DriveFestivities {
       roadPointAt:(_progress,side,out) => {
         if (!plow) return out.set(0,0,0);
         out.set(plow.x+Math.cos(plow.heading)*side,0,plow.z+Math.sin(plow.heading)*side);
+        out.y = groundAt(out.x,out.z);
         return this.effects.worldToLocal(out);
       },
     });
@@ -260,6 +261,7 @@ export class DriveFestivities {
       truck.group.visible = !!slot;
       if (!slot) return;
       truck.group.position.set(slot.x+Math.cos(slot.heading)*1.28,0.05,slot.z+Math.sin(slot.heading)*1.28);
+      truck.group.position.y += groundAt(truck.group.position.x,truck.group.position.z);
       truck.group.rotation.y = -slot.heading;
       truck.update(dt,time*frame.speedKmh*0.1,frame.isBraking,this.convoyTime, time);
     });
@@ -282,6 +284,7 @@ export class DriveFestivities {
             const profile = roofProjection(building.footprint,cottage.roof,cottage.style.pitch);
             roof += profile.yAt(profile.widthAt({x:building.centerX,z:building.centerZ}));
           }
+          roof += Math.max(...building.footprint.map(p => groundAt(p.x,p.z)));
           this.destination.set(building.centerX,roof,building.centerZ);
           hasTarget = true;
         }

@@ -3,14 +3,25 @@ import { geoDeltaMeters, OsmMapSnapshot, OsmRoadRibbon } from '../core/osmWorld'
 import type { TelemetryFrame } from '../core/telemetry';
 
 // Preserve each OSM vertex, including the common node where two streets meet.
-export function streetGeometry(roads: OsmRoadRibbon[]): THREE.BufferGeometry {
+export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z: number) => number): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
   const uvs: number[] = [];
   for (const road of roads) {
-    const points = road.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.z !== all[i - 1].z);
-    if (points.length < 2) continue;
+    const vertices = road.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.z !== all[i - 1].z);
+    if (vertices.length < 2) continue;
+    const points = elevation ? vertices.flatMap((b,i) => {
+      if (!i) return [b];
+      const a = vertices[i-1];
+      const steps = Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/2.5);
+      return Array.from({length:steps},(_,j) => {
+        const t = (j+1)/steps;
+        return {x:THREE.MathUtils.lerp(a.x,b.x,t),z:THREE.MathUtils.lerp(a.z,b.z,t)};
+      });
+    }) : vertices;
     let traveled = 0;
+    const across = elevation ? 4 : 1;
+    const stride = across+1;
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       const prev = points[Math.max(0, i - 1)];
@@ -19,10 +30,17 @@ export function streetGeometry(roads: OsmRoadRibbon[]): THREE.BufferGeometry {
       const dx = (next.z - prev.z) * road.widthM / (2 * length);
       const dz = (prev.x - next.x) * road.widthM / (2 * length);
       if (i) traveled += Math.hypot(p.x-prev.x,p.z-prev.z);
-      uvs.push(0,traveled,1,traveled);
-      const j = positions.length / 3;
-      positions.push(p.x + dx, 0.04, p.z + dz, p.x - dx, 0.04, p.z - dz);
-      if (i) indices.push(j - 2, j - 1, j, j, j - 1, j + 1);
+      const start = positions.length/3;
+      for (let lane = 0; lane <= across; lane++) {
+        const side = 1-2*lane/across;
+        const x = p.x+dx*side,z = p.z+dz*side;
+        uvs.push(lane/across,traveled);
+        positions.push(x,(elevation?.(x,z) ?? 0)+0.047,z);
+        if (i && lane > 0) {
+          const j = start+lane;
+          indices.push(j-stride-1,j-stride,j-1,j-1,j-stride,j);
+        }
+      }
     }
   }
   const geometry = new THREE.BufferGeometry();

@@ -22,6 +22,7 @@ const cottageWalls = cottageStyles.map(style => new THREE.MeshStandardMaterial({
   color:style.color, map:style.finish === 'plaster' ? null : style.finish === 'boards' ? boards : timber, roughness:0.86,
 }));
 const cottageTrim = cottageStyles.map(style => new THREE.MeshStandardMaterial({color:style.trim,roughness:0.82}));
+const foundationStone = new THREE.MeshStandardMaterial({color:'#827687',roughness:0.94});
 const factoryWall = new THREE.MeshStandardMaterial({color:'#acb8c3', roughness:0.65, metalness:0.18});
 const brick = new THREE.MeshStandardMaterial({color:'#683b43', roughness:0.88});
 const trim = new THREE.MeshStandardMaterial({color:'#f4d9af', roughness:0.81});
@@ -249,7 +250,7 @@ export class ChristmasMap {
     this.group.add(mesh);
   }
 
-  update(snapshot: OsmMapSnapshot): void {
+  update(snapshot: OsmMapSnapshot, elevation?: (x: number,z: number) => number): void {
     if (this.version === snapshot.version) return;
     this.version = snapshot.version;
     this.geometries.forEach(g => g.dispose());
@@ -278,8 +279,9 @@ export class ChristmasMap {
         return other?.name ? [{ name: other.name, distance }] : [];
       }));
     }
-    this.surface(streetGeometry(snapshot.roads.map(r => ({...r, widthM: r.widthM + 1.6}))), verge, -0.012);
-    this.surface(streetGeometry(snapshot.roads), asphalt);
+    this.surface(streetGeometry(snapshot.roads.map(r => ({...r,widthM:r.widthM+1.6})),elevation),verge,-0.012);
+    this.surface(streetGeometry(snapshot.roads,elevation),asphalt);
+    const groundY = (x: number,z: number) => elevation?.(x,z) ?? 0;
     for (const water of snapshot.waters) {
       const geometry = water.isPolygon ? new THREE.ShapeGeometry(outline(water.points)).rotateX(-Math.PI / 2)
         : streetGeometry([{...water, isMajor: false}]);
@@ -294,8 +296,8 @@ export class ChristmasMap {
     const details = new Map<THREE.Material, THREE.Matrix4[]>();
     const transform = new THREE.Object3D();
     function addDetail(material: THREE.Material, x: number, y: number, z: number,
-      yaw: number, width: number, height: number, depth = 1, tilt = 0) {
-      transform.position.set(x,y,z);
+      yaw: number, width: number, height: number, depth = 1, tilt = 0, base?: number) {
+      transform.position.set(x,y+(base ?? groundY(x,z)),z);
       transform.rotation.set(0,yaw,tilt,'YXZ');
       if (material === lightPool) transform.scale.set(width,1,height);
       else transform.scale.set(width,height,depth);
@@ -325,15 +327,26 @@ export class ChristmasMap {
       const factory = b.tesla || b.kind === 'gigafactory' || b.kind === 'large_building';
       const height = factory ? Math.min(11,buildingWallHeight(b)) : buildingWallHeight(b);
       const shape = outline(b.footprint);
+      const levels = b.footprint.flatMap((a,i) => {
+        const bNext = b.footprint[(i+1)%b.footprint.length];
+        return [groundY(a.x,a.z),groundY((a.x+bNext.x)/2,(a.z+bNext.z)/2)];
+      }).sort((x,y) => x-y);
+      const highest = levels[levels.length-1];
+      const base = Math.max(levels[Math.floor(levels.length/2)],highest-0.8);
+      const foundation = levels[0]-0.3;
       const wall = cottage ? cottageWalls[cottage.index] : factory ? factoryWall : walls[0];
       const frame = cottage ? cottageTrim[cottage.index] : trim;
+      if (elevation) {
+        const stone = new THREE.ExtrudeGeometry(shape,{depth:base-foundation+0.06,bevelEnabled:false});
+        batch(stone.rotateX(-Math.PI/2).translate(0,foundation,0),foundationStone);
+      }
       const body = new THREE.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false});
-      batch(body.rotateX(-Math.PI/2),wall);
+      batch(body.rotateX(-Math.PI/2).translate(0,base,0),wall);
       const profile = roofProjection(b.footprint,cottage?.roof ?? [[0,0],[1,0]],cottage?.style.pitch ?? 0);
       const rise = profile.rise;
       const roof = roofGeometry(shape,profile);
-      batch(roof.snowCap.translate(0,height,0),snow);
-      batch(roof.gables.translate(0,height,0),wall);
+      batch(roof.snowCap.translate(0,height+base,0),snow);
+      batch(roof.gables.translate(0,height+base,0),wall);
 
       // Use an interior triangle to keep the chimney inside even on irregular footprints.
       if (home) {
@@ -342,10 +355,10 @@ export class ChristmasMap {
         if (face) {
           const center = face.reduce((point,i) => point.add(corners[i]), new THREE.Vector2()).divideScalar(3);
           const size = Math.min(0.85,b.widthM*0.12,b.depthM*0.12);
-          addDetail(brick,center.x,height+(rise+0.8)/2,-center.y,0,size,rise+0.8,size);
-          addDetail(eave,center.x,height+rise+0.72,-center.y,0,size*1.14,0.16,size*1.14);
-          addDetail(snow,center.x,height+rise+0.86,-center.y,0,size*1.28,0.15,size*1.28);
-          if (cottage.variation < 0.57) this.vents.push(new THREE.Vector3(center.x,height+rise+0.91,-center.y));
+          addDetail(brick,center.x,height+(rise+0.8)/2,-center.y,0,size,rise+0.8,size,0,base);
+          addDetail(eave,center.x,height+rise+0.72,-center.y,0,size*1.14,0.16,size*1.14,0,base);
+          addDetail(snow,center.x,height+rise+0.86,-center.y,0,size*1.28,0.15,size*1.28,0,base);
+          if (cottage.variation < 0.57) this.vents.push(new THREE.Vector3(center.x,base+height+rise+0.91,-center.y));
         }
       }
       const winding = THREE.ShapeUtils.isClockWise(shape.getPoints()) ? 1 : -1;
@@ -365,7 +378,8 @@ export class ChristmasMap {
         const nx = winding*dz/length, nz = -winding*dx/length;
         const yaw = Math.atan2(nx,nz);
         function detail(material: THREE.Material, t: number, y: number, width: number, tall: number, depth = 1, inset = 0.05) {
-          addDetail(material,a.x+dx*t+nx*inset,y,a.z+dz*t+nz*inset,yaw,width,tall,depth);
+          addDetail(material,a.x+dx*t+nx*inset,y,a.z+dz*t+nz*inset,yaw,width,tall,depth,0,
+            material === lightPool ? undefined : base);
         }
         detail(eave,0.5,height-0.14,length,0.3,0.22);
         detail(snow,0.5,height+0.025,length+0.14,0.14,0.3);
@@ -417,7 +431,7 @@ export class ChristmasMap {
             if (Math.abs(y2-y1) > 0.3) {
               const dy = y2-y1;
               addDetail(greenGarland,a.x+(c.x-a.x)*t+nx*0.115,(y1+y2)*0.5-0.1,
-                a.z+(c.z-a.z)*t+nz*0.115,yaw,Math.hypot(dx,dy),0.15,0.16,-winding*Math.atan2(dy,dx));
+                a.z+(c.z-a.z)*t+nz*0.115,yaw,Math.hypot(dx,dy),0.15,0.16,-winding*Math.atan2(dy,dx),base);
               const lamps = Math.min(16,Math.ceil(dx*1.65));
               for (let k = 0; k < lamps; k++) {
                 const u = (k+0.5)/lamps;
@@ -535,7 +549,7 @@ export class ChristmasMap {
     planted.forEach((p,i) => {
       const scale = treeScale(p);
       const yaw = (p.x+p.z)*0.7;
-      transform.position.set(p.x,0.65*scale,p.z);
+      transform.position.set(p.x,groundY(p.x,p.z)+0.65*scale,p.z);
       transform.rotation.set(0,yaw,0);
       transform.scale.set(0.15*scale,1.3*scale,0.15*scale);
       transform.updateMatrix();
@@ -557,7 +571,7 @@ export class ChristmasMap {
         }
       }
       tiers.forEach(({y,r,h},j) => {
-        transform.position.set(p.x,y*scale,p.z);
+        transform.position.set(p.x,groundY(p.x,p.z)+y*scale,p.z);
         transform.rotation.y = yaw+j*0.24;
         transform.scale.set(r*scale,h*scale,r*scale);
         transform.updateMatrix();
