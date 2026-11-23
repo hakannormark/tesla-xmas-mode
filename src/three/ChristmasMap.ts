@@ -199,7 +199,8 @@ function roofGeometry(shape: THREE.Shape, profile: ReturnType<typeof roofProject
     const distance = axis(b)-axis(a);
     const stops = profile.sections.map(p => (p-axis(a))/distance).filter(t => t > 0 && t < 1).sort((x,y) => x-y);
     const edge = [a,...stops.map(t => a.clone().lerp(b,t)),b];
-    if (!clockwise) edge.reverse();
+    // Outward winding for the vertical gables in X/Z coordinates.
+    if (clockwise) edge.reverse();
     for (let j = 1; j < edge.length; j++) {
       const from = edge[j-1], to = edge[j];
       add(from,0); add(to,0); add(to);
