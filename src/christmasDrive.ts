@@ -63,6 +63,7 @@ root.innerHTML = `
           <button type="button" data-auto-magic aria-pressed="true">Julmagi längs vägen</button>
           <button type="button" data-timeline aria-pressed="false">Elon-tidslinje</button>
           <button type="button" data-convoy>Julkaravan</button>
+          <button type="button" data-light-wave>Julens ljusvåg</button>
           <button type="button" data-tunnel>Boring-tunneln</button>
           <button type="button" data-terrain>Testa höjdterräng</button>
           <button type="button" data-frost aria-pressed="true">Frost på skärmen</button>
@@ -188,7 +189,7 @@ if (stage) {
       height:Math.min(40,bottom-top+2),visible:model.visible};
   }
   const telemetry = new TelemetryEngine('gps');
-  const festivities = new DriveFestivities(root, world, scene, sleigh, telemetry);
+  const festivities = new DriveFestivities(root, world, scene, sleigh, telemetry, map.villageLights);
   const director = new OsmWorldDirector(true);
   const live = new LiveWorldDataManager();
   const speed = get('[data-speed]');

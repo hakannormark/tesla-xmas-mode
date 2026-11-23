@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { VillageLights } from './VillageLights';
 import { HolidayAudioEngine } from '../core/audioEngine';
 import { BoringTunnelRenderer } from '../core/boringTunnel';
 import { ElonEventDirector } from '../core/elonEvents';
@@ -40,6 +41,8 @@ export class DriveFestivities {
   private automatic = true;
   private nextMagicMeters = 42;
   private automaticStep = 0;
+  private nextLightWaveMeters = 18;
+  private requestedLightWave = false;
   private previousFix?: { lat: number; lon: number };
   private readonly launch: HTMLElement;
   private readonly status: HTMLOutputElement;
@@ -59,7 +62,7 @@ export class DriveFestivities {
   private snapshotVersion?: number;
 
   constructor(root: HTMLElement, world: HTMLElement, scene: THREE.Scene, private readonly sleigh: PixarSleighHandle,
-    telemetry: TelemetryEngine) {
+    telemetry: TelemetryEngine, private readonly villageLights: VillageLights) {
     this.timeline = new DriveTimeline(root, scene);
     this.launch = root.querySelector('[data-live-launch]')!;
     this.status = root.querySelector('[data-festive-status]')!;
@@ -104,6 +107,10 @@ export class DriveFestivities {
     });
     root.querySelector<HTMLButtonElement>('[data-convoy]')!.onclick = () => {
       this.startConvoy();
+      menu.open = false;
+    };
+    root.querySelector<HTMLButtonElement>('[data-light-wave]')!.onclick = () => {
+      this.requestedLightWave = true;
       menu.open = false;
     };
     root.querySelector<HTMLButtonElement>('[data-tunnel]')!.onclick = () => {
@@ -202,7 +209,17 @@ export class DriveFestivities {
     } else {
       this.previousFix = undefined;
     }
-    if (this.automatic) this.nextMagicMeters -= traveled;
+    if (this.automatic) {
+      this.nextMagicMeters -= traveled;
+      this.nextLightWaveMeters -= traveled;
+    }
+    if (this.requestedLightWave || (this.automatic && this.nextLightWaveMeters <= 0 && frame.isMoving)) {
+      const manual = this.requestedLightWave;
+      this.requestedLightWave = false;
+      const started = this.villageLights.startWave(time,center,heading);
+      this.nextLightWaveMeters = started ? 92 : 24;
+      if (manual) this.announce(started ? 'Julens ljusvåg' : 'Inga jullyktor i närheten');
+    }
     if (this.automatic && this.nextMagicMeters <= 0 && frame.isMoving && !this.director.getActiveEvent() && this.convoyTime <= 0) {
       this.nextMagicMeters = 165;
       const spectacle = ['starlink','convoy','starman','gift','starship'] as const;

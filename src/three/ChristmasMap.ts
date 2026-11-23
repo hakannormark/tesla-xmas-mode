@@ -6,12 +6,14 @@ import { streetGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
 import { createWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
+import { VillageLights } from './VillageLights';
 
 const asphalt = createWinterRoad();
 const verge = new THREE.MeshStandardMaterial({color: '#d3e6ed', roughness: 0.96});
 const snowTexture = createSnowTextures().bumpMap;
 snowTexture.wrapS = snowTexture.wrapT = THREE.RepeatWrapping;
 const snow = new THREE.MeshStandardMaterial({color: '#fff8f4', roughness: 0.83, bumpMap: snowTexture, bumpScale: 0.12});
+const roofCap = new THREE.MeshStandardMaterial({color:'#e6e6f5',roughness:0.87,bumpMap:snowTexture,bumpScale:0.095});
 const timber = createTimberWallTexture('#d3b8ad');
 timber.wrapS = timber.wrapT = THREE.RepeatWrapping;
 const boards = timber.clone();
@@ -27,6 +29,11 @@ const factoryWall = new THREE.MeshStandardMaterial({color:'#acb8c3', roughness:0
 const brick = new THREE.MeshStandardMaterial({color:'#683b43', roughness:0.88});
 const trim = new THREE.MeshStandardMaterial({color:'#f4d9af', roughness:0.81});
 const eave = new THREE.MeshStandardMaterial({color:'#402b39', roughness:0.83});
+const roofSnow = new THREE.MeshStandardMaterial({color:'#f2edff',roughness:0.84});
+const cedar = new THREE.MeshStandardMaterial({color:'#603a30',roughness:0.83});
+const shutters = cottageStyles.map(style => new THREE.MeshStandardMaterial({
+  color:style.door,map:boards,roughness:0.82,
+}));
 const lightStrings = ['#ffe0a0','#e0375c','#6cf6dd','#ae8af5','#ffc64f'].map(color => new THREE.MeshBasicMaterial({color}));
 const powder = new THREE.MeshStandardMaterial({color:'#e4ecf7',roughness:0.84});
 const snowmanSnow = new THREE.MeshStandardMaterial({color:'#fff4ea',roughness:0.76});
@@ -44,10 +51,10 @@ const smokeMaterial = new THREE.PointsMaterial({
   opacity:0.2, depthWrite:false, sizeAttenuation:true,
 });
 const boxUnit = new THREE.BoxGeometry(1,1,1);
-const bulb = new THREE.SphereGeometry(1,7,5);
+const bulb = new THREE.IcosahedronGeometry(1,0);
 const lightPool = new THREE.MeshBasicMaterial({
-  map:getSoftGlowTexture(),color:'#ffb866',transparent:true,opacity:0.46,
-  depthWrite:false,blending:THREE.AdditiveBlending,
+  map:getSoftGlowTexture(),color:'#ffb460',transparent:true,opacity:0.49,
+  depthWrite:false,
 });
 const floorPlane = new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2);
 const starShape = new THREE.Shape();
@@ -64,6 +71,19 @@ const starGeometry = new THREE.ExtrudeGeometry(starShape,{
 });
 const starGold = new THREE.MeshBasicMaterial({color:'#ffe3a0'});
 const greenGarland = new THREE.MeshStandardMaterial({color:'#295645',roughness:0.92});
+const firWreath = greenGarland.clone();
+const fir = new THREE.TorusGeometry(1,0.29,7,16);
+const berries = new THREE.MeshBasicMaterial({color:'#ef4658'});
+const canopyShape = new THREE.Shape();
+canopyShape.moveTo(-0.5,-0.5);
+canopyShape.lineTo(0.5,-0.5);
+canopyShape.lineTo(0,0.5);
+canopyShape.closePath();
+const canopyGeometry = new THREE.ExtrudeGeometry(canopyShape,{
+  depth:1,bevelEnabled:true,bevelSegments:2,bevelSize:0.035,bevelThickness:0.035,
+}).translate(0,0,-0.5);
+const canopyWood = cedar.clone();
+const canopySnow = roofSnow.clone();
 
 
 function illustratedPanel(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
@@ -85,9 +105,7 @@ const cottageDoors = cottageStyles.map(style => illustratedPanel(64,96,ctx => {
   ctx.fillStyle=style.trim; ctx.fillRect(0,0,64,96);
   ctx.fillStyle=style.door; ctx.fillRect(5,5,54,91);
   ctx.strokeStyle='#a95c5a'; ctx.lineWidth=2; ctx.strokeRect(10,11,44,77);
-  ctx.strokeStyle='#295f40'; ctx.lineWidth=8; ctx.beginPath(); ctx.arc(32,34,13,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle='#f37c73';
-  for (const [x,y] of [[26,22],[42,39],[22,41],[32,47]]) ctx.fillRect(x,y,4,4);
+  ctx.strokeRect(14,15,36,34); ctx.strokeRect(14,58,36,22);
   ctx.fillStyle='#ffdc80'; ctx.beginPath(); ctx.arc(46,63,3,0,Math.PI*2); ctx.fill();
 }));
 const windowRound = illustratedPanel(72,72,ctx => {
@@ -119,6 +137,11 @@ glow.addColorStop(0,'#fff2c1');
 glow.addColorStop(1,'#d17638');
 paint.fillStyle = glow;
 paint.fillRect(7,7,50,50);
+paint.fillStyle = '#bf6c40';
+paint.beginPath();
+paint.moveTo(7,7); paint.lineTo(20,7); paint.quadraticCurveTo(19,32,7,46);
+paint.moveTo(57,7); paint.lineTo(44,7); paint.quadraticCurveTo(45,32,57,46);
+paint.fill();
 paint.fillStyle = '#613631';
 paint.fillRect(29,6,5,52);
 paint.fillRect(6,32,52,5);
@@ -219,6 +242,7 @@ function roofGeometry(shape: THREE.Shape, profile: ReturnType<typeof roofProject
 
 export class ChristmasMap {
   readonly group = new THREE.Group();
+  readonly villageLights = new VillageLights();
   private geometries: THREE.BufferGeometry[] = [];
   private instances: THREE.InstancedMesh[] = [];
   private version?: number;
@@ -226,6 +250,7 @@ export class ChristmasMap {
   private smoke?: THREE.Points;
 
   animate(time: number, center: THREE.Vector3): void {
+    this.villageLights.update(time,center);
     if (!this.smoke) return;
     const position = this.smoke.geometry.attributes.position;
     let used = 0;
@@ -258,6 +283,7 @@ export class ChristmasMap {
     this.instances.forEach(mesh => mesh.dispose());
     this.instances = [];
     this.group.clear();
+    this.group.add(this.villageLights.group);
     this.crossings.clear();
     this.vents = [];
     this.smoke = undefined;
@@ -292,6 +318,7 @@ export class ChristmasMap {
     }
 
     const yards: { x: number; z: number; yaw: number; index: number }[] = [];
+    const lanterns: THREE.Vector3[] = [];
     const clearance = mapClearance(snapshot);
     const details = new Map<THREE.Material, THREE.Matrix4[]>();
     const transform = new THREE.Object3D();
@@ -343,9 +370,8 @@ export class ChristmasMap {
       const body = new THREE.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false});
       batch(body.rotateX(-Math.PI/2).translate(0,base,0),wall);
       const profile = roofProjection(b.footprint,cottage?.roof ?? [[0,0],[1,0]],cottage?.style.pitch ?? 0);
-      const rise = profile.rise;
       const roof = roofGeometry(shape,profile);
-      batch(roof.snowCap.translate(0,height+base,0),snow);
+      batch(roof.snowCap.translate(0,height+base,0),home ? roofCap : snow);
       batch(roof.gables.translate(0,height+base,0),wall);
 
       // Use an interior triangle to keep the chimney inside even on irregular footprints.
@@ -355,10 +381,11 @@ export class ChristmasMap {
         if (face) {
           const center = face.reduce((point,i) => point.add(corners[i]), new THREE.Vector2()).divideScalar(3);
           const size = Math.min(0.85,b.widthM*0.12,b.depthM*0.12);
-          addDetail(brick,center.x,height+(rise+0.8)/2,-center.y,0,size,rise+0.8,size,0,base);
-          addDetail(eave,center.x,height+rise+0.72,-center.y,0,size*1.14,0.16,size*1.14,0,base);
-          addDetail(snow,center.x,height+rise+0.86,-center.y,0,size*1.28,0.15,size*1.28,0,base);
-          if (cottage.variation < 0.57) this.vents.push(new THREE.Vector3(center.x,base+height+rise+0.91,-center.y));
+          const stackTop = height+profile.yAt(profile.widthAt({x:center.x,z:-center.y}))+0.64;
+          addDetail(brick,center.x,(height+stackTop)/2,-center.y,0,size,stackTop-height,size,0,base);
+          addDetail(eave,center.x,stackTop,-center.y,0,size*1.17,0.16,size*1.17,0,base);
+          addDetail(snow,center.x,stackTop+0.12,-center.y,0,size*1.28,0.12,size*1.28,0,base);
+          if (cottage.variation < 0.57) this.vents.push(new THREE.Vector3(center.x,base+stackTop+0.18,-center.y));
         }
       }
       const winding = THREE.ShapeUtils.isClockWise(shape.getPoints()) ? 1 : -1;
@@ -366,9 +393,17 @@ export class ChristmasMap {
         const c = b.footprint[(i+1)%b.footprint.length];
         return Math.hypot(c.x-a.x,c.z-a.z);
       });
-      const mainFace = lengths.indexOf(Math.max(...lengths));
-      const sides = lengths.map((_,i) => i).sort((a,c) => lengths[c]-lengths[a]);
-      const windowFace = sides[(cottage && cottage.variation > 0.5) ? 2 : 1];
+      const longest = Math.max(...lengths);
+      const street = clearance.nearestStreet({x:b.centerX,z:b.centerZ});
+      const scores = b.footprint.map((a,i) => {
+        const length = lengths[i];
+        if (!street || length < 3) return length;
+        const c = b.footprint[(i+1)%b.footprint.length];
+        const x = street.x-(a.x+c.x)/2, z = street.z-(a.z+c.z)/2;
+        const facing = winding*((c.z-a.z)*x-(c.x-a.x)*z)/(length*(Math.hypot(x,z)||1));
+        return length+facing*Math.min(25,longest*1.6);
+      });
+      const mainFace = scores.indexOf(Math.max(...scores));
       const roofY = (value: number) => height+profile.yAt(value);
       for (let i = 0; i < b.footprint.length; i++) {
         const a = b.footprint[i], c = b.footprint[(i + 1) % b.footprint.length];
@@ -381,11 +416,14 @@ export class ChristmasMap {
           addDetail(material,a.x+dx*t+nx*inset,y,a.z+dz*t+nz*inset,yaw,width,tall,depth,0,
             material === lightPool ? undefined : base);
         }
-        detail(eave,0.5,height-0.14,length,0.3,0.22);
-        detail(snow,0.5,height+0.025,length+0.14,0.14,0.3);
-        detail(frame,0.015,height/2,0.16,height,0.115);
+        if (!home) {
+          detail(eave,0.5,height-0.14,length,0.3,0.22);
+          detail(snow,0.5,height+0.025,length+0.14,0.14,0.3);
+        }
+        detail(home && cottage.style.finish === 'plaster' ? cedar : frame,0.015,height/2,0.17,height,0.16);
         if (factory && length >= 8) {
           detail(factoryCandy,0.5,height*0.56,length,0.28,0.18);
+          detail(trim,0.5,height*0.56-0.25,length,0.09,0.24);
           detail(roofLedge,0.5,height-0.34,length,0.55,0.35);
           detail(lightPool,0.5,0.07,Math.min(length,30),9,1,2.8);
           if (b.tesla && i === mainFace) detail(crest,0.5,height*0.77,Math.min(11,length*0.8),Math.min(2,height*0.3));
@@ -399,14 +437,20 @@ export class ChristmasMap {
         const hasDoor = !!cottage && i === mainFace && length > 2.8;
         const doorT = cottage && length > 5 ? (cottage.variation < 0.48 ? 0.24 : 0.74) : 0.5;
         if (hasDoor && cottage) {
-          detail(cottageDoors[cottage.index],doorT,0.94,1.14,1.88);
+          detail(frame,doorT,0.99,1.3,1.99,0.16);
+          detail(cottageDoors[cottage.index],doorT,0.96,1.14,1.88,1,0.093);
           const porch = cottage.style.porch;
           const depth = porch === 'porch' ? 0.98 : porch === 'awning' ? 0.65 : 0.42;
-          detail(eave,doorT,0.08,1.38,0.16,depth,depth*0.45);
+          detail(foundationStone,doorT,0.075,1.65,0.15,depth+0.32,(depth+0.32)*0.43);
+          detail(cedar,doorT,0.17,1.38,0.13,depth,depth*0.4);
           if (porch !== 'stoop') {
-            detail(eave,doorT,2.07,1.68,0.12,depth,depth*0.46);
-            detail(snow,doorT,2.16,1.78,0.13,depth+0.08,depth*0.46);
+            const pitch = porch === 'awning' ? 0.31 : 0.53;
+            detail(canopyWood,doorT,2.13+pitch/2,1.65,pitch,depth,depth*0.46);
+            detail(canopySnow,doorT,2.23+pitch/2,1.78,pitch,depth+0.13,depth*0.46);
             detail(greenGarland,doorT,2.03,1.56,0.14,0.22,depth*0.82);
+            for (let k = -3; k <= 3; k++) {
+              detail(lightStrings[k%2 ? 1 : 0],doorT+k*0.21/length,2.01,0.065,0.078,0.065,depth+0.03);
+            }
           }
           if (porch === 'porch') {
             for (const side of [-1,1]) {
@@ -414,12 +458,17 @@ export class ChristmasMap {
             }
           }
           detail(lightPool,doorT,0.073,5.6,4.2,1,1.25);
-          detail(lantern,doorT+0.69/length,1.67,0.16,0.25,0.16,0.14);
+          detail(firWreath,doorT,1.26,0.19,0.19,0.15,0.15);
+          detail(berries,doorT,1.06,0.095,0.06,0.044,0.19);
+          const lampT = doorT+0.82/length;
+          detail(cedar,lampT,1.74,0.26,0.36,0.24,0.16);
+          detail(lantern,lampT,1.74,0.2,0.23,0.23,0.19);
+          detail(cedar,lampT,1.93,0.34,0.065,0.34,0.17);
+          lanterns.push(new THREE.Vector3(a.x+dx*lampT+nx*0.43,base+1.74,a.z+dz*lampT+nz*0.43));
           const yard = doorT < 0.5 ? 0.76 : 0.24;
           yards.push({x:a.x+dx*yard+nx*2.3,z:a.z+dz*yard+nz*2.3,yaw,index:cottage.index});
         }
-        if (home && length > 2.5) {
-          // Trace the actual gable slope so the garland and lights follow the roof.
+        if (cottage) {
           const axisA = profile.widthAt(a), axisB = profile.widthAt(c);
           const ridgeStops = profile.sections.map(p => (p-axisA)/(axisB-axisA)).filter(t => t > 0 && t < 1).sort((a,c) => a-c);
           const stops = [0,...ridgeStops,1];
@@ -427,53 +476,110 @@ export class ChristmasMap {
             const from = stops[j-1], to = stops[j], t = (from+to)*0.5;
             const y1 = roofY(THREE.MathUtils.lerp(axisA,axisB,from));
             const y2 = roofY(THREE.MathUtils.lerp(axisA,axisB,to));
-            const dx = (to-from)*length;
-            if (Math.abs(y2-y1) > 0.3) {
-              const dy = y2-y1;
-              addDetail(greenGarland,a.x+(c.x-a.x)*t+nx*0.115,(y1+y2)*0.5-0.1,
-                a.z+(c.z-a.z)*t+nz*0.115,yaw,Math.hypot(dx,dy),0.15,0.16,-winding*Math.atan2(dy,dx),base);
-              const lamps = Math.min(16,Math.ceil(dx*1.65));
-              for (let k = 0; k < lamps; k++) {
-                const u = (k+0.5)/lamps;
-                detail(lightStrings[k%lightStrings.length],THREE.MathUtils.lerp(from,to,u),
-                  THREE.MathUtils.lerp(y1,y2,u)-0.12,0.1,0.125,0.1,0.24);
+            const run = (to-from)*length, dy = y2-y1;
+            const edgeLength = Math.hypot(run,dy);
+            const slope = -winding*Math.atan2(dy,run);
+            const x = a.x+dx*t, z = a.z+dz*t, y = (y1+y2)*0.5;
+            addDetail(cedar,x+nx*0.10,y-0.13,z+nz*0.10,yaw,edgeLength+0.09,0.23,0.39,slope,base);
+            addDetail(frame,x+nx*0.24,y-0.14,z+nz*0.24,yaw,edgeLength+0.10,0.12,0.10,slope,base);
+            addDetail(roofSnow,x+nx*0.11,y+0.02,z+nz*0.11,yaw,edgeLength+0.15,0.19,0.42,slope,base);
+            if (length < 2.5) continue;
+            if (i === mainFace || Math.abs(dy) > 0.3) {
+              addDetail(greenGarland,x+nx*0.26,y-0.27,z+nz*0.26,yaw,edgeLength,0.16,0.16,slope,base);
+            }
+            const lamps = Math.min(15,Math.ceil(edgeLength*1.6));
+            for (let k = 0; k < lamps; k++) {
+              const u = (k+0.5)/lamps;
+              const position = THREE.MathUtils.lerp(from,to,u);
+              const edgeY = THREE.MathUtils.lerp(y1,y2,u);
+              detail(lightStrings[(k+cottage.index)%7 < 4 ? 0 : (k+cottage.index)%lightStrings.length],
+                position,edgeY-0.30,0.073,0.098,0.073,0.32);
+              if (k%4 === 0) {
+                const drop = 0.16+(k*7+j*3)%8*0.026;
+                detail(icicleMaterial,position,edgeY-drop/2,0.044,drop,0.048,0.27);
+                detail(powder,position,edgeY+0.08,Math.min(0.75,run/lamps*1.4),0.15,0.24,0.23);
               }
             }
           }
           const gableHeight = roofY((axisA+axisB)*0.5) - height;
-          if (cottage?.style.attic && i === mainFace && gableHeight > 1.15) detail(windowRound,0.5,height+gableHeight*0.42,0.65,0.65,1,0.08);
+          if (length > 3 && Math.abs(axisA-axisB) > 0.55 && gableHeight > 1.05) {
+            const framed = cottage.style.finish === 'plaster';
+            if (framed) {
+              detail(cedar,0.5,height+0.12,length,0.15,0.13);
+              for (const t of [0.28,0.72]) {
+                const h = roofY(THREE.MathUtils.lerp(axisA,axisB,t))-height-0.28;
+                if (h > 0.2) detail(cedar,t,height+0.18+h/2,0.14,h,0.13);
+              }
+            }
+            if (cottage.style.attic) detail(windowRound,0.5,height+gableHeight*0.48,0.71,0.71,1,0.10);
+          }
+          // Set dormers into the sloping roof and keep their full footprint inside the mapped building.
+          if (cottage.style.attic && profile.rise > 1 && length > 6 && Math.abs(axisA-axisB) < 0.15 &&
+              scores[i] > longest*0.35) {
+            const count = length >= 9.5 && cottage.style.windows === 2 ? 2 : 1;
+            for (let dormer = 0; dormer < count; dormer++) {
+              const t = count === 2 ? 0.32+dormer*0.36 : 0.5;
+              const x = a.x+dx*t, z = a.z+dz*t;
+              const width = Math.min(1.4,length*0.17);
+              const slopePoint = (depth: number,side = 0) => ({
+                x:x-nx*depth+dx/length*side,z:z-nz*depth+dz/length*side,
+              });
+              const fits = [0.42,1.78].every(depth => [-width*0.58,width*0.58].every(side =>
+                clearance.inside(slopePoint(depth,side),b.footprint)));
+              if (!fits) continue;
+              const front = roofY(profile.widthAt(slopePoint(0.45)));
+              const back = roofY(profile.widthAt(slopePoint(1.75)));
+              const top = Math.max(front+0.88,back+0.29);
+              detail(wall,t,(height+top)*0.5,width,top-height,1.28,-1.1);
+              detail(canopyWood,t,top+0.19,width+0.2,0.42,1.31,-1.08);
+              detail(canopySnow,t,top+0.28,width+0.34,0.42,1.4,-1.08);
+              detail(windowRound,t,top-0.37,0.61,0.61,1,-0.434);
+              detail(frame,t,top-0.7,0.78,0.1,0.19,-0.42);
+            }
+          }
         }
-        if (cottage && (i === mainFace || i === windowFace)) {
+        if (cottage) {
           const count = i === mainFace && length >= 7 ? cottage.style.windows : 1;
           const wide = cottage.style.finish === 'plaster' ? 1.45 : 1.14;
           const window = cottage.style.finish === 'plaster' ? windowArch : glass;
           for (let j = 0; j < count; j++) {
             const t = hasDoor
-              ? THREE.MathUtils.lerp(doorT < 0.5 ? 0.49 : 0.18,doorT < 0.5 ? 0.81 : 0.49,(j+0.5)/count)
+              ? THREE.MathUtils.lerp(doorT < 0.5 ? 0.48 : 0.08,doorT < 0.5 ? 0.92 : 0.52,(j+0.5)/count)
               : 0.5;
             if (length < wide + 0.8 || (hasDoor && Math.abs(t-doorT)*length < 1.28)) continue;
             const y = 1.42;
-            detail(window,t,y,wide,1.06);
-            detail(snow,t,y-0.53,wide+0.19,0.14,0.25);
+            detail(window,t,y,wide,1.06,1,0.084);
+            detail(frame,t,y-0.54,wide+0.19,0.13,0.24,0.12);
+            detail(powder,t,y-0.45,(wide+0.18)/2,0.075,0.17,0.14);
             if (cottage.style.finish !== 'plaster') {
               for (const side of [-1,1]) {
-                detail(frame,t+side*(wide*0.5+0.105)/length,y,0.17,1.14,0.075);
+                detail(frame,t+side*(wide*0.5+0.055)/length,y,0.11,1.13,0.12);
+                if (cottage.style.finish === 'boards' && length > 4.5) {
+                  const offset = t+side*(wide*0.5+0.25)/length;
+                  detail(shutters[cottage.index],offset,y,0.29,0.96,0.11,0.09);
+                  for (const yOffset of [-0.25,0.25]) {
+                    detail(frame,offset,y+yOffset,0.26,0.044,0.034,0.158);
+                  }
+                }
               }
+            }
+            if (i === mainFace || (cottage.style.finish === 'plaster' && length > 4)) {
+              detail(cedar,t,y-0.67,wide*0.90,0.17,0.28,0.18);
+              detail(greenGarland,t,y-0.57,wide*0.89,0.16,0.25,0.27);
+              for (const offset of [-0.28,0,0.28]) {
+                detail(berries,t+offset*wide/length,y-0.53,0.054,0.057,0.055,0.38);
+              }
+              detail(lightPool,t,0.063,3.8,3.0,1,1.2);
             }
           }
         } else if (!factory && !home && length > 3.6) {
           detail(windowArch,0.5,height*0.43,1.5,Math.min(3,height*0.39));
         }
-        if (length > 1) detail(cable,0.5,height-0.27,length,0.03,0.03,0.14);
         if (home) {
-          detail(eave,0.5,0.17,length,0.32,0.12);
-          const icicles = Math.min(9,Math.floor(length/0.83));
-          for (let j = 0; j < icicles; j++) {
-            const t = (j+0.65)/(icicles+0.5);
-            const length = 0.17 + ((j*7+i*3)%8)*0.038;
-            detail(icicleMaterial,t,height+0.01-length/2,0.06,length,0.05,0.16);
-          }
+          detail(foundationStone,0.5,0.15,length,0.28,0.13);
+          continue;
         }
+        if (length > 1) detail(cable,0.5,height-0.27,length,0.03,0.03,0.14);
         const ornaments = Math.min(32,Math.floor(length / 0.68));
         for (let j = 0; j < ornaments; j++) {
           const t = (j+0.5)/ornaments;
@@ -482,6 +588,7 @@ export class ChristmasMap {
         }
       }
     }
+    this.villageLights.setLanterns(lanterns);
     for (const [material, parts] of batches) {
       const geometry = mergeGeometries(parts);
       if (geometry) {
@@ -593,7 +700,8 @@ export class ChristmasMap {
     for (const [material, matrices] of details) {
       const geometry = material === powder ? drift : material === hat ? topHat : material === snowmanSnow || material === coal ? snowBall :
         material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : material === lightPool ? floorPlane :
-        material === icicleMaterial ? icicle : lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
+        material === canopyWood || material === canopySnow ? canopyGeometry : material === firWreath ? fir :
+        material === icicleMaterial ? icicle : material === berries || lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
         [glass,crest,windowRound,windowArch,...cottageDoors].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));

@@ -34,7 +34,7 @@ export function createWinterGround(): THREE.MeshStandardMaterial {
       vec3 cool = vec3(0.69,0.79,0.98);
       vec3 warm = vec3(1.19,1.14,1.09);
       diffuseColor.rgb *= mix(cool,warm,broad*0.68+drifts*0.27);
-      diffuseColor.rgb *= 0.94 + 0.115*powder;
+      diffuseColor.rgb *= (0.85+0.22*smoothstep(0.15,0.9,broad*0.64+drifts*0.36)) * (0.93+0.13*powder);
       `,
     );
   };
@@ -85,9 +85,15 @@ export function shapeChristmasSky(material: THREE.ShaderMaterial): void {
       float cloud = winterNoise(wisps) * 0.72 + winterNoise(wisps*2.8) * 0.28;
       float cloudLayer = smoothstep(0.57,0.79,cloud) * exp(-pow((y-0.075)*15.0,2.0));
       col = mix(col,vec3(0.42,0.35,0.57),cloudLayer*0.34);
-      float violetCurtain = exp(-pow((y-0.21-0.05*sin(az*4.0-uTime*0.08))*9.0,2.0));
-      float curtainFolds = pow(max(0.0, 0.5+0.5*sin(az*13.0+y*5.0+uTime*0.24)),2.4);
-      col += vec3(0.53,0.12,0.44)*violetCurtain*curtainFolds*0.31;
+      float curtainBase = 0.15+0.06*sin(az*5.0-uTime*0.07)+0.035*sin(az*9.0+0.4);
+      float fromRim = y-curtainBase;
+      float curtain = smoothstep(-0.033,0.018,fromRim)*exp(-max(0.0,fromRim)*7.0);
+      float folds = winterNoise(vec2(az*42.0+y*4.5+uTime*0.09,y*3.0));
+      float threads = 0.55+0.45*sin(az*88.0+sin(y*11.0)*0.6+uTime*0.22);
+      float band = smoothstep(0.33,0.74,folds)*threads*curtain;
+      vec3 aurora = mix(vec3(0.07,0.81,0.63),vec3(0.84,0.26,0.64),
+        smoothstep(-0.35,0.8,sin(az*2.7+0.8)+fromRim*2.0));
+      col += aurora*(band*0.38+0.10*exp(-abs(fromRim)*39.0)*folds);
       vec3 moonRight = normalize(cross(uMoonDirection, vec3(0.0,1.0,0.0)));
       vec3 moonUp = cross(moonRight,uMoonDirection);
       vec2 lunar = vec2(dot(dir,moonRight),dot(dir,moonUp)) / 0.054;

@@ -1,11 +1,16 @@
 import type { OsmMapSnapshot, OsmPoint2D } from '../core/osmWorld';
 
-function segmentDistance(point: OsmPoint2D, a: OsmPoint2D, b: OsmPoint2D): number {
+function closestOnSegment(point: OsmPoint2D, a: OsmPoint2D, b: OsmPoint2D): OsmPoint2D {
   const dx = b.x-a.x, dz = b.z-a.z;
   const lengthSq = dx*dx+dz*dz;
-  if (!lengthSq) return Math.hypot(point.x-a.x,point.z-a.z);
+  if (!lengthSq) return a;
   const t = Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.z-a.z)*dz)/lengthSq));
-  return Math.hypot(point.x-a.x-t*dx,point.z-a.z-t*dz);
+  return {x:a.x+t*dx,z:a.z+t*dz};
+}
+
+function segmentDistance(point: OsmPoint2D, a: OsmPoint2D, b: OsmPoint2D): number {
+  const closest = closestOnSegment(point,a,b);
+  return Math.hypot(point.x-closest.x,point.z-closest.z);
 }
 
 function inside(point: OsmPoint2D, ring: OsmPoint2D[]): boolean {
@@ -43,5 +48,21 @@ export function mapClearance(snapshot: OsmMapSnapshot) {
     }
     return true;
   };
-  return {clear,inside};
+  const nearestStreet = (point: OsmPoint2D, limit = 85) => {
+    let nearest: OsmPoint2D | undefined;
+    let best = limit*limit;
+    for (const {a,b} of roads) {
+      const dx = Math.max(0,Math.min(a.x,b.x)-point.x,point.x-Math.max(a.x,b.x));
+      const dz = Math.max(0,Math.min(a.z,b.z)-point.z,point.z-Math.max(a.z,b.z));
+      if (dx*dx+dz*dz >= best) continue;
+      const closest = closestOnSegment(point,a,b);
+      const distance = (point.x-closest.x)**2+(point.z-closest.z)**2;
+      if (distance < best) {
+        best = distance;
+        nearest = closest;
+      }
+    }
+    return nearest;
+  };
+  return {clear,inside,nearestStreet};
 }
