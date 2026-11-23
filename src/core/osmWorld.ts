@@ -22,6 +22,8 @@ export interface OsmBuilding {
   depthM: number;
   areaM2: number;
   heightM: number;
+  levels?: number;
+  roofShape?: string;
   tesla?: boolean;
   kind: OsmBuildingKind;
   name: string | null;
@@ -245,6 +247,7 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   heightM: number;
 } {
   const bTag = tags.building ?? 'yes';
+  const levels = Number.parseFloat(tags['building:levels'] ?? '');
   const amenity = tags.amenity ?? '';
   const name = tags.name ?? '';
 
@@ -252,9 +255,8 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   const rawHeight = Number.parseFloat(tags.height ?? '');
   if (Number.isFinite(rawHeight) && rawHeight > 2) {
     heightM = rawHeight;
-  } else if (tags['building:levels']) {
-    const lv = Number.parseFloat(tags['building:levels']);
-    if (Number.isFinite(lv) && lv > 0) heightM = lv * 3.4 + 1.5;
+  } else if (Number.isFinite(levels) && levels > 0) {
+    heightM = levels*3.4+1.5;
   }
 
   let kind: OsmBuildingKind = 'small_cottage';
@@ -275,6 +277,9 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   ) {
     kind = 'church';
     if (!heightM) heightM = 16;
+  } else if (/^(house|detached|semidetached_house|bungalow|cabin|hut|cottage|farm|terrace)$/.test(bTag)) {
+    kind = 'small_cottage';
+    if (!heightM) heightM = 5;
   } else if (
     (isIndustrialOrHuge && area >= 280) ||
     area >= 660 ||
@@ -290,9 +295,12 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   ) {
     kind = 'large_building';
     if (!heightM) heightM = 15 + Math.min(14, area * 0.012);
-  } else if (area >= 115 || bTag === 'apartments' || bTag === 'residential' || bTag === 'terrace') {
+  } else if (bTag === 'apartments' || (Number.isFinite(levels) && levels >= 3)) {
+    kind = 'large_building';
+    if (!heightM) heightM = 12;
+  } else if (area >= 115 || bTag === 'residential') {
     kind = 'medium_house';
-    if (!heightM) heightM = 8.5 + Math.min(8, area * 0.02);
+    if (!heightM) heightM = 6;
   } else {
     kind = 'small_cottage';
     if (!heightM) heightM = 4.8 + (area > 60 ? 1.5 : 0);
@@ -754,6 +762,8 @@ export class OsmWorldDirector {
               depthM: stats.depthM,
               areaM2: stats.area,
               heightM: cls.heightM,
+              levels: Number.parseFloat(tags['building:levels'] ?? '') || undefined,
+              roofShape: tags['roof:shape'],
               kind: cls.kind,
               tesla: /tesla|gigafactory/i.test([tags.name, tags.brand, tags.operator].join(' ')) &&
                 /industrial|warehouse|factory|commercial/.test(tags.building + ' ' + tags.landuse) ||

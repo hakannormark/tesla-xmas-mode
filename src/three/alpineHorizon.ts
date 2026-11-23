@@ -43,7 +43,9 @@ export function createAlpineHorizon(): THREE.Group {
     geometry.setIndex(indices);
     const mesh = new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({
       vertexColors:true, side:THREE.DoubleSide, fog:false, toneMapped:false,
+      depthTest:false, depthWrite:false,
     }));
+    mesh.renderOrder = -2;
     group.add(mesh);
   }
   return group;

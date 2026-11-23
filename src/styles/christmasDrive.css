@@ -1,3 +1,4 @@
+@font-face { font-family:Cinzel; src:url("/fonts/cinzel-latin-700.woff2") format("woff2"); font-weight:700; font-display:swap; }
 :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; color: #fbf8ed; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #14263c; }
@@ -81,3 +82,11 @@ button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid
 @media (max-width:620px) {
   .drive-timeline { top:auto; bottom:10.7rem; right:.65rem; width:min(24rem,88vw); }
 }
+.drive-world .frost-canvas { position:fixed; inset:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+
+.street-board strong, .drive-timeline strong, .drive-actions a, .drive-actions button,
+.drive-festivities button, .drive-festivities summary, .flight-details strong {
+  font-family: Cinzel, Georgia, serif;
+  font-weight:700;
+}
+[data-live-launch] { grid-column:1 / -1; padding:.4rem .5rem; color:#d5e3f0; font-size:.83rem; }

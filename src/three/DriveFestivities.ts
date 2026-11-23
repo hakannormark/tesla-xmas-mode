@@ -7,6 +7,8 @@ import { i18n, type ElonEventType } from '../core/i18n';
 import type { LiveWorldState } from '../core/liveWorldData';
 import { geoDeltaMeters, type OsmMapSnapshot } from '../core/osmWorld';
 import type { TelemetryEngine, TelemetryFrame } from '../core/telemetry';
+import { FrostCanvasOverlay } from '../ui/FrostCanvas';
+import { buildingWallHeight, cottageModel, roofProjection } from './christmasBuildingStyles';
 import { LiveSkyRig } from './liveSkyRig';
 import { pointAlongStreet, streetAtCar } from './mappedRoads';
 import { PixarElonRig } from './pixarElonEvents';
@@ -22,6 +24,7 @@ export class DriveFestivities {
   private readonly events = new PixarElonRig();
   private readonly environment = new EnvironmentManager();
   private readonly audio = new HolidayAudioEngine();
+  private readonly frost = new FrostCanvasOverlay();
   private readonly tunnel = new BoringTunnelRenderer();
   private readonly tunnelCanvas = document.createElement('canvas');
   private readonly tunnelContext = this.tunnelCanvas.getContext('2d')!;
@@ -38,6 +41,7 @@ export class DriveFestivities {
   private nextMagicMeters = 42;
   private automaticStep = 0;
   private previousFix?: { lat: number; lon: number };
+  private readonly launch: HTMLElement;
   private readonly status: HTMLOutputElement;
   private readonly origin = new THREE.Vector3();
   private readonly destination = new THREE.Vector3();
@@ -57,6 +61,7 @@ export class DriveFestivities {
   constructor(root: HTMLElement, world: HTMLElement, scene: THREE.Scene, private readonly sleigh: PixarSleighHandle,
     telemetry: TelemetryEngine) {
     this.timeline = new DriveTimeline(root, scene);
+    this.launch = root.querySelector('[data-live-launch]')!;
     this.status = root.querySelector('[data-festive-status]')!;
     this.audio.setMixMode('muted');
     this.effects.add(this.sky.group,this.events.group);
@@ -72,7 +77,15 @@ export class DriveFestivities {
     }
     this.tunnelCanvas.className = 'drive-tunnel';
     this.tunnelCanvas.hidden = true;
-    world.append(this.tunnelCanvas);
+    world.append(this.tunnelCanvas,this.frost.canvas);
+    this.installFrostGestures(world);
+    const frostToggle = root.querySelector<HTMLButtonElement>('[data-frost]')!;
+    frostToggle.setAttribute('aria-pressed',String(this.environment.isFrostEnabled()));
+    frostToggle.onclick = () => {
+      const enabled = !this.environment.isFrostEnabled();
+      this.environment.setFrostEnabled(enabled);
+      frostToggle.setAttribute('aria-pressed',String(enabled));
+    };
     this.director.onEventStart(type => {
       this.eventHeading = this.lastHeading;
       this.announce(i18n.t().elonEvents[type].label, 11);
@@ -108,6 +121,50 @@ export class DriveFestivities {
     };
   }
 
+  private installFrostGestures(world: HTMLElement): void {
+    let dragging = -1;
+    let lastSound = -Infinity;
+    let previous: {x: number; y: number} | undefined;
+    const wipe = (event: PointerEvent) => {
+      const x = event.clientX, y = event.clientY;
+      const start = previous ?? {x,y};
+      const steps = Math.max(1,Math.ceil(Math.hypot(x-start.x,y-start.y)/24));
+      for (let i = 1; i <= steps; i++) {
+        this.frost.wipeAt(THREE.MathUtils.lerp(start.x,x,i/steps),THREE.MathUtils.lerp(start.y,y,i/steps));
+      }
+      previous = {x,y};
+      if (event.timeStamp-lastSound > 130 && this.audio.getMixMode() !== 'muted') {
+        this.audio.playIceScrape();
+        lastSound = event.timeStamp;
+      }
+    };
+    world.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0 || !(event.target instanceof HTMLCanvasElement) ||
+          !this.environment.isFrostEnabled() || parseFloat(this.frost.canvas.style.opacity) <= 0) return;
+      const {clientWidth:width,clientHeight:height} = world;
+      const edge = Math.min(44,width*0.065,height*0.09);
+      if (Math.min(event.clientX,event.clientY,width-event.clientX,height-event.clientY) > edge) return;
+      dragging = event.pointerId;
+      previous = undefined;
+      world.setPointerCapture(event.pointerId);
+      event.stopPropagation();
+      wipe(event);
+    },true);
+    world.addEventListener('pointermove',event => {
+      if (event.pointerId !== dragging) return;
+      event.stopPropagation();
+      wipe(event);
+    },true);
+    for (const type of ['pointerup','pointercancel','lostpointercapture']) {
+      world.addEventListener(type,event => {
+        if (!(event instanceof PointerEvent) || event.pointerId !== dragging) return;
+        dragging = -1;
+        previous = undefined;
+        event.stopPropagation();
+      },true);
+    }
+  }
+
   private startConvoy(): void {
     this.convoyTime = 16;
     this.audio.playConvoyHorn();
@@ -123,6 +180,7 @@ export class DriveFestivities {
   resize(width: number, height: number): void {
     this.tunnelCanvas.width = width;
     this.tunnelCanvas.height = height;
+    this.frost.resize(width,height);
   }
 
   update(dt: number, time: number, frame: TelemetryFrame, map: OsmMapSnapshot | undefined,
@@ -164,7 +222,11 @@ export class DriveFestivities {
     this.effects.position.copy(center);
     this.effects.rotation.y = -(event ? this.eventHeading : heading);
     const env = this.environment.getState();
+    this.frost.update(dt,env);
     this.sky.update(dt,time,0,env,live,() => 0,0,false);
+    this.launch.hidden = !live.spaceXLive;
+    const launchLabel = live.spaceXLive ? `SpaceX · ${live.nextSpaceXName} · ${live.nextSpaceXCountdown}` : '';
+    if (this.launch.textContent !== launchLabel) this.launch.textContent = launchLabel;
     if (this.snapshotVersion !== map?.version || time - this.matchedAt > 0.25) {
       this.snapshotVersion = map?.version;
       this.matchedStreet = map && streetAtCar(map,frame);
@@ -214,7 +276,12 @@ export class DriveFestivities {
           const distance = Math.hypot(dx,dz);
           if (ahead < 5 || distance >= closest) continue;
           closest = distance;
-          roof = THREE.MathUtils.clamp(building.heightM*0.65,3,16);
+          const cottage = cottageModel(building);
+          roof = buildingWallHeight(building);
+          if (cottage) {
+            const profile = roofProjection(building.footprint,cottage.roof,cottage.style.pitch);
+            roof += profile.yAt(profile.widthAt({x:building.centerX,z:building.centerZ}));
+          }
           this.destination.set(building.centerX,roof,building.centerZ);
           hasTarget = true;
         }

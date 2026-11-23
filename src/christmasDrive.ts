@@ -47,6 +47,7 @@ root.innerHTML = `
       <details>
         <summary>Julmagi</summary>
         <div class="festivity-menu">
+          <span data-live-launch hidden></span>
           <button type="button" data-event="starlink">Starlink</button>
           <button type="button" data-event="starship">Starship</button>
           <button type="button" data-event="starman">Starman</button>
@@ -56,6 +57,7 @@ root.innerHTML = `
           <button type="button" data-timeline aria-pressed="false">Elon-tidslinje</button>
           <button type="button" data-convoy>Julkaravan</button>
           <button type="button" data-tunnel>Boring-tunneln</button>
+          <button type="button" data-frost aria-pressed="true">Frost på skärmen</button>
           <button type="button" data-sound aria-pressed="false">Slå på ljud</button>
         </div>
       </details>
@@ -109,12 +111,13 @@ if (stage) {
   ground.rotation.x = -Math.PI / 2;
   const sky = createPixarSkyDome(730);
   shapeChristmasSky(sky.material);
+  sky.mesh.renderOrder = -3;
   const snowfall = createBokehSnowField(310, {minX:-45,maxX:45,minY:1,maxY:38,minZ:-55,maxZ:55});
   const map = new ChristmasMap();
   const mountains = createAlpineHorizon();
   scene.add(ground, sky.mesh, mountains, map.group, avatar, snowfall.group);
   stage.setAtmosphere(0.04, 0.72, '#8a91af');
-  const warm = new THREE.DirectionalLight('#ffd4ba', 0.95);
+  const warm = new THREE.DirectionalLight('#ffd4ba', 1.18);
   warm.castShadow = true;
   warm.shadow.mapSize.set(1024,1024);
   warm.shadow.camera.left = warm.shadow.camera.bottom = -60;
@@ -161,7 +164,7 @@ if (stage) {
   const currentOffset = new THREE.Vector3();
   const desiredTarget = new THREE.Vector3();
   const movement = new THREE.Vector3();
-  const shadowOffset = new THREE.Vector3(-52,54,32);
+  const shadowOffset = new THREE.Vector3(-53,40,32);
   let liveState = live.getState();
   let activeFlights: LiveFlight[] = [];
   let wheelPhase = 0;
@@ -246,6 +249,7 @@ if (stage) {
     camera.lookAt(orbit.target);
     camera.updateMatrixWorld();
     ground.position.set(avatar.position.x,0,avatar.position.z);
+    map.animate(time,avatar.position);
     warm.target.position.copy(orbit.target);
     warm.position.copy(warm.target.position).add(shadowOffset);
     sky.mesh.position.copy(camera.position);

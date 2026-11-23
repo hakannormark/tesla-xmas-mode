@@ -374,6 +374,7 @@ export class LiveSkyRig {
     this.spaceXGantry.add(this.spaceXMiniRocket);
 
     this.spaceXGantry.rotation.y = -0.35;
+    this.spaceXGantry.name = 'SpaceX roadside countdown';
     this.group.add(this.spaceXGantry);
   }
 
@@ -481,45 +482,49 @@ export class LiveSkyRig {
       }
     }
 
-    // 6. SpaceX Roadside Launch Countdown Gantry (curve-locked!)
-    this.spaceXGantryZ += forwardStep;
-    if (this.spaceXGantryZ > 22) this.spaceXGantryZ -= 165;
-    const gx = getRoadCurveX(this.spaceXGantryZ);
-    const gNext = getRoadCurveX(this.spaceXGantryZ - 5);
-    this.spaceXGantry.position.set(gx + 13.5, 0, this.spaceXGantryZ);
-    this.spaceXGantry.rotation.y = Math.atan2(gx - gNext, 5) - 0.35;
+    this.spaceXGantry.visible = showRoadside;
+    if (showRoadside) {
+      // 6. SpaceX Roadside Launch Countdown Gantry (curve-locked!)
+      this.spaceXGantryZ += forwardStep;
+      if (this.spaceXGantryZ > 22) this.spaceXGantryZ -= 165;
+      const gx = getRoadCurveX(this.spaceXGantryZ);
+      const gNext = getRoadCurveX(this.spaceXGantryZ - 5);
+      this.spaceXGantry.position.set(gx + 13.5, 0, this.spaceXGantryZ);
+      this.spaceXGantry.rotation.y = Math.atan2(gx - gNext, 5) - 0.35;
 
-    this.spaceXMiniRocket.visible = live.nextSpaceXLaunchToday;
-    if (this.spaceXMiniRocket.visible) {
-      this.spaceXMiniRocket.position.y = 0.25 + Math.abs(Math.sin(time * 2)) * 0.35;
-    }
+      this.spaceXMiniRocket.visible = live.nextSpaceXLaunchToday;
+      if (this.spaceXMiniRocket.visible) {
+        this.spaceXMiniRocket.position.y = 0.25 + Math.abs(Math.sin(time * 2)) * 0.35;
+      }
 
-    const sKey = `${live.nextSpaceXCountdown}|${live.nextSpaceXName}`;
-    if (this.spaceXLastText !== sKey) {
-      this.spaceXLastText = sKey;
-      const ctx = this.spaceXCtx;
-      ctx.clearRect(0, 0, 512, 160);
-      const grad = ctx.createLinearGradient(0, 0, 512, 160);
-      grad.addColorStop(0, '#0d193a');
-      grad.addColorStop(1, '#290f32');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.roundRect(6, 6, 500, 148, 18);
-      ctx.fill();
-      ctx.strokeStyle = '#70e2ff';
-      ctx.lineWidth = 5;
-      ctx.stroke();
+      const sKey = `${live.nextSpaceXCountdown}|${live.nextSpaceXName}`;
+      if (this.spaceXLastText !== sKey) {
+        this.spaceXLastText = sKey;
+        const ctx = this.spaceXCtx;
+        ctx.clearRect(0, 0, 512, 160);
+        const grad = ctx.createLinearGradient(0, 0, 512, 160);
+        grad.addColorStop(0, '#0d193a');
+        grad.addColorStop(1, '#290f32');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(6, 6, 500, 148, 18);
+        ctx.fill();
+        ctx.strokeStyle = '#70e2ff';
+        ctx.lineWidth = 5;
+        ctx.stroke();
 
-      ctx.fillStyle = '#70e2ff';
-      ctx.font = '700 22px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`🚀 SPACEX · ${live.nextSpaceXCountdown}`, 256, 52, 470);
+        ctx.fillStyle = '#70e2ff';
+        ctx.font = '700 22px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`🚀 SPACEX · ${live.nextSpaceXCountdown}`, 256, 52, 470);
 
-      ctx.fillStyle = '#fff8ea';
-      ctx.font = '600 24px "Cinzel", Georgia, serif';
-      ctx.fillText(live.nextSpaceXName.slice(0, 28), 256, 108, 470);
-      this.spaceXTex.needsUpdate = true;
+        ctx.fillStyle = '#fff8ea';
+        ctx.font = '600 24px "Cinzel", Georgia, serif';
+        ctx.fillText(live.nextSpaceXName.slice(0, 28), 256, 108, 470);
+        this.spaceXTex.needsUpdate = true;
+      }
+
     }
 
     // 7. Catchable Geminids Shooting Stars (visible in night & dusk)
