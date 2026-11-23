@@ -1137,7 +1137,7 @@ export class OsmMapLayer {
         const wz = -lx * sinP + lz * cosP;
         const curveX = getRoadCurveX(wz);
         const nearRoad = Math.abs(wx - curveX) < b.radius + 7.5 && wz > -185 && wz < 22;
-        b.group.visible = !nearRoad;
+        b.group.visible = this.mappedStreets || !nearRoad;
         if (b.label) b.label.rotation.y = -pivotRad;
       }
     } else {

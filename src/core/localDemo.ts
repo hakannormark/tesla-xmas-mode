@@ -1,3 +1,4 @@
+import { streetAtCar } from '../three/mappedRoads';
 import district from './lokevagen.json';
 import type { OsmBuilding, OsmPoint2D, OsmWorldState } from './osmWorld';
 import type { TelemetryFrame } from './telemetry';
@@ -31,6 +32,18 @@ const map: OsmWorldState = {
     buildings, waters: [], forests: [], pois: [],
   },
 };
+
+// Use the bundled geometry for a real GPS fix only where a mapped road is nearby.
+let lastFix = { lat: NaN, lon: NaN, covered: false };
+export function districtAtFix(frame: TelemetryFrame): OsmWorldState | undefined {
+  if (frame.latitude !== lastFix.lat || frame.longitude !== lastFix.lon) {
+    lastFix = { lat: frame.latitude, lon: frame.longitude, covered:
+      Math.abs(frame.latitude - district.origin[0]) < 0.012 &&
+      Math.abs(frame.longitude - district.origin[1]) < 0.025 &&
+      !!streetAtCar(map.snapshot, frame) };
+  }
+  return lastFix.covered ? map : undefined;
+}
 
 export class LocalDemoDrive {
   readonly map = map;

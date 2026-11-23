@@ -1,5 +1,5 @@
 import './styles/main.css';
-import { LocalDemoDrive } from './core/localDemo';
+import { LocalDemoDrive, districtAtFix } from './core/localDemo';
 import { AudioMixMode, HolidayAudioEngine } from './core/audioEngine';
 import { BoringTunnelRenderer } from './core/boringTunnel';
 import { ElonEventDirector } from './core/elonEvents';
@@ -283,8 +283,9 @@ class TeslaXmasApp {
     this.env.maybeRefreshWeather(frame.latitude, frame.longitude);
     const envState = this.env.getState();
     this.audio.setMusicStyle(envState.theme);
-    const osmState = this.localDemo?.map ?? this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
-    this.live.update(frame.latitude, frame.longitude);
+    const storedMap = frame.source === 'gps' && frame.gpsStatus === 'active' && this.osm.isEnabled() ? districtAtFix(frame) : undefined;
+    const osmState = this.localDemo?.map ?? storedMap ?? this.osm.update(dt, frame.source, frame.latitude, frame.longitude, frame.isMoving, frame.speedKmh, frame.gpsStatus === 'active');
+    this.live.update(frame.latitude, frame.longitude, frame.source === 'gps', frame.gpsStatus === 'active');
     const liveState = this.live.getState();
 
     if (this.menu.isVisible()) {

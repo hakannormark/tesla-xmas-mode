@@ -1,3 +1,4 @@
+import { FlightStars } from '../ui/FlightStars';
 import { streetAtCar } from '../three/mappedRoads';
 import { geoDeltaMeters, type OsmPoint2D, type OsmRoadRibbon } from '../core/osmWorld';
 import { WinterGrove } from '../three/winterGrove';
@@ -105,6 +106,7 @@ export class NorthPole3DScene implements HolidayScene {
   private fallbackEl: HTMLElement | null = null;
 
   private valley!: THREE.Mesh;
+  private flightStars?: FlightStars;
   private signCaption?: HTMLDivElement;
   private street?: OsmRoadRibbon;
   private localStreet: OsmPoint2D[] = [];
@@ -513,15 +515,14 @@ export class NorthPole3DScene implements HolidayScene {
       this.swedishSign.group.rotation.y = 0.24;
       scene.add(this.swedishSign.group);
 
-      if (this.winterLight) {
-        this.signCaption = document.createElement('div');
-        this.signCaption.className = 'winter-road-caption';
-        container.appendChild(this.signCaption);
-        this.swedishSign.group.scale.setScalar(1.4);
-        this.roadSign.group.scale.setScalar(1.35);
-        trailGeo.setDrawRange(0, 38);
-      }
-      this.osmMap = new OsmMapLayer(this.winterLight);
+      this.flightStars = new FlightStars(container);
+      this.signCaption = document.createElement('div');
+      this.signCaption.className = 'winter-road-caption';
+      container.appendChild(this.signCaption);
+      this.swedishSign.group.scale.setScalar(1.85);
+      this.roadSign.group.scale.setScalar(1.7);
+      if (this.winterLight) trailGeo.setDrawRange(0, 38);
+      this.osmMap = new OsmMapLayer(true);
       scene.add(this.osmMap.group);
 
       this.livingWorld = new LivingWorldRig(() => this.osmMap.lightUpNeighborhood());
@@ -789,7 +790,7 @@ export class NorthPole3DScene implements HolidayScene {
 
     // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Wet Reflections & Glitter
     this.roadScroll += forwardStep;
-    const liveMap = this.winterLight && osm.enabled && osm.isLiveOsm && (frame.localDemo || (telemetry.source === 'gps' && telemetry.gpsStatus === 'active'));
+    const liveMap = osm.enabled && osm.isLiveOsm && (frame.localDemo || (telemetry.source === 'gps' && telemetry.gpsStatus === 'active'));
     if (!liveMap) {
       this.street = undefined;
       this.mapVersion = -1;
@@ -811,9 +812,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.snowyRoad.mesh.visible = !this.street;
     this.valley.scale.y = this.street ? 0.001 : 1;
     if (this.signCaption) {
-      this.signCaption.hidden = !osm.enabled || (telemetry.source === 'gps' && !this.street);
+      this.signCaption.hidden = !osm.enabled;
       const roadName = this.street ? this.street.name : osm.roadName;
-      const caption = [roadName, osm.placeName].filter(Boolean).join(' · ');
+      const caption = telemetry.source === 'gps' && !this.street
+        ? telemetry.gpsStatus !== 'active' ? 'Väntar på GPS-position' : 'Vägkarta saknas för positionen'
+        : [roadName, osm.placeName].filter(Boolean).join(' · ');
       this.signCaption.classList.toggle('mapped', !!this.street);
       if (this.signCaption.textContent !== caption) this.signCaption.textContent = caption;
     }
@@ -830,6 +833,7 @@ export class NorthPole3DScene implements HolidayScene {
     this.osmMap.update(dt, telemetry, osm, env.quality, sleighAlert, (z) =>
       this.getRoadCurveX(z)
     );
+    if (telemetry.source === 'gps' && !osm.isLiveOsm) this.osmMap.group.visible = false;
     if (this.osmMap.hasPassingChurch()) {
       audio.playChurchBells();
     }
@@ -844,7 +848,7 @@ export class NorthPole3DScene implements HolidayScene {
     (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
     this.frozenLake.visible = this.lakeBlend > 0.02;
 
-    const showSigns = osm.enabled && (!this.winterLight || telemetry.source !== 'gps' || !!this.street);
+    const showSigns = osm.enabled && (telemetry.source !== 'gps' || !!this.street);
     this.roadSign.group.visible = showSigns;
     this.roadSign.setText(
       `GOD JUL, ${osm.placeName.toUpperCase()}`,
@@ -1271,11 +1275,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.moon.position.x = 28 - this.smoothCurve * 24;
     this.alpineBackdrop.position.x = -this.smoothCurve * 16;
 
+    this.flightStars?.update(live.flights, telemetry);
     this.liveSkyRig.update(
       dt,
       time,
       forwardStep,
-      telemetry,
       env,
       live,
       (z) => this.getRoadCurveX(z),
@@ -1325,6 +1329,7 @@ export class NorthPole3DScene implements HolidayScene {
     }
     this.milestoneCardEl?.remove();
     this.milestoneCardEl = null;
+    this.flightStars?.dispose();
     this.signCaption?.remove();
     this.grove?.dispose();
     this.liveSkyRig?.dispose();

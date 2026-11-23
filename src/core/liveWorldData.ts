@@ -1,5 +1,8 @@
 export interface LiveFlight {
   callsign: string;
+  hex?: string;
+  aircraft?: string;
+  registration?: string;
   altitudeM: number;
   headingDeg: number;
   groundspeedKts: number;
@@ -93,13 +96,17 @@ const FALLBACK_FLIGHTS: LiveFlight[] = [
   },
 ];
 
-interface RawPilot {
-  callsign?: string;
-  latitude?: number;
-  longitude?: number;
-  altitude?: number;
-  groundspeed?: number;
-  heading?: number;
+interface AircraftReport {
+  hex: string;
+  flight?: string;
+  lat?: number;
+  lon?: number;
+  alt_baro?: number | string;
+  gs?: number;
+  track?: number;
+  t?: string;
+  r?: string;
+  seen_pos?: number;
 }
 
 export class LiveWorldDataManager {
@@ -123,7 +130,9 @@ export class LiveWorldDataManager {
   private nextSpaceXNetIso: string | null = null;
   private spaceXLive = false;
 
-  private rawPilots: RawPilot[] = [];
+  private aircraft: AircraftReport[] = [];
+  private gpsFlights = false;
+  private flightRequest = 0;
   private flightsLive = false;
 
   private async fetchJson<T>(url: string, timeoutMs = 8000): Promise<T | null> {
@@ -210,27 +219,32 @@ export class LiveWorldDataManager {
   }
 
   private refreshFlights(now: number): void {
-    if (this.lastFlightsFetchMs !== 0 && now - this.lastFlightsFetchMs < 90 * 1000) return;
+    if (now - this.lastFlightsFetchMs < 20000) return;
     this.lastFlightsFetchMs = now;
-
-    void this.fetchJson<{ pilots?: RawPilot[] }>(
-      'https://data.vatsim.net/v3/vatsim-data.json',
-      11000
-    ).then((data) => {
-      if (!data || !Array.isArray(data.pilots)) return;
-      this.rawPilots = data.pilots;
-      this.flightsLive = true;
+    const request = ++this.flightRequest;
+    const url = `https://api.adsb.lol/v2/lat/${this.lastLat.toFixed(3)}/lon/${this.lastLon.toFixed(3)}/dist/60`;
+    void this.fetchJson<{ ac?: AircraftReport[] }>(url).then(data => {
+      if (request !== this.flightRequest) return;
+      this.flightsLive = Array.isArray(data?.ac);
+      this.aircraft = data?.ac ?? [];
     });
   }
 
-  update(lat: number, lon: number): void {
+  update(lat: number, lon: number, gps: boolean, hasFix: boolean): void {
+    if (this.gpsFlights !== gps) {
+      this.flightRequest++;
+      this.lastFlightsFetchMs = 0;
+      this.aircraft = [];
+      this.flightsLive = false;
+    }
+    this.gpsFlights = gps;
     this.lastLat = lat;
     this.lastLon = lon;
     const now = Date.now();
     this.refreshKp(now);
     this.refreshIss(now);
     this.refreshSpaceX(now);
-    this.refreshFlights(now);
+    if (gps && hasFix) this.refreshFlights(now);
   }
 
   getState(): LiveWorldState {
@@ -243,32 +257,18 @@ export class LiveWorldDataManager {
 
     const cd = formatCountdown(this.nextSpaceXNetIso);
 
-    // Filter closest airborne aircraft within 380 km
     const nearby: LiveFlight[] = [];
-    for (const p of this.rawPilots) {
-      if (
-        typeof p.latitude !== 'number' ||
-        typeof p.longitude !== 'number' ||
-        typeof p.altitude !== 'number' ||
-        p.altitude < 1500
-      ) {
-        continue;
-      }
-      const dist = haversineKm(lat, lon, p.latitude, p.longitude);
-      if (dist <= 380) {
-        nearby.push({
-          callsign: (p.callsign || 'NORDIC').trim().slice(0, 10),
-          altitudeM: Math.round(p.altitude * 0.3048),
-          headingDeg: Math.round(p.heading ?? 0),
-          groundspeedKts: Math.round(p.groundspeed ?? 420),
-          bearingDeg: Math.round(bearingDegBetween(lat, lon, p.latitude, p.longitude)),
-          distanceKm: Math.round(dist),
-          isLive: true,
-        });
-      }
+    for (const p of this.aircraft) {
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon) || typeof p.alt_baro !== 'number' ||
+          !p.hex || (p.seen_pos ?? 0) > 60) continue;
+      const distanceKm = haversineKm(lat, lon, p.lat!, p.lon!);
+      if (distanceKm > 111.2) continue;
+      nearby.push({ callsign: p.flight?.trim() || p.r || p.hex, hex: p.hex, aircraft: p.t,
+        registration: p.r, altitudeM: Math.round(p.alt_baro * 0.3048), groundspeedKts: p.gs ?? 0,
+        headingDeg: p.track ?? 0, bearingDeg: bearingDegBetween(lat, lon, p.lat!, p.lon!), distanceKm,
+        isLive: true });
     }
-    nearby.sort((a, b) => a.distanceKm - b.distanceKm);
-    const flights = nearby.length > 0 ? nearby.slice(0, 3) : FALLBACK_FLIGHTS;
+    const flights = this.gpsFlights ? nearby.sort((a,b) => a.distanceKm - b.distanceKm) : FALLBACK_FLIGHTS;
 
     const isAuroraAlert = this.kpIndex >= 4.0;
     const auroraLiveBoost = Math.max(0.75, Math.min(2.15, 0.72 + this.kpIndex * 0.2));

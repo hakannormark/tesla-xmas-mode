@@ -1,16 +1,7 @@
 import * as THREE from 'three';
 import { EnvironmentState } from '../core/environment';
 import { LiveWorldState } from '../core/liveWorldData';
-import { TelemetryFrame } from '../core/telemetry';
 import { getSoftGlowTexture, getStarSpriteTexture } from './pixarMaterials';
-
-interface FlightNode {
-  group: THREE.Group;
-  tagSprite: THREE.Sprite;
-  tagTex: THREE.CanvasTexture;
-  tagCtx: CanvasRenderingContext2D;
-  lastTag: string;
-}
 
 interface AdventCandleNode {
   root: THREE.Group;
@@ -60,7 +51,6 @@ function drawBadgeTexture(
 export class LiveSkyRig {
   readonly group = new THREE.Group();
 
-  private flights: FlightNode[] = [];
   private issGroup: THREE.Group;
   private issTagTex: THREE.CanvasTexture;
   private issTagCtx: CanvasRenderingContext2D;
@@ -98,69 +88,6 @@ export class LiveSkyRig {
     // 1. Live Overhead Flight Patrol Slots (up to 3)
     const glowTex = getSoftGlowTexture();
     const starTex = getStarSpriteTexture();
-    const bodyMat = new THREE.MeshBasicMaterial({ color: '#eef7ff', toneMapped: false });
-    const beaconMat = new THREE.MeshBasicMaterial({ color: '#ff3b52', toneMapped: false });
-
-    for (let i = 0; i < 3; i++) {
-      const g = new THREE.Group();
-      const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 2.2, 8), bodyMat);
-      fuse.rotation.z = Math.PI * 0.5;
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.06, 2.6), bodyMat);
-      const tailBeacon = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 6), beaconMat);
-      tailBeacon.position.set(-1.15, 0.22, 0);
-
-      const halo = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map: glowTex,
-          color: '#9ce6ff',
-          transparent: true,
-          opacity: 0.72,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          fog: false,
-        })
-      );
-      halo.scale.set(4.5, 4.5, 1);
-
-      const trail = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map: starTex,
-          color: '#ffe38c',
-          transparent: true,
-          opacity: 0.65,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          fog: false,
-        })
-      );
-      trail.scale.set(5.4, 1.4, 1);
-      trail.position.set(-3.2, 0, 0);
-
-      const c = document.createElement('canvas');
-      c.width = 384;
-      c.height = 96;
-      const ctx = c.getContext('2d')!;
-      const tex = new THREE.CanvasTexture(c);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const tag = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false })
-      );
-      tag.scale.set(11.5, 2.9, 1);
-      tag.position.set(0, 2.4, 0);
-
-      g.add(fuse, wing, tailBeacon, halo, trail, tag);
-      g.visible = false;
-      this.group.add(g);
-
-      this.flights.push({
-        group: g,
-        tagSprite: tag,
-        tagTex: tex,
-        tagCtx: ctx,
-        lastTag: '',
-      });
-    }
-
     // 2. Live ISS with Red Santa Hat!
     this.issGroup = new THREE.Group();
     const goldSolarMat = new THREE.MeshStandardMaterial({
@@ -472,41 +399,11 @@ export class LiveSkyRig {
     dt: number,
     time: number,
     forwardStep: number,
-    telemetry: TelemetryFrame,
     env: EnvironmentState,
     live: LiveWorldState,
     getRoadCurveX: (z: number) => number,
     smoothCurve: number
   ): void {
-    // 1. Overhead Live Flights (relative bearing vs car heading!)
-    for (let i = 0; i < this.flights.length; i++) {
-      const node = this.flights[i];
-      const f = live.flights[i];
-      if (!f) {
-        node.group.visible = false;
-        continue;
-      }
-      node.group.visible = true;
-      const relDeg = ((f.bearingDeg - telemetry.headingDeg + 540) % 360) - 180;
-      const clampedAz = THREE.MathUtils.clamp(relDeg * 0.65, -72, 72) * (Math.PI / 180);
-      const drift = Math.sin(time * 0.18 + i * 2.1) * 14;
-      const radius = 128;
-      const x = Math.sin(clampedAz) * radius * 0.72 + drift;
-      const y = 24 + Math.min(20, (f.altitudeM / 11000) * 18) + (i % 2) * 3;
-      const z = -Math.cos(clampedAz) * radius;
-      node.group.position.set(x, y, z);
-      node.group.rotation.y = Math.sin(time * 0.18 + i) > 0 ? 0.15 : Math.PI - 0.15;
-
-      const labelTop = `${f.isLive ? '✈' : '🎅✈'} ${f.callsign}`;
-      const labelSub = `${f.altitudeM.toLocaleString()} m · ${f.distanceKm} km`;
-      const tagKey = `${labelTop}|${labelSub}`;
-      if (node.lastTag !== tagKey) {
-        node.lastTag = tagKey;
-        drawBadgeTexture(node.tagCtx, 384, 96, labelTop, labelSub, '#9ce6ff');
-        node.tagTex.needsUpdate = true;
-      }
-    }
-
     // 2. Festive Live ISS Gliding Across Upper Orbit
     this.issGroup.visible = live.issNearby;
     if (this.issGroup.visible) {
@@ -684,9 +581,6 @@ export class LiveSkyRig {
   }
 
   dispose(): void {
-    for (const f of this.flights) {
-      f.tagTex.dispose();
-    }
     this.issTagTex.dispose();
     this.spaceXTex.dispose();
     for (const b of this.fireworkBursts) {

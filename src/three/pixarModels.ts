@@ -1409,7 +1409,7 @@ export function createSwedishRoadSign(): SwedishRoadSignHandle {
 
     // Yellow/Green European Route Badge top right (if road code like E4/255 found)
     const routeMatch = roadName.match(/\b(E\d+|\d{2,3})\b/);
-    const badgeText = routeMatch ? routeMatch[1] : 'E4';
+    const badgeText = routeMatch ? routeMatch[1] : 'N';
     ctx.fillStyle = badgeText.startsWith('E') ? '#0b8a3a' : '#f2c12e';
     ctx.beginPath();
     ctx.roundRect(418, 22, 68, 34, 6);
@@ -1426,15 +1426,15 @@ export function createSwedishRoadSign(): SwedishRoadSignHandle {
     // 3 Directional Lines
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffffff';
-    ctx.font = '700 29px Inter, sans-serif';
+    ctx.font = '800 38px Inter, sans-serif';
     ctx.fillText(`↑  Nordpolen  ${npRounded.toLocaleString()} km`, 26, 56, 382);
 
-    ctx.font = '700 28px Inter, sans-serif';
-    ctx.fillText(`→  ${placeName.slice(0, 16)}  2 km`, 26, 112, 456);
+    ctx.font = '800 36px Inter, sans-serif';
+    ctx.fillText(`→  ${placeName}`, 26, 112, 456);
 
     ctx.fillStyle = '#ffe588';
-    ctx.font = '700 24px Inter, sans-serif';
-    ctx.fillText('🎅  Glögg & Pepparkakor  500 m', 26, 168, 456);
+    ctx.font = '750 32px Inter, sans-serif';
+    ctx.fillText(roadName, 26, 168, 456);
 
     tex.needsUpdate = true;
   };
@@ -1514,13 +1514,13 @@ export function createHolidayRoadSign(): HolidayRoadSignHandle {
     ctx.strokeRect(10, 10, 492, 172);
 
     ctx.fillStyle = '#fff6df';
-    ctx.font = '700 40px "Cinzel", Georgia, serif';
+    ctx.font = '800 47px "Cinzel", Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(title.slice(0, 22), 256, 72, 468);
 
     ctx.fillStyle = '#ffcf76';
-    ctx.font = '600 24px Inter, sans-serif';
+    ctx.font = '750 35px Inter, sans-serif';
     ctx.fillText(subtitle.slice(0, 32), 256, 130, 468);
     signTex.needsUpdate = true;
   };

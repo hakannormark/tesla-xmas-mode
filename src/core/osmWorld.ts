@@ -480,6 +480,47 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
   };
 }
 
+interface OverpassEl {
+  type: 'node' | 'way' | 'relation';
+  id: number;
+  lat?: number;
+  lon?: number;
+  nodes?: number[];
+  geometry?: { lat: number; lon: number }[];
+  tags?: Record<string, string>;
+}
+
+async function streetElements(query: string, lat: number, lon: number, signal: AbortSignal): Promise<OverpassEl[]> {
+  try {
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST', body: new URLSearchParams({ data: query }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(7500)]),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data.elements) && data.elements.some((e: OverpassEl) => e.tags?.highway && e.geometry?.length)) return data.elements;
+    }
+  } catch (error) {
+    if (signal.aborted) throw error;
+  }
+  // The core OSM API returns node references instead of inline way coordinates.
+  const dy = 390 / 110540;
+  const dx = 390 / (111320 * Math.max(0.05, Math.cos(lat * Math.PI / 180)));
+  const bbox = [lon-dx, lat-dy, lon+dx, lat+dy].map(n => n.toFixed(6)).join(',');
+  const response = await fetch('https://api.openstreetmap.org/api/0.6/map.json?bbox=' + bbox, { signal });
+  if (!response.ok) throw new Error('OSM map unavailable');
+  const elements: OverpassEl[] = (await response.json()).elements;
+  const positions = new Map<number, {lat: number; lon: number}>();
+  for (const e of elements) {
+    if (e.type === 'node' && e.lat !== undefined && e.lon !== undefined) positions.set(e.id, {lat: e.lat, lon: e.lon});
+  }
+  for (const e of elements) {
+    if (e.type === 'way' && e.nodes) e.geometry = e.nodes.flatMap(id => positions.get(id) ?? []);
+  }
+  return elements.filter(e => e.tags && (!e.tags.highway ||
+    /^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$/.test(e.tags.highway)));
+}
+
 export class OsmWorldDirector {
   private enabled = true;
   private isLiveOsm = false;
@@ -499,6 +540,7 @@ export class OsmWorldDirector {
   private lastFetchMs = 0;
   private lastFetchLat = 0;
   private lastFetchLon = 0;
+  private retryMap = false;
   private inflightAbort: AbortController | null = null;
   private placeListeners = new Set<(state: OsmWorldState) => void>();
 
@@ -580,7 +622,7 @@ export class OsmWorldDirector {
       const movedM =
         this.lastFetchMs === 0 ? 9999 : haversineMeters(this.lastFetchLat, this.lastFetchLon, lat, lon);
 
-      if (!this.inflightAbort && (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 12000 && movedM >= 150) || (now - this.lastFetchMs >= 30000 && !this.isLiveOsm))) {
+      if (!this.inflightAbort && (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 12000 && movedM >= 150) || (now - this.lastFetchMs >= 30000 && (!this.isLiveOsm || this.retryMap)))) {
         this.lastFetchMs = now;
         this.lastFetchLat = lat;
         this.lastFetchLon = lon;
@@ -608,7 +650,7 @@ export class OsmWorldDirector {
     this.inflightAbort?.abort();
     const ctrl = new AbortController();
     this.inflightAbort = ctrl;
-    const timer = setTimeout(() => ctrl.abort(), 7500);
+    const timer = setTimeout(() => ctrl.abort(), 20000);
 
     try {
       const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(
@@ -620,13 +662,9 @@ export class OsmWorldDirector {
       const streets = `way(around:420,${fLat},${fLon})["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]`;
       const overpassQuery = `[out:json][timeout:6];${streets};out body geom;(way(around:240,${fLat},${fLon})["building"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
 
-      const [nomRes, ovRes] = await Promise.all([
-        fetch(nomUrl, { signal: ctrl.signal }).catch(() => null),
-        fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: `data=${encodeURIComponent(overpassQuery)}`,
-          signal: ctrl.signal,
-        }),
+      const [nomRes, els] = await Promise.all([
+        fetch(nomUrl, { signal: AbortSignal.timeout(3500) }).catch(() => null),
+        streetElements(overpassQuery, lat, lon, ctrl.signal),
       ]);
 
       let nextPlace = this.isLiveOsm ? this.placeName : '';
@@ -649,18 +687,7 @@ export class OsmWorldDirector {
       const forests: OsmForestPatch[] = [];
       const pois: OsmPoi[] = [];
 
-      if (!ovRes.ok) throw new Error("OSM request failed");
       {
-        const ovData = await ovRes.json();
-        interface OverpassEl {
-          type: 'node' | 'way' | 'relation';
-          id: number;
-          lat?: number;
-          lon?: number;
-          geometry?: { lat: number; lon: number }[];
-          tags?: Record<string, string>;
-        }
-        const els: OverpassEl[] = ovData?.elements ?? [];
         let hasWater = false;
         let hasForest = false;
         let hasUrban = false;
@@ -787,6 +814,7 @@ export class OsmWorldDirector {
       const placeChanged =
         nextPlace !== this.placeName || nextBiome !== this.biome || nextLandmark !== this.nearbyLandmark;
       if (ctrl.signal.aborted) return;
+      this.retryMap = false;
       this.isLiveOsm = true;
       this.placeName = nextPlace;
       this.roadName = nextRoad;
@@ -812,7 +840,7 @@ export class OsmWorldDirector {
         this.emitPlaceChange();
       }
     } catch {
-      // Offline / rate-limited / blocked: keep last snapshot quietly
+      this.retryMap = true;
     } finally {
       clearTimeout(timer);
       if (this.inflightAbort === ctrl) this.inflightAbort = null;
