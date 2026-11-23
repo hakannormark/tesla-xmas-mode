@@ -49,3 +49,32 @@ export function streetAtCar(snapshot: OsmMapSnapshot, car: TelemetryFrame): OsmR
   }
   return match;
 }
+
+// Project onto the current OSM way and walk its actual vertices, without extrapolating past its ends.
+export function pointAlongStreet(road: OsmRoadRibbon, car: {x: number; z: number}, heading: number, ahead: number) {
+  let nearest = Infinity;
+  let progress = 0;
+  let direction = 1;
+  let length = 0;
+  const segments = road.points.slice(1).flatMap((b,i) => {
+    const a = road.points[i];
+    const dx = b.x-a.x, dz = b.z-a.z, meters = Math.hypot(dx,dz);
+    if (!meters) return [];
+    const project = THREE.MathUtils.clamp(((car.x-a.x)*dx+(car.z-a.z)*dz)/(meters*meters),0,1);
+    const distance = Math.hypot(car.x-a.x-project*dx,car.z-a.z-project*dz);
+    if (distance < nearest) {
+      nearest = distance;
+      progress = length + project*meters;
+      direction = dx*Math.sin(heading)-dz*Math.cos(heading) >= 0 ? 1 : -1;
+    }
+    length += meters;
+    return [{a,dx,dz,meters,end:length}];
+  });
+  const target = progress + ahead*direction;
+  if (target < 0 || target > length) return undefined;
+  const segment = segments.find(s => s.end >= target);
+  if (!segment) return undefined;
+  const {a,dx,dz,meters,end} = segment;
+  const t = 1 - (end-target)/meters;
+  return {x:a.x+t*dx, z:a.z+t*dz, heading:Math.atan2(direction*dx,-direction*dz)};
+}

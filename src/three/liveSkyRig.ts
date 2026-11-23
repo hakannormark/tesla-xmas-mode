@@ -402,7 +402,8 @@ export class LiveSkyRig {
     env: EnvironmentState,
     live: LiveWorldState,
     getRoadCurveX: (z: number) => number,
-    smoothCurve: number
+    smoothCurve: number,
+    showRoadside = true
   ): void {
     // 2. Festive Live ISS Gliding Across Upper Orbit
     this.issGroup.visible = live.issNearby;
@@ -440,7 +441,7 @@ export class LiveSkyRig {
     }
 
     // 4. Dec 13 3D Luciatåg along left curve-locked snowbank
-    this.luciaGroup.visible = env.holidayCalendar.isLucia;
+    this.luciaGroup.visible = showRoadside && env.holidayCalendar.isLucia;
     if (this.luciaGroup.visible) {
       this.luciaZ += forwardStep * 0.55;
       if (this.luciaZ > 16) this.luciaZ = -138;

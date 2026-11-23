@@ -1,3 +1,4 @@
+import { DriveFestivities } from './three/DriveFestivities';
 import './styles/christmasDrive.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -17,7 +18,10 @@ root.innerHTML = `
   <main class="drive-world" aria-label="Interaktiv julvärld"></main>
   <header class="drive-header">
     <div class="drive-brand"><span aria-hidden="true">✦</span> Vintervärlden</div>
-    <button data-follow type="button">Följ släden</button>
+    <div class="drive-actions">
+      <a href="./klassisk.html">Klassiska lägen</a>
+      <button data-follow type="button">Följ släden</button>
+    </div>
   </header>
   <aside class="street-board" aria-live="polite">
     <span class="street-meta" data-place></span>
@@ -28,6 +32,23 @@ root.innerHTML = `
   <footer class="drive-footer">
     <div class="drive-instruments"><strong data-speed>0</strong> <span>km/h</span>
       <span class="pole-distance" data-north hidden><b data-north-arrow aria-hidden="true">↑</b> Nordpolen <span data-distance></span></span>
+    </div>
+    <div class="drive-festivities">
+      <output data-festive-status aria-live="polite"></output>
+      <button type="button" data-gift>🎁 Julklapp</button>
+      <details>
+        <summary>Julmagi</summary>
+        <div class="festivity-menu">
+          <button type="button" data-event="starlink">Starlink</button>
+          <button type="button" data-event="starship">Starship</button>
+          <button type="button" data-event="starman">Starman</button>
+          <button type="button" data-event="supercharger">Supercharger</button>
+          <button type="button" data-event="cyberplow">Cybertruck-plog</button>
+          <button type="button" data-convoy>Julkaravan</button>
+          <button type="button" data-tunnel>Boring-tunneln</button>
+          <button type="button" data-sound aria-pressed="false">Slå på ljud</button>
+        </div>
+      </details>
     </div>
     <label class="vehicle-picker"><span>Fordon</span>
       <select aria-label="Fordon"><option value="sleigh">Tomtens släde</option><option value="semi">Tesla Semi</option><option value="cybertruck">Cybertruck</option><option value="starman">Starman</option></select>
@@ -109,6 +130,7 @@ if (stage) {
   }
   const flightTemplate = createAccurateStarmanRoadster();
   const telemetry = new TelemetryEngine('gps');
+  const festivities = new DriveFestivities(root, world, scene, sleigh, telemetry);
   const director = new OsmWorldDirector(true);
   const live = new LiveWorldDataManager();
   const speed = get('[data-speed]');
@@ -129,6 +151,7 @@ if (stage) {
   const cameraOffset = new THREE.Vector3();
   const currentOffset = new THREE.Vector3();
   const desiredTarget = new THREE.Vector3();
+  let liveState = live.getState();
   let activeFlights: LiveFlight[] = [];
   let wheelPhase = 0;
 
@@ -211,7 +234,8 @@ if (stage) {
     if (now - lastUi >= 240) {
       lastUi = now;
       live.update(frame.latitude,frame.longitude,true,fix);
-      activeFlights = live.getState().flights;
+      liveState = live.getState();
+      activeFlights = liveState.flights;
       const ids = new Set(activeFlights.map(f => f.hex || f.callsign));
       for (const [id, model] of aircraftModels) {
         if (!ids.has(id)) { flightsRoot.remove(model); aircraftModels.delete(id); }
@@ -246,10 +270,15 @@ if (stage) {
       model.scale.setScalar(1.6+radius/65);
       model.visible = projectFlight(flight).visible;
     }
+    sky.material.uniforms.uAuroraBoost.value = liveState.auroraLiveBoost * 0.68;
+    festivities.update(dt, time, frame, snapshot, avatar.position, heading, liveState);
     flightStars.update(activeFlights,frame,projectFlight);
     stage!.render();
     requestAnimationFrame(update);
   }
-  new ResizeObserver(() => stage.resize(world.clientWidth,world.clientHeight)).observe(world);
+  new ResizeObserver(() => {
+    stage.resize(world.clientWidth,world.clientHeight);
+    festivities.resize(world.clientWidth,world.clientHeight);
+  }).observe(world);
   requestAnimationFrame(update);
 }

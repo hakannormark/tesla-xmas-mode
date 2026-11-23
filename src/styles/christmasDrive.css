@@ -40,3 +40,30 @@ button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid
 .flight-details strong { display: block; font-size: 1.15rem; }
 .flight-details button { float: right; margin-left: .45rem; }
 .webgl-fallback { position: fixed; inset: 35% 15% auto; text-align: center; }
+
+.drive-actions { display:flex; gap:.5rem; flex-wrap:wrap; justify-content:end; pointer-events:auto; }
+.drive-actions a, .drive-festivities button, .drive-festivities summary {
+  color:inherit; background:#14263cf2; border:1px solid #b5ccdb75; border-radius:9px;
+  padding:.58rem .68rem; min-height:42px; cursor:pointer; text-decoration:none; align-content:center;
+}
+.drive-festivities { position:relative; display:flex; align-items:end; gap:.35rem; pointer-events:auto; }
+.drive-festivities summary { list-style:none; white-space:nowrap; }
+.festivity-menu {
+  position:absolute; right:0; bottom:calc(100% + .5rem); display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  width:min(19rem,88vw); gap:.35rem; padding:.5rem; border-radius:12px; border:1px solid #b5ccdb60; background:#162b40fa;
+}
+.drive-festivities output {
+  position:absolute; bottom:calc(100% + .65rem); left:50%; transform:translateX(-50%); white-space:nowrap;
+  border-radius:8px; padding:.48rem .7rem; background:#162b40f2; color:#ffe4a8; pointer-events:none;
+}
+.drive-festivities output:empty, .drive-festivities:has(details[open]) output { display:none; }
+.drive-tunnel { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; }
+@media (max-width:620px) {
+  .drive-header { inset:.65rem .65rem auto; }
+  .drive-actions { gap:.3rem; }
+  .drive-actions a, .drive-actions button { padding:.38rem .48rem; font-size:.82rem; }
+  .drive-footer { flex-wrap:wrap; inset:auto .65rem 1.9rem; }
+  .drive-festivities { order:3; }
+  .festivity-menu { left:0; right:auto; }
+  .drive-festivities output { left:0; transform:none; }
+}

@@ -24,7 +24,7 @@ export class MenuView {
   private bgCanvas: HTMLCanvasElement;
   private bgCtx: CanvasRenderingContext2D;
   private safetyOverlay: HTMLElement;
-  private safetyAccepted = false;
+  private safetyAccepted = document.documentElement.hasAttribute('data-skip-intro');
 
   private thumbCanvases = new Map<SceneId, HTMLCanvasElement>();
   private snow: MenuSnow[] = [];
@@ -97,6 +97,7 @@ export class MenuView {
           </div>
         </div>
         <div class="menu-header-actions">
+          ${document.documentElement.hasAttribute('data-skip-intro') ? `<a class="pill-btn" href="./">${locale === 'sv' ? 'Till 3D-kartan' : 'Back to the 3D map'}</a>` : ''}
           <button type="button" class="pill-btn" data-action="sound-test">🔊 ${t.soundTestBtn}</button>
           <div class="segmented-sm" role="group" aria-label="${t.languageLabel}">
             <button type="button" class="${locale === 'sv' ? 'active' : ''}" data-lang="sv">SV</button>

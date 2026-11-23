@@ -22,6 +22,7 @@ export interface OsmBuilding {
   depthM: number;
   areaM2: number;
   heightM: number;
+  tesla?: boolean;
   kind: OsmBuildingKind;
   name: string | null;
 }
@@ -30,6 +31,7 @@ export interface OsmRoadRibbon {
   points: OsmPoint2D[];
   widthM: number;
   isMajor: boolean;
+  tunnel?: boolean;
   name: string | null;
 }
 
@@ -51,6 +53,7 @@ export interface OsmPoi {
   x: number;
   z: number;
   kind: 'charger' | 'landmark' | 'church' | 'station';
+  tesla?: boolean;
   name: string;
 }
 
@@ -711,9 +714,9 @@ export class OsmWorldDirector {
             if (tags.natural === 'tree') {
               trees.push(pt);
             } else if (tags.amenity === 'charging_station') {
-              const cname = tags.name || tags.operator || 'Tesla Supercharger';
+              const cname = tags.name || tags.operator || 'Laddstation';
               if (!nextCharger) nextCharger = cname;
-              pois.push({ x: pt.x, z: pt.z, kind: 'charger', name: cname });
+              pois.push({ x: pt.x, z: pt.z, kind: 'charger', name: cname, tesla: /tesla|supercharger/i.test([tags.name, tags.brand, tags.operator, tags.network].join(' ')) });
             } else if (tags.amenity === 'place_of_worship' && tags.name) {
               if (!nextLandmark) nextLandmark = tags.name;
               pois.push({ x: pt.x, z: pt.z, kind: 'church', name: tags.name });
@@ -752,6 +755,9 @@ export class OsmWorldDirector {
               areaM2: stats.area,
               heightM: cls.heightM,
               kind: cls.kind,
+              tesla: /tesla|gigafactory/i.test([tags.name, tags.brand, tags.operator].join(' ')) &&
+                /industrial|warehouse|factory|commercial/.test(tags.building + ' ' + tags.landuse) ||
+                /gigafactory/i.test(tags.name ?? ''),
               name: tags.name ?? null,
             });
             if (cls.kind === 'church' && tags.name) {
@@ -766,6 +772,7 @@ export class OsmWorldDirector {
               points: pts,
               widthM,
               isMajor,
+              tunnel: tags.tunnel === 'yes' || tags.tunnel === 'building_passage',
               name: tags.name ?? tags.ref ?? null,
             });
           } else if (tags.natural === 'water' || tags.waterway) {

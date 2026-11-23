@@ -10,6 +10,8 @@ import {
 } from './teslaModels';
 
 export interface ElonAnchorConfig {
+  mappedSupercharger?: THREE.Vector3 | null;
+  showRoadVehicles?: boolean;
   moonPos: THREE.Vector3;
   starshipOrigin: THREE.Vector3;
   starshipScale?: number;
@@ -145,9 +147,12 @@ export class PixarElonRig {
     }
 
     // 4. Tesla V4 Nordpolen Supercharger Oasis + waving Optimus Gen 2 Elf (planted at true road speed!)
-    this.superchargerPlaza.group.visible = type === 'supercharger';
+    this.superchargerPlaza.group.visible = type === 'supercharger' && anchors.mappedSupercharger !== null;
     if (this.superchargerPlaza.group.visible) {
-      if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
+      if (anchors.mappedSupercharger) {
+        this.superchargerPlaza.group.position.copy(anchors.mappedSupercharger);
+        this.superchargerPlaza.group.rotation.y = 0;
+      } else if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
         this.superchargerZ += anchors.forwardStep;
         const wrapZ = anchors.superchargerWrapZ ?? 24;
         if (this.superchargerZ > wrapZ) this.superchargerZ = anchors.superchargerStartZ ?? -132;
@@ -166,7 +171,7 @@ export class PixarElonRig {
     }
 
     // 5. Cybertruck Snowplow hauling glowing tree in oncoming lane
-    this.cybertruck.group.visible = type === 'cyberplow';
+    this.cybertruck.group.visible = type === 'cyberplow' && anchors.showRoadVehicles !== false;
     if (this.cybertruck.group.visible) {
       this.wheelPhase += dt * 16;
       if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
