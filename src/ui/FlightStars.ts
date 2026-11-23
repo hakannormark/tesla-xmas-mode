@@ -76,15 +76,25 @@ export class FlightStars {
     }
   }
 
-  update(flights: LiveFlight[], car: TelemetryFrame): void {
+  update(flights: LiveFlight[], car: TelemetryFrame, project?: (flight: LiveFlight) => {x: number; y: number; visible: boolean}): void {
     this.poleKm = Math.round(car.northPoleDistanceKm);
     this.flights.clear();
     const pole = this.button('pole', 'Visa Nordpolen');
     pole.classList.add('pole-star');
+    pole.hidden = !!project;
     for (const f of flights) {
       const id = f.hex || f.callsign;
       this.flights.set(id, f);
       const button = this.button(id, 'Visa flyg ' + f.callsign);
+      if (project) {
+        button.classList.add('starman-marker');
+        button.textContent = f.callsign;
+        const p = project(f);
+        button.hidden = !p.visible;
+        button.style.left = p.x + '%';
+        button.style.top = p.y + '%';
+        continue;
+      }
       const angle = f.isLive ? ((f.bearingDeg - car.headingDeg + 540) % 360) - 180 : ((f.bearingDeg + 180) % 360) - 180;
       button.hidden = Math.abs(angle) > 85;
       button.style.left = (50 + angle * 0.54) + '%';

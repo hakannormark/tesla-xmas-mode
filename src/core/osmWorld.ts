@@ -64,6 +64,8 @@ export interface OsmMapSnapshot {
   waters: OsmWaterFeature[];
   forests: OsmForestPatch[];
   pois: OsmPoi[];
+  trees?: OsmPoint2D[];
+  woodland?: OsmPoint2D[][];
 }
 
 export interface OsmWorldState {
@@ -544,7 +546,8 @@ export class OsmWorldDirector {
   private inflightAbort: AbortController | null = null;
   private placeListeners = new Set<(state: OsmWorldState) => void>();
 
-  constructor() {
+  constructor(liveOnly = false) {
+    if (liveOnly) return;
     try {
       const saved = localStorage.getItem('tesla-xmas-osm');
       if (saved === '0') this.enabled = false;
@@ -622,7 +625,7 @@ export class OsmWorldDirector {
       const movedM =
         this.lastFetchMs === 0 ? 9999 : haversineMeters(this.lastFetchLat, this.lastFetchLon, lat, lon);
 
-      if (!this.inflightAbort && (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 12000 && movedM >= 150) || (now - this.lastFetchMs >= 30000 && (!this.isLiveOsm || this.retryMap)))) {
+      if (!this.inflightAbort && (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 8000 && movedM >= 120) || (now - this.lastFetchMs >= 30000 && (!this.isLiveOsm || this.retryMap)))) {
         this.lastFetchMs = now;
         this.lastFetchLat = lat;
         this.lastFetchLon = lon;
@@ -659,8 +662,8 @@ export class OsmWorldDirector {
 
       const fLat = lat.toFixed(4);
       const fLon = lon.toFixed(4);
-      const streets = `way(around:420,${fLat},${fLon})["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]`;
-      const overpassQuery = `[out:json][timeout:6];${streets};out body geom;(way(around:240,${fLat},${fLon})["building"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
+      const streets = `way(around:650,${fLat},${fLon})["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]`;
+      const overpassQuery = `[out:json][timeout:6];${streets};out body geom;(way(around:460,${fLat},${fLon})["building"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];node(around:350,${fLat},${fLon})["natural"="tree"];);out body geom;`;
 
       const [nomRes, els] = await Promise.all([
         fetch(nomUrl, { signal: AbortSignal.timeout(3500) }).catch(() => null),
@@ -686,6 +689,9 @@ export class OsmWorldDirector {
       const waters: OsmWaterFeature[] = [];
       const forests: OsmForestPatch[] = [];
       const pois: OsmPoi[] = [];
+      const trees: OsmPoint2D[] = [];
+      const woodland: OsmPoint2D[][] = [];
+      const seenWays = new Set<number>();
 
       {
         let hasWater = false;
@@ -702,7 +708,9 @@ export class OsmWorldDirector {
 
           if (el.type === 'node' && el.lat !== undefined && el.lon !== undefined) {
             const pt = geoDeltaMeters(lat, lon, el.lat, el.lon);
-            if (tags.amenity === 'charging_station') {
+            if (tags.natural === 'tree') {
+              trees.push(pt);
+            } else if (tags.amenity === 'charging_station') {
               const cname = tags.name || tags.operator || 'Tesla Supercharger';
               if (!nextCharger) nextCharger = cname;
               pois.push({ x: pt.x, z: pt.z, kind: 'charger', name: cname });
@@ -720,6 +728,8 @@ export class OsmWorldDirector {
           }
 
           if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
+          if (seenWays.has(el.id)) continue;
+          seenWays.add(el.id);
           const pts = el.geometry.map((g) => geoDeltaMeters(lat, lon, g.lat, g.lon));
 
           if (tags.building) {
@@ -734,7 +744,7 @@ export class OsmWorldDirector {
             const cls = classifyBuilding(tags, stats.area);
             buildings.push({
               id: `w-${el.id}`,
-              footprint: decimatePoints(ring, 16),
+              footprint: ring,
               centerX: stats.cx,
               centerZ: stats.cz,
               widthM: stats.widthM,
@@ -756,7 +766,7 @@ export class OsmWorldDirector {
               points: pts,
               widthM,
               isMajor,
-              name: tags.name ?? null,
+              name: tags.name ?? tags.ref ?? null,
             });
           } else if (tags.natural === 'water' || tags.waterway) {
             hasWater = true;
@@ -767,10 +777,11 @@ export class OsmWorldDirector {
               points: decimatePoints(isClosed ? pts.slice(0, -1) : pts, 20),
               isPolygon: isClosed && tags.natural === 'water',
               widthM: tags.waterway === 'river' || tags.waterway === 'canal' ? 14 : 7,
-              name: tags.name ?? null,
+              name: tags.name ?? tags.ref ?? null,
             });
           } else if (tags.natural === 'wood' || tags.landuse === 'forest' || tags.leisure === 'park') {
             hasForest = true;
+            if (pts.length > 3 && Math.hypot(pts[0].x - pts.at(-1)!.x, pts[0].z - pts.at(-1)!.z) < 1) woodland.push(pts);
             const stats = polygonStats(pts);
             const estRadius = Math.max(8, Math.min(34, Math.sqrt(Math.max(50, stats.area) / Math.PI)));
             forests.push({
@@ -828,7 +839,8 @@ export class OsmWorldDirector {
         biome: nextBiome,
         originLat: lat,
         originLon: lon,
-        buildings: buildings.slice(0, 42),
+        buildings: buildings.slice(0, 350),
+        trees, woodland,
         roads,
         waters: waters.slice(0, 10),
         forests: forests.slice(0, 14),
