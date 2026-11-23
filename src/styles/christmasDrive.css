@@ -67,3 +67,17 @@ button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid
   .festivity-menu { left:0; right:auto; }
   .drive-festivities output { left:0; transform:none; }
 }
+
+.festivity-menu button[aria-pressed="true"] { border-color:#efc987; color:#ffe1a3; background:#37404d; }
+.drive-timeline {
+  position:fixed; z-index:2; right:1rem; top:4.8rem; width:min(25rem,38vw);
+  display:grid; gap:.42rem; padding:.8rem 1rem; border:1px solid #d7ab66;
+  border-left:4px solid #f4c87f; border-radius:11px; background:#182844f2;
+  box-shadow:0 10px 35px #0b102064; font-size:clamp(.84rem,1.25vw,1rem);
+}
+.drive-timeline strong { font-size:clamp(1.15rem,2vw,1.8rem); line-height:1.12; }
+.timeline-kicker { color:#ffdaa0; display:flex; justify-content:space-between; gap:.4rem; font-size:.82rem; }
+.drive-timeline button { justify-self:end; color:#ffe6be; background:#25364e; border:1px solid #b49668; border-radius:8px; padding:.4rem .65rem; cursor:pointer; }
+@media (max-width:620px) {
+  .drive-timeline { top:auto; bottom:10.7rem; right:.65rem; width:min(24rem,88vw); }
+}

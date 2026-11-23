@@ -5,13 +5,15 @@ import { ElonEventDirector } from '../core/elonEvents';
 import { EnvironmentManager } from '../core/environment';
 import { i18n, type ElonEventType } from '../core/i18n';
 import type { LiveWorldState } from '../core/liveWorldData';
-import type { OsmMapSnapshot } from '../core/osmWorld';
+import { geoDeltaMeters, type OsmMapSnapshot } from '../core/osmWorld';
 import type { TelemetryEngine, TelemetryFrame } from '../core/telemetry';
 import { LiveSkyRig } from './liveSkyRig';
 import { pointAlongStreet, streetAtCar } from './mappedRoads';
 import { PixarElonRig } from './pixarElonEvents';
-import { createPixarMoon, getStarSpriteTexture } from './pixarMaterials';
+import { getStarSpriteTexture } from './pixarMaterials';
 import type { PixarSleighHandle } from './pixarModels';
+import { DriveTimeline } from './DriveTimeline';
+import { moonDirection } from './winterSurfaces';
 import { createAccurateTeslaSemi } from './teslaModels';
 
 export class DriveFestivities {
@@ -25,11 +27,17 @@ export class DriveFestivities {
   private readonly tunnelContext = this.tunnelCanvas.getContext('2d')!;
   private readonly effects = new THREE.Group();
   private readonly convoy = [createAccurateTeslaSemi('coca_cola'),createAccurateTeslaSemi('tesla')];
-  private readonly moon = createPixarMoon(7);
+  private readonly starmanAnchor = new THREE.Vector3();
+  private readonly vertical = new THREE.Vector3(0,1,0);
   private readonly gift = new THREE.Group();
   private readonly sparkle = new THREE.Sprite(new THREE.SpriteMaterial({
     map:getStarSpriteTexture(), color:'#ffe099', transparent:true, depthWrite:false, opacity:0,
   }));
+  private readonly timeline: DriveTimeline;
+  private automatic = true;
+  private nextMagicMeters = 42;
+  private automaticStep = 0;
+  private previousFix?: { lat: number; lon: number };
   private readonly status: HTMLOutputElement;
   private readonly origin = new THREE.Vector3();
   private readonly destination = new THREE.Vector3();
@@ -48,10 +56,10 @@ export class DriveFestivities {
 
   constructor(root: HTMLElement, world: HTMLElement, scene: THREE.Scene, private readonly sleigh: PixarSleighHandle,
     telemetry: TelemetryEngine) {
+    this.timeline = new DriveTimeline(root, scene);
     this.status = root.querySelector('[data-festive-status]')!;
     this.audio.setMixMode('muted');
-    this.effects.add(this.sky.group,this.events.group,this.moon);
-    this.moon.position.set(-38,26,-143);
+    this.effects.add(this.sky.group,this.events.group);
     scene.add(this.effects,this.gift,this.sparkle);
     this.gift.visible = this.sparkle.visible = false;
     this.gift.add(new THREE.Mesh(new THREE.BoxGeometry(0.64,0.64,0.64),new THREE.MeshStandardMaterial({color:'#c6234b',roughness:0.55})));
@@ -70,6 +78,11 @@ export class DriveFestivities {
       this.announce(i18n.t().elonEvents[type].label, 11);
     });
     const menu = root.querySelector<HTMLDetailsElement>('.drive-festivities details')!;
+    const auto = root.querySelector<HTMLButtonElement>('[data-auto-magic]')!;
+    auto.onclick = () => {
+      this.automatic = !this.automatic;
+      auto.setAttribute('aria-pressed',String(this.automatic));
+    };
     root.querySelectorAll<HTMLButtonElement>('[data-event]').forEach(button => {
       button.onclick = () => {
         this.director.trigger(button.dataset.event as ElonEventType);
@@ -77,10 +90,7 @@ export class DriveFestivities {
       };
     });
     root.querySelector<HTMLButtonElement>('[data-convoy]')!.onclick = () => {
-      this.convoyTime = 16;
-      this.audio.playConvoyHorn();
-      this.sleigh.triggerReaction('hohoho');
-      this.announce('Julkaravan', 12);
+      this.startConvoy();
       menu.open = false;
     };
     root.querySelector<HTMLButtonElement>('[data-tunnel]')!.onclick = () => {
@@ -96,6 +106,13 @@ export class DriveFestivities {
       if (enabled) this.audio.unlock();
       this.audio.setMixMode(enabled ? 'full' : 'muted');
     };
+  }
+
+  private startConvoy(): void {
+    this.convoyTime = 16;
+    this.audio.playConvoyHorn();
+    this.sleigh.triggerReaction('hohoho');
+    this.announce('Julkaravan', 12);
   }
 
   private announce(message: string, seconds = 4): void {
@@ -116,7 +133,33 @@ export class DriveFestivities {
       this.status.textContent = '';
       this.statusUntil = 0;
     }
-    const event = this.director.update(dt,!!map && frame.isMoving);
+    let traveled = 0;
+    if (frame.gpsStatus === 'active') {
+      if (this.previousFix && frame.isMoving) {
+        const delta = geoDeltaMeters(this.previousFix.lat,this.previousFix.lon,frame.latitude,frame.longitude);
+        const meters = Math.hypot(delta.x,delta.z);
+        if (meters < 150) traveled = meters;
+      }
+      this.previousFix = {lat:frame.latitude,lon:frame.longitude};
+    } else {
+      this.previousFix = undefined;
+    }
+    if (this.automatic) this.nextMagicMeters -= traveled;
+    if (this.automatic && this.nextMagicMeters <= 0 && frame.isMoving && !this.director.getActiveEvent() && this.convoyTime <= 0) {
+      this.nextMagicMeters = 165;
+      const spectacle = ['starlink','convoy','starman','gift','starship'] as const;
+      const next = spectacle[this.automaticStep++ % spectacle.length];
+      if (next === 'convoy') {
+        if (this.matchedStreet && pointAlongStreet(this.matchedStreet,center,heading,42)) this.startConvoy();
+        else this.director.trigger('starlink');
+      } else if (next === 'gift') {
+        if (map?.buildings.length) this.requestedGift = true;
+        else this.director.trigger('starman');
+      } else {
+        this.director.trigger(next);
+      }
+    }
+    const event = this.director.update(dt,false);
     this.audio.update(dt,frame,event?.type ?? null);
     this.effects.position.copy(center);
     this.effects.rotation.y = -(event ? this.eventHeading : heading);
@@ -128,6 +171,7 @@ export class DriveFestivities {
       this.matchedAt = time;
     }
     const street = this.matchedStreet;
+    this.timeline.update(dt,time,traveled,map,street,center,heading);
     const charger = event?.type === 'supercharger' && map?.pois.find(p =>
       p.tesla && p.kind === 'charger' && Math.hypot(p.x-center.x,p.z-center.z) < 180);
     this.effects.updateMatrixWorld();
@@ -135,7 +179,7 @@ export class DriveFestivities {
     const mappedSupercharger = charger ? this.effects.worldToLocal(new THREE.Vector3(charger.x,0,charger.z)) : null;
     const plow = event?.type === 'cyberplow' && street && pointAlongStreet(street,center,heading,100-event.progress*109);
     this.events.update(event,dt,time,{
-      moonPos:this.moon.position,
+      moonPos:this.starmanAnchor.copy(moonDirection).multiplyScalar(145).applyAxisAngle(this.vertical,this.eventHeading),
       starshipOrigin:new THREE.Vector3(33,27,-130),
       starlinkZ:-145,
       mappedSupercharger,

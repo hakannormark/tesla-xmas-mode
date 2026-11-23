@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld';
-import { createSnowTextures, createTimberWallTexture } from './pixarMaterials';
+import { createSnowTextures, createTimberWallTexture, getSoftGlowTexture } from './pixarMaterials';
 import { streetGeometry } from './mappedRoads';
 import { createWinterRoad } from './winterSurfaces';
 
@@ -16,9 +16,29 @@ const factoryWall = new THREE.MeshStandardMaterial({color:'#acb8c3', roughness:0
 const brick = new THREE.MeshStandardMaterial({color:'#683b43', roughness:0.88});
 const trim = new THREE.MeshStandardMaterial({color:'#f4d9af', roughness:0.81});
 const eave = new THREE.MeshStandardMaterial({color:'#402b39', roughness:0.83});
-const lightStrings = ['#ffce7f','#ff7376','#b5f3da'].map(color => new THREE.MeshBasicMaterial({color}));
+const lightStrings = ['#ffe0a0','#e0375c','#6cf6dd','#ae8af5','#ffc64f'].map(color => new THREE.MeshBasicMaterial({color}));
 const boxUnit = new THREE.BoxGeometry(1,1,1);
-const bulb = new THREE.SphereGeometry(1,6,4);
+const bulb = new THREE.SphereGeometry(1,7,5);
+const lightPool = new THREE.MeshBasicMaterial({
+  map:getSoftGlowTexture(),color:'#ffb866',transparent:true,opacity:0.46,
+  depthWrite:false,blending:THREE.AdditiveBlending,
+});
+const floorPlane = new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2);
+const starShape = new THREE.Shape();
+for (let i = 0; i < 10; i++) {
+  const angle = Math.PI/2 + i*Math.PI/5;
+  const radius = i%2 ? 0.42 : 1;
+  const x = Math.cos(angle)*radius, y = Math.sin(angle)*radius;
+  if (i === 0) starShape.moveTo(x,y);
+  else starShape.lineTo(x,y);
+}
+starShape.closePath();
+const starGeometry = new THREE.ExtrudeGeometry(starShape,{
+  depth:0.09,bevelEnabled:true,bevelSegments:1,bevelSize:0.045,bevelThickness:0.045,
+});
+const starGold = new THREE.MeshBasicMaterial({color:'#ffe3a0'});
+const greenGarland = new THREE.MeshStandardMaterial({color:'#295645',roughness:0.92});
+
 
 function illustratedPanel(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
   const canvas = document.createElement('canvas');
@@ -110,7 +130,7 @@ function outline(points: OsmPoint2D[]): THREE.Shape {
   return new THREE.Shape(points.map(p => new THREE.Vector2(p.x, -p.z)));
 }
 
-function roofGeometry(shape: THREE.Shape, ridgeAlongZ: boolean, rise: number): THREE.BufferGeometry {
+function roofGeometry(shape: THREE.Shape, ridgeAlongZ: boolean, rise: number): {snowCap: THREE.BufferGeometry; gables: THREE.BufferGeometry} {
   const points = shape.getPoints();
   const axis = (p: THREE.Vector2) => ridgeAlongZ ? p.x : p.y;
   const values = points.map(axis);
@@ -118,7 +138,7 @@ function roofGeometry(shape: THREE.Shape, ridgeAlongZ: boolean, rise: number): T
   const center = (min + max) * 0.5;
   const half = Math.max(0.01, (max - min) * 0.5);
   const height = (p: THREE.Vector2) => 0.22 + rise * Math.max(0, 1 - Math.abs(axis(p)-center)/half);
-  const vertices: number[] = [];
+  let vertices: number[] = [];
   const add = (p: THREE.Vector2, y = height(p)) => vertices.push(p.x, y, -p.y);
   function ridgePoint(a: THREE.Vector2, b: THREE.Vector2) {
     return a.clone().lerp(b, (center-axis(a))/(axis(b)-axis(a)));
@@ -137,6 +157,8 @@ function roofGeometry(shape: THREE.Shape, ridgeAlongZ: boolean, rise: number): T
       }
     }
   }
+  const capVertices = vertices;
+  vertices = [];
   const clockwise = THREE.ShapeUtils.isClockWise(points);
   for (let i = 0; i < points.length; i++) {
     const a = points[i], b = points[(i+1)%points.length];
@@ -148,10 +170,13 @@ function roofGeometry(shape: THREE.Shape, ridgeAlongZ: boolean, rise: number): T
       add(from,0); add(to); add(from);
     }
   }
-  const result = new THREE.BufferGeometry();
-  result.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3));
-  result.computeVertexNormals();
-  return result;
+  function build(positions: number[]): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+  return {snowCap:build(capVertices),gables:build(vertices)};
 }
 
 export class ChristmasMap {
@@ -210,10 +235,11 @@ export class ChristmasMap {
     const details = new Map<THREE.Material, THREE.Matrix4[]>();
     const transform = new THREE.Object3D();
     function addDetail(material: THREE.Material, x: number, y: number, z: number,
-      yaw: number, width: number, height: number, depth = 1) {
+      yaw: number, width: number, height: number, depth = 1, tilt = 0) {
       transform.position.set(x,y,z);
-      transform.rotation.set(0,yaw,0);
-      transform.scale.set(width,height,depth);
+      transform.rotation.set(0,yaw,tilt,'YXZ');
+      if (material === lightPool) transform.scale.set(width,1,height);
+      else transform.scale.set(width,height,depth);
       transform.updateMatrix();
       const matrices = details.get(material) ?? [];
       matrices.push(transform.matrix.clone());
@@ -242,8 +268,10 @@ export class ChristmasMap {
       const wall = walls[Math.abs(Math.round(b.centerX + b.centerZ)) % walls.length];
       const body = new THREE.ExtrudeGeometry(shape, {depth: height, bevelEnabled: false});
       batch(body.rotateX(-Math.PI / 2), factory ? factoryWall : wall);
-      const rise = home ? THREE.MathUtils.clamp(Math.min(b.widthM,b.depthM)*0.34,1,3.8) : 0;
-      batch(roofGeometry(shape,b.widthM < b.depthM,rise).translate(0,height,0), snow);
+      const rise = home ? THREE.MathUtils.clamp(Math.min(b.widthM,b.depthM)*0.49,1.3,5.4) : 0;
+      const roof = roofGeometry(shape,b.widthM < b.depthM,rise);
+      batch(roof.snowCap.translate(0,height,0),snow);
+      batch(roof.gables.translate(0,height,0),factory ? factoryWall : wall);
 
       // Use an interior triangle to keep the chimney inside even on irregular footprints.
       if (home) {
@@ -263,6 +291,11 @@ export class ChristmasMap {
         return Math.hypot(c.x-a.x,c.z-a.z);
       });
       const mainFace = lengths.indexOf(Math.max(...lengths));
+      const ridgeAlongZ = b.widthM < b.depthM;
+      const ridgeAxis = (p: OsmPoint2D) => ridgeAlongZ ? p.x : p.z;
+      const ridges = b.footprint.map(ridgeAxis);
+      const minRidge = Math.min(...ridges), maxRidge = Math.max(...ridges);
+      const roofY = (value: number) => height+0.22 + rise*(1-Math.abs(2*(value-minRidge)/Math.max(0.1,maxRidge-minRidge)-1));
       for (let i = 0; i < b.footprint.length; i++) {
         const a = b.footprint[i], c = b.footprint[(i + 1) % b.footprint.length];
         const dx = c.x - a.x, dz = c.z - a.z;
@@ -285,11 +318,40 @@ export class ChristmasMap {
           detail(eave,0.5,2.17,1.7,0.14,0.68,0.28);
           detail(snow,0.5,2.25,1.78,0.12,0.76,0.28);
           detail(eave,0.5,0.08,1.38,0.16,0.74,0.3);
+          detail(lightPool,0.5,0.073,6.8,5.3,1,1.25);
+          detail(greenGarland,0.5,2.13,1.65,0.16,0.22,0.63);
+          detail(starGold,0.5,2.47,0.23,0.23,0.65,0.42);
           for (const side of [-1,1]) {
             const position = 0.5 + side*0.94/length;
             detail(eave,position,1.88,0.17,0.37,0.18,0.14);
             detail(lantern,position,1.88,0.13,0.22,0.12,0.235);
           }
+        }
+        if (home && length > 2.5) {
+          // Trace the actual gable slope so the garland and lights follow the roof.
+          const mid = (minRidge+maxRidge)*0.5;
+          const axisA = ridgeAxis(a), axisB = ridgeAxis(c);
+          const ridgeT = (mid-axisA)/(axisB-axisA);
+          const stops = ridgeT > 0 && ridgeT < 1 ? [0,ridgeT,1] : [0,1];
+          for (let j = 1; j < stops.length; j++) {
+            const from = stops[j-1], to = stops[j], t = (from+to)*0.5;
+            const y1 = roofY(THREE.MathUtils.lerp(axisA,axisB,from));
+            const y2 = roofY(THREE.MathUtils.lerp(axisA,axisB,to));
+            const dx = (to-from)*length;
+            if (Math.abs(y2-y1) > 0.3) {
+              const dy = y2-y1;
+              addDetail(greenGarland,a.x+(c.x-a.x)*t+nx*0.115,(y1+y2)*0.5-0.1,
+                a.z+(c.z-a.z)*t+nz*0.115,yaw,Math.hypot(dx,dy),0.15,0.16,-winding*Math.atan2(dy,dx));
+              const lamps = Math.min(16,Math.ceil(dx*1.65));
+              for (let k = 0; k < lamps; k++) {
+                const u = (k+0.5)/lamps;
+                detail(lightStrings[k%lightStrings.length],THREE.MathUtils.lerp(from,to,u),
+                  THREE.MathUtils.lerp(y1,y2,u)-0.12,0.1,0.125,0.1,0.24);
+              }
+            }
+          }
+          const gableHeight = roofY((axisA+axisB)*0.5) - height;
+          if (gableHeight > 1.35) detail(glass,0.5,height+gableHeight*0.42,0.86,0.92,1,0.08);
         }
         const slots = Math.min(15, Math.floor(length / (factory ? 6 : 2.55)));
         for (let j = 0; j < slots; j++) {
@@ -316,7 +378,7 @@ export class ChristmasMap {
         for (let j = 0; j < ornaments; j++) {
           const t = (j+0.5)/ornaments;
           const dip = Math.sin(Math.PI*t)*0.28;
-          detail(lightStrings[(j+i)%3],t,height-0.23-dip,0.085,0.105,0.085,0.14);
+          detail(lightStrings[(j+i)%lightStrings.length],t,height-0.23-dip,0.085,0.105,0.085,0.14);
         }
       }
     }
@@ -327,14 +389,6 @@ export class ChristmasMap {
         this.group.children.at(-1)!.castShadow = true;
       }
       parts.forEach(part => part.dispose());
-    }
-    for (const [material, matrices] of details) {
-      const geometry = material === icicleMaterial ? icicle : lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
-        [glass,crest,door].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
-      const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
-      matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));
-      this.instances.push(mesh);
-      this.group.add(mesh);
     }
     const planted: OsmPoint2D[] = [];
     const edges = snapshot.roads.flatMap(r => r.points.slice(1).map((b,i) => ({a:r.points[i], b, margin:r.widthM/2+1.5})));
@@ -365,6 +419,22 @@ export class ChristmasMap {
       transform.scale.set(0.15*scale,1.3*scale,0.15*scale);
       transform.updateMatrix();
       trunks.setMatrixAt(i,transform.matrix);
+      const festive = i % 3 === 0;
+      if (festive) {
+        addDetail(starGold,p.x,5.38*scale,p.z,0,0.42*scale,0.42*scale);
+        addDetail(starGold,p.x,5.38*scale,p.z,Math.PI/2,0.42*scale,0.42*scale);
+        addDetail(lightPool,p.x,0.068,p.z,0,7*scale,7*scale);
+        for (const [tier,{y,r}] of tiers.entries()) {
+          const bulbs = 11-tier*2;
+          for (let k = 0; k < bulbs; k++) {
+            const angle = k/bulbs*Math.PI*2 + yaw+tier*0.24;
+            const width = (k%3 === 0 ? 0.14 : 0.083)*scale;
+            addDetail(lightStrings[(k+tier)%lightStrings.length],
+              p.x+Math.cos(angle)*r*scale*0.9,(y+0.36+0.13*Math.sin(angle*3))*scale,
+              p.z+Math.sin(angle)*r*scale*0.9,0,width,width,width);
+          }
+        }
+      }
       tiers.forEach(({y,r,h},j) => {
         transform.position.y = y*scale;
         transform.rotation.y = yaw+j*0.24;
@@ -385,6 +455,16 @@ export class ChristmasMap {
       this.instances.push(mesh);
       this.group.add(mesh);
     }
+    for (const [material, matrices] of details) {
+      const geometry = material === starGold ? starGeometry : material === lightPool ? floorPlane :
+        material === icicleMaterial ? icicle : lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
+        [glass,crest,door].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
+      const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
+      matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));
+      this.instances.push(mesh);
+      this.group.add(mesh);
+    }
+
   }
 
   nextStreet(road: OsmRoadRibbon, car: OsmPoint2D, heading: number): {name: string; meters: number} | undefined {

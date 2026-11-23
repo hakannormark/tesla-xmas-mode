@@ -1,3 +1,4 @@
+import { createAlpineHorizon } from './three/alpineHorizon';
 import { DriveFestivities } from './three/DriveFestivities';
 import './styles/christmasDrive.css';
 import * as THREE from 'three';
@@ -30,6 +31,12 @@ root.innerHTML = `
     <span data-junction hidden></span>
     <button data-gps type="button" hidden>Försök igen</button>
   </aside>
+  <aside class="drive-timeline" data-timeline-card hidden>
+    <div class="timeline-kicker">Elon-tidslinje <span data-timeline-step></span></div>
+    <strong data-timeline-title></strong>
+    <span data-timeline-text></span>
+    <button data-timeline-next type="button">Nästa</button>
+  </aside>
   <footer class="drive-footer">
     <div class="drive-instruments"><strong data-speed>0</strong> <span>km/h</span>
       <span class="pole-distance" data-north hidden><b data-north-arrow aria-hidden="true">↑</b> Nordpolen <span data-distance></span></span>
@@ -45,6 +52,8 @@ root.innerHTML = `
           <button type="button" data-event="starman">Starman</button>
           <button type="button" data-event="supercharger">Supercharger</button>
           <button type="button" data-event="cyberplow">Cybertruck-plog</button>
+          <button type="button" data-auto-magic aria-pressed="true">Julmagi längs vägen</button>
+          <button type="button" data-timeline aria-pressed="false">Elon-tidslinje</button>
           <button type="button" data-convoy>Julkaravan</button>
           <button type="button" data-tunnel>Boring-tunneln</button>
           <button type="button" data-sound aria-pressed="false">Slå på ljud</button>
@@ -102,7 +111,8 @@ if (stage) {
   shapeChristmasSky(sky.material);
   const snowfall = createBokehSnowField(310, {minX:-45,maxX:45,minY:1,maxY:38,minZ:-55,maxZ:55});
   const map = new ChristmasMap();
-  scene.add(ground, sky.mesh, map.group, avatar, snowfall.group);
+  const mountains = createAlpineHorizon();
+  scene.add(ground, sky.mesh, mountains, map.group, avatar, snowfall.group);
   stage.setAtmosphere(0.04, 0.72, '#8a91af');
   const warm = new THREE.DirectionalLight('#ffd4ba', 0.95);
   warm.castShadow = true;
@@ -239,6 +249,7 @@ if (stage) {
     warm.target.position.copy(orbit.target);
     warm.position.copy(warm.target.position).add(shadowOffset);
     sky.mesh.position.copy(camera.position);
+    mountains.position.set(camera.position.x,0,camera.position.z);
     sky.material.uniforms.uTime.value = time;
     snowfall.group.position.copy(avatar.position);
     snowfall.update(dt,0.12,-0.16,1.2);

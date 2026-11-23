@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createMoonSurfaceTexture } from './pixarMaterials';
 
 const snowNoise = /* glsl */`
 float winterHash(vec2 p) {
@@ -66,7 +67,11 @@ export function createWinterRoad(): THREE.MeshStandardMaterial {
   return material;
 }
 
+export const moonDirection = new THREE.Vector3(-0.29,0.22,-0.93).normalize();
+
 export function shapeChristmasSky(material: THREE.ShaderMaterial): void {
+  material.uniforms.uMoonDirection = { value: moonDirection };
+  material.uniforms.uMoonMap = { value: createMoonSurfaceTexture() };
   material.uniforms.uTopColor.value.set('#10173c');
   material.uniforms.uMidColor.value.set('#234c7c');
   material.uniforms.uHorizonColor.value.set('#5c638d');
@@ -80,7 +85,25 @@ export function shapeChristmasSky(material: THREE.ShaderMaterial): void {
       float cloud = winterNoise(wisps) * 0.72 + winterNoise(wisps*2.8) * 0.28;
       float cloudLayer = smoothstep(0.57,0.79,cloud) * exp(-pow((y-0.075)*15.0,2.0));
       col = mix(col,vec3(0.42,0.35,0.57),cloudLayer*0.34);
+      float violetCurtain = exp(-pow((y-0.21-0.05*sin(az*4.0-uTime*0.08))*9.0,2.0));
+      float curtainFolds = pow(max(0.0, 0.5+0.5*sin(az*13.0+y*5.0+uTime*0.24)),2.4);
+      col += vec3(0.53,0.12,0.44)*violetCurtain*curtainFolds*0.31;
+      vec3 moonRight = normalize(cross(uMoonDirection, vec3(0.0,1.0,0.0)));
+      vec3 moonUp = cross(moonRight,uMoonDirection);
+      vec2 lunar = vec2(dot(dir,moonRight),dot(dir,moonUp)) / 0.054;
+      float lunarRadius = length(lunar);
+      if (dot(dir,uMoonDirection) > 0.0 && lunarRadius < 3.0) {
+        col += vec3(0.53,0.65,1.0) * exp(-lunarRadius*lunarRadius*0.85)*0.42;
+        if (lunarRadius < 1.0) {
+          vec3 normal = vec3(lunar,sqrt(max(0.0,1.0-dot(lunar,lunar))));
+          vec2 uv = vec2(0.5+atan(normal.x,normal.z)/6.28318,0.5+asin(normal.y)/3.14159);
+          vec3 craters = texture2D(uMoonMap,uv).rgb;
+          float light = 0.73+0.27*max(0.0,dot(normal,normalize(vec3(-0.3,0.2,1.0))));
+          vec3 disk = mix(vec3(0.59,0.65,0.8),vec3(1.0,0.95,0.86),craters.r)*light;
+          col = mix(col,disk,1.0-smoothstep(0.966,1.0,lunarRadius));
+        }
+      }
       gl_FragColor = vec4(col, 1.0);
     `);
-  material.fragmentShader = snowNoise + material.fragmentShader;
+  material.fragmentShader = 'uniform vec3 uMoonDirection;\nuniform sampler2D uMoonMap;\n' + snowNoise + material.fragmentShader;
 }
