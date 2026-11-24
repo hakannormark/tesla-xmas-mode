@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { HolidayThemeId } from '../core/environment';
 import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld';
 import { createSnowTextures, createTimberWallTexture, getSoftGlowTexture } from './pixarMaterials';
-import { streetGeometry, roadJunctions, junctionGeometry } from './mappedRoads';
+import { streetGeometry, roadJunctions, junctionGeometry, snowbankGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
 import { createWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
@@ -31,6 +32,9 @@ const cottageWalls = cottageStyles.map(style => new THREE.MeshStandardMaterial({
 const cottageTrim = cottageStyles.map(style => new THREE.MeshStandardMaterial({color:style.trim,roughness:0.82}));
 const foundationStone = new THREE.MeshStandardMaterial({color:'#827687',roughness:0.94});
 const factoryWall = new THREE.MeshStandardMaterial({color:'#acb8c3', roughness:0.65, metalness:0.18});
+const churchWall = new THREE.MeshStandardMaterial({color:'#e4dccd', roughness:0.84});
+const spireMat = new THREE.MeshStandardMaterial({color:'#263550', roughness:0.55, metalness:0.28});
+const solarMat = new THREE.MeshStandardMaterial({color:'#162646', roughness:0.25, metalness:0.72});
 const brick = new THREE.MeshStandardMaterial({color:'#683b43', roughness:0.88});
 const trim = new THREE.MeshStandardMaterial({color:'#f4d9af', roughness:0.81});
 const eave = new THREE.MeshStandardMaterial({color:'#402b39', roughness:0.83});
@@ -39,7 +43,8 @@ const cedar = new THREE.MeshStandardMaterial({color:'#603a30',roughness:0.83});
 const shutters = cottageStyles.map(style => new THREE.MeshStandardMaterial({
   color:style.door,map:boards,roughness:0.82,
 }));
-const lightStrings = ['#ffe0a0','#e0375c','#6cf6dd','#ae8af5','#ffc64f'].map(color => new THREE.MeshBasicMaterial({color}));
+const lightStringPalette = ['#ffe4a8', '#e84366', '#6cf6dd', '#b692ff', '#ffca57'];
+const lightStrings = lightStringPalette.map(color => new THREE.MeshBasicMaterial({color, toneMapped: false}));
 const powder = new THREE.MeshStandardMaterial({color:'#e4ecf7',roughness:0.84});
 const snowmanSnow = new THREE.MeshStandardMaterial({color:'#fff4ea',roughness:0.76});
 const coal = new THREE.MeshStandardMaterial({color:'#342d3c',roughness:0.78});
@@ -51,6 +56,7 @@ const snowBall = new THREE.SphereGeometry(1,12,8);
 const topHat = new THREE.CylinderGeometry(1,1,1,10);
 const nose = new THREE.ConeGeometry(1,1,8).rotateX(Math.PI/2);
 const scarf = new THREE.TorusGeometry(1,0.22,6,13).rotateX(Math.PI/2);
+const spireCone = new THREE.ConeGeometry(0.68,1,6);
 const smokeMaterial = new THREE.PointsMaterial({
   color:'#e2ebf5', size:2.0, map:getSoftGlowTexture(), transparent:true,
   opacity:0.2, depthWrite:false, sizeAttenuation:true,
@@ -74,11 +80,11 @@ starShape.closePath();
 const starGeometry = new THREE.ExtrudeGeometry(starShape,{
   depth:0.09,bevelEnabled:true,bevelSegments:1,bevelSize:0.045,bevelThickness:0.045,
 });
-const starGold = new THREE.MeshBasicMaterial({color:'#ffe3a0'});
+const starGold = new THREE.MeshBasicMaterial({color:'#ffe3a0', toneMapped: false});
 const greenGarland = new THREE.MeshStandardMaterial({color:'#295645',roughness:0.92});
 const firWreath = greenGarland.clone();
 const fir = new THREE.TorusGeometry(1,0.29,7,16);
-const berries = new THREE.MeshBasicMaterial({color:'#ef4658'});
+const berries = new THREE.MeshBasicMaterial({color:'#ef4658', toneMapped: false});
 const canopyShape = new THREE.Shape();
 canopyShape.moveTo(-0.5,-0.5);
 canopyShape.lineTo(0.5,-0.5);
@@ -127,40 +133,117 @@ const windowArch = illustratedPanel(72,88,ctx => {
 const factoryCandy = new THREE.MeshStandardMaterial({color:'#8e243b',roughness:0.52});
 const roofLedge = new THREE.MeshStandardMaterial({color:'#b7becb',metalness:0.2,roughness:0.68});
 const cable = new THREE.MeshStandardMaterial({color:'#353f3c', roughness:0.95});
-const lake = new THREE.MeshStandardMaterial({color: '#59869e', roughness: 0.5});
+const lake = new THREE.MeshPhysicalMaterial({
+  color: '#285680', roughness: 0.1, metalness: 0.24, clearcoat: 1.0, clearcoatRoughness: 0.06,
+});
 const woodland = new THREE.MeshStandardMaterial({color: '#819fa0', roughness: 1});
 const pine = new THREE.MeshStandardMaterial({color: '#265854', roughness: 0.9});
 const walls = ['#ae4951','#e1a379','#4a7776','#9d756b','#d1b19a'].map(color =>
   new THREE.MeshStandardMaterial({color, map:timber, roughness: 0.84}));
-const windowCanvas = document.createElement('canvas');
-windowCanvas.width = windowCanvas.height = 64;
-const paint = windowCanvas.getContext('2d')!;
-paint.fillStyle = '#472b32';
-paint.fillRect(0,0,64,64);
-const glow = paint.createRadialGradient(32,25,4,32,30,44);
-glow.addColorStop(0,'#fff2c1');
-glow.addColorStop(1,'#d17638');
-paint.fillStyle = glow;
-paint.fillRect(7,7,50,50);
-paint.fillStyle = '#bf6c40';
-paint.beginPath();
-paint.moveTo(7,7); paint.lineTo(20,7); paint.quadraticCurveTo(19,32,7,46);
-paint.moveTo(57,7); paint.lineTo(44,7); paint.quadraticCurveTo(45,32,57,46);
-paint.fill();
-paint.fillStyle = '#613631';
-paint.fillRect(29,6,5,52);
-paint.fillRect(6,32,52,5);
-paint.fillStyle = '#f2f2ec';
-paint.fillRect(0,57,64,7);
-const windowTexture = new THREE.CanvasTexture(windowCanvas);
-windowTexture.colorSpace = THREE.SRGBColorSpace;
-const glass = new THREE.MeshBasicMaterial({map: windowTexture});
+
+function createFestiveWindowMaterial(ornament: 'plain' | 'star' | 'candles'): THREE.MeshBasicMaterial {
+  const windowCanvas = document.createElement('canvas');
+  windowCanvas.width = windowCanvas.height = 64;
+  const paint = windowCanvas.getContext('2d')!;
+  paint.fillStyle = '#472b32';
+  paint.fillRect(0,0,64,64);
+  const glow = paint.createRadialGradient(32,25,4,32,30,44);
+  glow.addColorStop(0,'#fff5c8');
+  glow.addColorStop(1,'#d17638');
+  paint.fillStyle = glow;
+  paint.fillRect(7,7,50,50);
+  paint.fillStyle = '#bf6c40';
+  paint.beginPath();
+  paint.moveTo(7,7); paint.lineTo(20,7); paint.quadraticCurveTo(19,32,7,46);
+  paint.moveTo(57,7); paint.lineTo(44,7); paint.quadraticCurveTo(45,32,57,46);
+  paint.fill();
+  if (ornament === 'star') {
+    paint.fillStyle = '#fffce0';
+    paint.beginPath();
+    for (let p = 0; p < 10; p++) {
+      const ang = (p / 10) * Math.PI * 2 - Math.PI * 0.5;
+      const rad = p % 2 === 0 ? 11 : 4.6;
+      const px = 32 + Math.cos(ang) * rad;
+      const py = 24 + Math.sin(ang) * rad;
+      if (p === 0) paint.moveTo(px, py);
+      else paint.lineTo(px, py);
+    }
+    paint.closePath();
+    paint.fill();
+  } else if (ornament === 'candles') {
+    paint.fillStyle = '#8b232f';
+    paint.beginPath();
+    paint.moveTo(15, 55);
+    paint.lineTo(32, 34);
+    paint.lineTo(49, 55);
+    paint.closePath();
+    paint.fill();
+    for (let k = -3; k <= 3; k++) {
+      const cx = 32 + k * 4.8;
+      const cy = 53 - (3 - Math.abs(k)) * 5.2;
+      paint.fillStyle = '#fff9eb';
+      paint.fillRect(cx - 1.2, cy - 3, 2.4, 5);
+      paint.fillStyle = '#fff7a8';
+      paint.beginPath();
+      paint.arc(cx, cy - 4.8, 2.1, 0, Math.PI * 2);
+      paint.fill();
+    }
+  }
+  paint.fillStyle = '#613631';
+  paint.fillRect(29,6,5,52);
+  paint.fillRect(6,32,52,5);
+  paint.fillStyle = '#f2f2ec';
+  paint.fillRect(0,57,64,7);
+  const windowTexture = new THREE.CanvasTexture(windowCanvas);
+  windowTexture.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({map: windowTexture});
+}
+
+const glass = createFestiveWindowMaterial('plain');
+const glassStar = createFestiveWindowMaterial('star');
+const glassCandles = createFestiveWindowMaterial('candles');
 const pane = new THREE.PlaneGeometry(1, 1);
 const icicle = new THREE.ConeGeometry(1,1,5).rotateZ(Math.PI);
 const trunk = new THREE.CylinderGeometry(0.68,1,1,7);
 const bark = new THREE.MeshStandardMaterial({color:'#524145',roughness:0.95});
 const icicleMaterial = new THREE.MeshStandardMaterial({color:'#c6e7f1',roughness:0.32,metalness:0.06});
-const lantern = new THREE.MeshBasicMaterial({color:'#ffbe66'});
+const lantern = new THREE.MeshBasicMaterial({color:'#ffbe66', toneMapped: false});
+
+function createLandmarkLabelMesh(text: string, isGiga: boolean): { mesh: THREE.Mesh; texture: THREE.CanvasTexture; material: THREE.MeshBasicMaterial } {
+  const w = 512, h = 112;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  if (isGiga) {
+    grad.addColorStop(0, '#c80c26');
+    grad.addColorStop(1, '#10182b');
+  } else {
+    grad.addColorStop(0, 'rgba(98, 14, 30, 0.94)');
+    grad.addColorStop(1, 'rgba(32, 14, 42, 0.94)');
+  }
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(6, 6, w - 12, h - 12, 22);
+  ctx.fill();
+  ctx.strokeStyle = isGiga ? '#ffffff' : '#ffd166';
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  ctx.fillStyle = '#fff8eb';
+  ctx.font = '700 36px "Cinzel", Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text.slice(0, 26), w * 0.5, h * 0.52, w - 48);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(isGiga ? 10.5 : 7.0, isGiga ? 2.3 : 1.54),
+    material
+  );
+  return { mesh, texture, material };
+}
 
 // Scallops give the snow cap the outline of individual laden branches.
 function spruceTier(snowCap: boolean): THREE.BufferGeometry {
@@ -245,17 +328,87 @@ function roofGeometry(shape: THREE.Shape, profile: ReturnType<typeof roofProject
   return {snowCap:build(cap),gables:build(vertices)};
 }
 
+const cyberStringPalette = ['#5cf2ff', '#ff5cc8', '#ffe49e', '#74ffca', '#b88aff'];
+const workColor = new THREE.Color();
+
+export function updateChristmasMapAtmosphere(
+  time: number,
+  daylight: number,
+  vehiclePos: THREE.Vector3,
+  theme: HolidayThemeId,
+  beat: number
+): void {
+  const u = asphalt.userData.winterUniforms;
+  if (u) {
+    u.uTime.value = time;
+    u.uDaylight.value = daylight;
+    u.uVehiclePos.value.copy(vehiclePos);
+    u.uBeat.value = beat;
+    u.uAuroraTint.value.set(
+      theme === 'cyber2099' ? '#3eeeff' : theme === 'nordic' ? '#7fd6ff' : '#3ce8b4'
+    );
+  }
+  const palette = theme === 'cyber2099' ? cyberStringPalette : lightStringPalette;
+  const pulse = 1 + beat * 0.28;
+  for (let i = 0; i < lightStrings.length; i++) {
+    workColor.set(palette[i]);
+    if (theme === 'nordic' && i === 1) workColor.set('#7fd8ff');
+    workColor.multiplyScalar(pulse);
+    lightStrings[i].color.copy(workColor);
+  }
+}
+
+export interface ChristmasBuildingTarget {
+  id: string;
+  x: number;
+  roofY: number;
+  z: number;
+  isChurch: boolean;
+}
+
+export interface ChristmasMapData {
+  snapshot?: OsmMapSnapshot;
+  clearance?: ReturnType<typeof mapClearance>;
+  churches: { x: number; z: number; name: string | null }[];
+  lakes: { x: number; z: number; radius: number }[];
+  woodlands: OsmPoint2D[];
+  elevation?: (x: number, z: number) => number;
+}
+
+function drapeElevation(geometry: THREE.BufferGeometry, offset: number, elevation?: (x: number, z: number) => number): void {
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    pos.setY(i, (elevation?.(x, z) ?? 0) + offset);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+}
+
 export class ChristmasMap {
   readonly group = new THREE.Group();
   readonly villageLights = new VillageLights();
+  readonly mapData: ChristmasMapData = { churches: [], lakes: [], woodlands: [] };
+  private readonly celebrationGroup = new THREE.Group();
   private geometries: THREE.BufferGeometry[] = [];
   private instances: THREE.InstancedMesh[] = [];
+  private dynamicAssets: Array<{ geometry?: THREE.BufferGeometry; material: THREE.Material; texture?: THREE.Texture }> = [];
+  private celebrationNodes: Array<{ star: THREE.Mesh; halo: THREE.Sprite; baseY: number; phase: number }> = [];
+  private celebrated = new Set<string>();
+  private buildingTargets: ChristmasBuildingTarget[] = [];
   private version?: number;
   private vents: THREE.Vector3[] = [];
   private smoke?: THREE.Points;
+  private crossings = new Map<OsmRoadRibbon, { name: string; distance: number }[]>();
 
   animate(time: number, center: THREE.Vector3): void {
     this.villageLights.update(time,center);
+    for (const node of this.celebrationNodes) {
+      node.star.rotation.y = time * 2.2 + node.phase;
+      node.star.position.y = node.baseY + Math.sin(time * 3.4 + node.phase) * 0.16;
+      node.halo.material.opacity = 0.62 + 0.18 * Math.sin(time * 4.0 + node.phase);
+    }
     if (!this.smoke) return;
     const position = this.smoke.geometry.attributes.position;
     let used = 0;
@@ -270,28 +423,100 @@ export class ChristmasMap {
     this.smoke.geometry.setDrawRange(0,used);
     position.needsUpdate = true;
   }
-  private crossings = new Map<OsmRoadRibbon, { name: string; distance: number }[]>();
 
-  private surface(geometry: THREE.BufferGeometry, material: THREE.Material, height = 0): void {
+  celebrateBuilding(id: string, x: number, roofY: number, z: number): boolean {
+    const firstTime = !this.celebrated.has(id);
+    if (!firstTime) return false;
+    this.celebrated.add(id);
+    this.spawnCelebrationStar(x, roofY, z);
+    return true;
+  }
+
+  private spawnCelebrationStar(x: number, roofY: number, z: number): void {
+    const star = new THREE.Mesh(starGeometry, starGold);
+    star.scale.setScalar(0.68);
+    star.position.set(x, roofY + 0.9, z);
+    const haloMat = new THREE.SpriteMaterial({
+      map: getSoftGlowTexture(),
+      color: '#ffe07d',
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const halo = new THREE.Sprite(haloMat);
+    halo.scale.set(6.4, 6.4, 1);
+    halo.position.set(x, roofY + 0.65, z);
+    this.celebrationGroup.add(star, halo);
+    this.dynamicAssets.push({ material: haloMat });
+    this.celebrationNodes.push({ star, halo, baseY: roofY + 0.9, phase: x * 0.37 + z * 0.21 });
+  }
+
+  getGiftTargets(center: OsmPoint2D, heading: number, preferSide?: -1 | 1): ChristmasBuildingTarget[] {
+    const east = Math.sin(heading), north = Math.cos(heading);
+    const scored: Array<{ target: ChristmasBuildingTarget; dist: number; sideMatch: boolean }> = [];
+    for (const target of this.buildingTargets) {
+      const dx = target.x - center.x, dz = target.z - center.z;
+      const ahead = dx * east - dz * north;
+      const dist = Math.hypot(dx, dz);
+      if (ahead < 6 || dist > 92) continue;
+      const lateral = dx * north + dz * east;
+      const sideMatch = preferSide === undefined || (preferSide < 0 ? lateral <= 2 : lateral >= -2);
+      scored.push({ target, dist, sideMatch });
+    }
+    scored.sort((a, b) => {
+      if (a.sideMatch !== b.sideMatch) return a.sideMatch ? -1 : 1;
+      const aLit = this.celebrated.has(a.target.id) ? 1 : 0;
+      const bLit = this.celebrated.has(b.target.id) ? 1 : 0;
+      if (aLit !== bLit) return aLit - bLit;
+      return a.dist - b.dist;
+    });
+    return scored.map(entry => entry.target);
+  }
+
+  private surface(geometry: THREE.BufferGeometry, material: THREE.Material, height = 0, castShadow = false): void {
     this.geometries.push(geometry);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.y = height;
     mesh.receiveShadow = true;
+    mesh.castShadow = castShadow;
     this.group.add(mesh);
+  }
+
+  private clearResources(): void {
+    this.geometries.forEach(g => g.dispose());
+    this.geometries = [];
+    this.instances.forEach(mesh => mesh.dispose());
+    this.instances = [];
+    for (const asset of this.dynamicAssets) {
+      asset.geometry?.dispose();
+      asset.texture?.dispose();
+      asset.material.dispose();
+    }
+    this.dynamicAssets = [];
+    this.celebrationNodes = [];
+    this.celebrationGroup.clear();
+    this.group.clear();
+  }
+
+  dispose(): void {
+    this.clearResources();
   }
 
   update(snapshot: OsmMapSnapshot, elevation?: (x: number,z: number) => number): void {
     if (this.version === snapshot.version) return;
     this.version = snapshot.version;
-    this.geometries.forEach(g => g.dispose());
-    this.geometries = [];
-    this.instances.forEach(mesh => mesh.dispose());
-    this.instances = [];
-    this.group.clear();
-    this.group.add(this.villageLights.group);
+    this.clearResources();
+    this.group.add(this.villageLights.group, this.celebrationGroup);
     this.crossings.clear();
     this.vents = [];
     this.smoke = undefined;
+    this.buildingTargets = [];
+    this.mapData.snapshot = snapshot;
+    this.mapData.elevation = elevation;
+    this.mapData.churches = [];
+    this.mapData.lakes = [];
+    this.mapData.woodlands = [];
     const nodes = new Map<string, Set<OsmRoadRibbon>>();
     const key = (p: OsmPoint2D) => p.x.toFixed(2) + ',' + p.z.toFixed(2);
     for (const road of snapshot.roads) {
@@ -317,19 +542,32 @@ export class ChristmasMap {
       this.surface(junctionGeometry(junctions,elevation,0.8),verge,-0.038);
       this.surface(junctionGeometry(junctions,elevation),asphalt);
     }
+    this.surface(snowbankGeometry(snapshot.roads, elevation, junctions), powder);
     const groundY = (x: number,z: number) => elevation?.(x,z) ?? 0;
     for (const water of snapshot.waters) {
-      const geometry = water.isPolygon ? new THREE.ShapeGeometry(outline(water.points)).rotateX(-Math.PI / 2)
-        : streetGeometry([{...water, isMajor: false}]);
-      this.surface(geometry, lake, water.isPolygon ? 0.019 : -0.024);
+      if (water.isPolygon) {
+        const geometry = new THREE.ShapeGeometry(outline(water.points)).rotateX(-Math.PI / 2);
+        drapeElevation(geometry, 0.018, elevation);
+        this.surface(geometry, lake, 0);
+        const xs = water.points.map(p => p.x), zs = water.points.map(p => p.z);
+        const cx = (Math.min(...xs) + Math.max(...xs)) * 0.5;
+        const cz = (Math.min(...zs) + Math.max(...zs)) * 0.5;
+        const span = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+        if (span >= 14) this.mapData.lakes.push({ x: cx, z: cz, radius: span * 0.35 });
+      } else {
+        this.surface(streetGeometry([{...water, isMajor: false}], elevation), lake, -0.029);
+      }
     }
     for (const ring of snapshot.woodland ?? []) {
-      this.surface(new THREE.ShapeGeometry(outline(ring)).rotateX(-Math.PI / 2), woodland, 0.009);
+      const geometry = new THREE.ShapeGeometry(outline(ring)).rotateX(-Math.PI / 2);
+      drapeElevation(geometry, 0.009, elevation);
+      this.surface(geometry, woodland, 0);
     }
 
     const yards: { x: number; z: number; yaw: number; index: number }[] = [];
     const lanterns: THREE.Vector3[] = [];
     const clearance = mapClearance(snapshot);
+    this.mapData.clearance = clearance;
     const details = new Map<THREE.Material, THREE.Matrix4[]>();
     const transform = new THREE.Object3D();
     function addDetail(material: THREE.Material, x: number, y: number, z: number,
@@ -358,11 +596,15 @@ export class ChristmasMap {
       geometries.push(geometry);
       batches.set(material,geometries);
     }
+    let landmarkSigns = 0;
     for (const b of snapshot.buildings) {
       const cottage = cottageModel(b);
       const home = !!cottage;
-      const factory = b.tesla || b.kind === 'gigafactory' || b.kind === 'large_building';
-      const height = factory ? Math.min(11,buildingWallHeight(b)) : buildingWallHeight(b);
+      const church = b.kind === 'church';
+      const factory = !church && (b.tesla || b.kind === 'gigafactory' || b.kind === 'large_building');
+      const height = church
+        ? Math.max(6.5, Math.min(13, buildingWallHeight(b)))
+        : factory ? Math.min(11,buildingWallHeight(b)) : buildingWallHeight(b);
       const shape = outline(b.footprint);
       const levels = b.footprint.flatMap((a,i) => {
         const bNext = b.footprint[(i+1)%b.footprint.length];
@@ -371,7 +613,7 @@ export class ChristmasMap {
       const highest = levels[levels.length-1];
       const base = Math.max(levels[Math.floor(levels.length/2)],highest-0.8);
       const foundation = levels[0]-0.3;
-      const wall = cottage ? cottageWalls[cottage.index] : factory ? factoryWall : walls[0];
+      const wall = cottage ? cottageWalls[cottage.index] : church ? churchWall : factory ? factoryWall : walls[0];
       const frame = cottage ? cottageTrim[cottage.index] : trim;
       if (elevation) {
         const stone = new THREE.ExtrudeGeometry(shape,{depth:base-foundation+0.06,bevelEnabled:false});
@@ -379,24 +621,91 @@ export class ChristmasMap {
       }
       const body = new THREE.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false});
       batch(body.rotateX(-Math.PI/2).translate(0,base,0),wall);
-      const profile = roofProjection(b.footprint,cottage?.roof ?? [[0,0],[1,0]],cottage?.style.pitch ?? 0);
+      const roofShape = church ? ([[0,0],[0.5,1],[1,0]] as const) : (cottage?.roof ?? [[0,0],[1,0]]);
+      const roofPitch = church ? 0.42 : (cottage?.style.pitch ?? 0);
+      const profile = roofProjection(b.footprint, roofShape, roofPitch, church ? 5.2 : 3.25);
       const roof = roofGeometry(shape,profile);
-      batch(roof.snowCap.translate(0,height+base,0),home ? roofCap : snow);
+      batch(roof.snowCap.translate(0,height+base,0),home || church ? roofCap : snow);
       batch(roof.gables.translate(0,height+base,0),wall);
 
+      let buildingTopY = base + height + profile.rise;
+      const corners = shape.getPoints();
+      const interiorFace = THREE.ShapeUtils.triangulateShape(corners,[])[0];
+
       // Use an interior triangle to keep the chimney inside even on irregular footprints.
-      if (home) {
-        const corners = shape.getPoints();
-        const face = THREE.ShapeUtils.triangulateShape(corners,[])[0];
-        if (face) {
-          const center = face.reduce((point,i) => point.add(corners[i]), new THREE.Vector2()).divideScalar(3);
-          const size = Math.min(0.85,b.widthM*0.12,b.depthM*0.12);
-          const stackTop = height+profile.yAt(profile.widthAt({x:center.x,z:-center.y}))+0.64;
-          addDetail(brick,center.x,(height+stackTop)/2,-center.y,0,size,stackTop-height,size,0,base);
-          addDetail(eave,center.x,stackTop,-center.y,0,size*1.17,0.16,size*1.17,0,base);
-          addDetail(snow,center.x,stackTop+0.12,-center.y,0,size*1.28,0.12,size*1.28,0,base);
-          if (cottage.variation < 0.57) this.vents.push(new THREE.Vector3(center.x,base+stackTop+0.18,-center.y));
+      if (home && interiorFace) {
+        const center = interiorFace.reduce((point,i) => point.add(corners[i]), new THREE.Vector2()).divideScalar(3);
+        const size = Math.min(0.85,b.widthM*0.12,b.depthM*0.12);
+        const stackTop = height+profile.yAt(profile.widthAt({x:center.x,z:-center.y}))+0.64;
+        addDetail(brick,center.x,(height+stackTop)/2,-center.y,0,size,stackTop-height,size,0,base);
+        addDetail(eave,center.x,stackTop,-center.y,0,size*1.17,0.16,size*1.17,0,base);
+        addDetail(snow,center.x,stackTop+0.12,-center.y,0,size*1.28,0.12,size*1.28,0,base);
+        if (cottage.variation < 0.57) this.vents.push(new THREE.Vector3(center.x,base+stackTop+0.18,-center.y));
+        buildingTopY = Math.max(buildingTopY, base + stackTop + 0.25);
+      }
+
+      if (church) {
+        this.mapData.churches.push({ x: b.centerX, z: b.centerZ, name: b.name });
+        const tc = interiorFace
+          ? interiorFace.reduce((pt, idx) => pt.add(corners[idx]), new THREE.Vector2()).divideScalar(3)
+          : new THREE.Vector2(b.centerX, -b.centerZ);
+        const cx = tc.x, cz = -tc.y;
+        const tw = THREE.MathUtils.clamp(Math.min(b.widthM, b.depthM) * 0.42, 2.5, 4.8);
+        const towerH = Math.max(4.4, height * 0.46);
+        const spireH = Math.min(11.5, height * 0.72 + 2.5);
+        const towerStart = height + profile.rise * 0.4;
+        addDetail(churchWall, cx, towerStart + towerH * 0.5, cz, 0, tw, towerH, tw, 0, base);
+        for (let f = 0; f < 4; f++) {
+          const ang = f * Math.PI * 0.5;
+          addDetail(
+            windowArch,
+            cx + Math.sin(ang) * (tw * 0.51),
+            towerStart + towerH * 0.58,
+            cz + Math.cos(ang) * (tw * 0.51),
+            ang,
+            tw * 0.42,
+            towerH * 0.45,
+            1,
+            0,
+            base
+          );
         }
+        const spireBase = towerStart + towerH;
+        addDetail(spireMat, cx, spireBase + spireH * 0.5, cz, 0, tw * 0.78, spireH, tw * 0.78, 0, base);
+        addDetail(starGold, cx, spireBase + spireH + 0.55, cz, 0, 0.55, 0.55, 0.55, 0, base);
+        addDetail(starGold, cx, spireBase + spireH + 0.55, cz, Math.PI * 0.5, 0.55, 0.55, 0.55, 0, base);
+        lanterns.push(new THREE.Vector3(cx, base + towerStart + towerH * 0.5, cz));
+        buildingTopY = base + spireBase + spireH + 1.1;
+      }
+
+      if ((b.tesla || b.kind === 'gigafactory') && b.widthM >= 10 && b.depthM >= 10) {
+        const minX = Math.min(...b.footprint.map(p => p.x)), maxX = Math.max(...b.footprint.map(p => p.x));
+        const minZ = Math.min(...b.footprint.map(p => p.z)), maxZ = Math.max(...b.footprint.map(p => p.z));
+        const cols = Math.min(4, Math.max(2, Math.floor((maxX - minX) / 8)));
+        const rows = Math.min(4, Math.max(2, Math.floor((maxZ - minZ) / 8)));
+        for (let px = 0; px < cols; px++) {
+          for (let pz = 0; pz < rows; pz++) {
+            const sx = THREE.MathUtils.lerp(minX + 3, maxX - 3, (px + 0.5) / cols);
+            const sz = THREE.MathUtils.lerp(minZ + 3, maxZ - 3, (pz + 0.5) / rows);
+            if (clearance.inside({ x: sx, z: sz }, b.footprint)) {
+              addDetail(solarMat, sx, height + 0.36, sz, 0, 3.6, 0.18, 4.4, 0, base);
+            }
+          }
+        }
+      }
+
+      this.buildingTargets.push({ id: b.id, x: b.centerX, roofY: buildingTopY, z: b.centerZ, isChurch: church });
+      if (this.celebrated.has(b.id)) {
+        this.spawnCelebrationStar(b.centerX, buildingTopY, b.centerZ);
+      }
+
+      if (b.name && landmarkSigns < 6 && (b.tesla || b.kind === 'gigafactory' || church || (b.kind === 'large_building' && b.areaM2 > 220))) {
+        const text = b.tesla || b.kind === 'gigafactory' ? 'TESLA GIGAFACTORY' : b.name;
+        const sign = createLandmarkLabelMesh(text, !!(b.tesla || b.kind === 'gigafactory'));
+        sign.mesh.position.set(b.centerX, buildingTopY + 2.3, b.centerZ);
+        this.group.add(sign.mesh);
+        this.dynamicAssets.push({ geometry: sign.mesh.geometry, material: sign.material, texture: sign.texture });
+        landmarkSigns++;
       }
       const winding = THREE.ShapeUtils.isClockWise(shape.getPoints()) ? 1 : -1;
       const lengths = b.footprint.map((a,i) => {
@@ -564,8 +873,10 @@ export class ChristmasMap {
         if (cottage) {
           const count = i === mainFace && length >= 7 ? cottage.style.windows : 1;
           const wide = cottage.style.finish === 'plaster' ? 1.45 : 1.14;
-          const window = cottage.style.finish === 'plaster' ? windowArch : glass;
+          const festivePanes = [glass, glassStar, glassCandles];
           for (let j = 0; j < count; j++) {
+            const paneMat = festivePanes[(cottage.index + i + j) % festivePanes.length];
+            const window = cottage.style.finish === 'plaster' ? windowArch : paneMat;
             const t = hasDoor
               ? THREE.MathUtils.lerp(doorT < 0.5 ? 0.48 : 0.08,doorT < 0.5 ? 0.92 : 0.52,(j+0.5)/count)
               : 0.5;
@@ -574,7 +885,7 @@ export class ChristmasMap {
             if (i === mainFace && j === 0 && length >= 6 && cottage.style.finish !== 'logs' &&
                 cottage.variation > 0.24 && (!hasDoor || Math.abs(t-doorT)*length > 1.85)) {
               detail(bayWood,t,0,1,1,1,0.03);
-              detail(glass,t,1.37,0.94,1.04,1,0.48);
+              detail(paneMat,t,1.37,0.94,1.04,1,0.48);
               for (const side of [-1,1]) {
                 const angle = side*Math.atan2(0.46,0.35);
                 const offset = side*0.71;
@@ -609,7 +920,7 @@ export class ChristmasMap {
               detail(lightPool,t,0.063,3.8,3.0,1,1.2);
             }
           }
-        } else if (!factory && !home && length > 3.6) {
+        } else if (!factory && !home && !church && length > 3.6) {
           detail(windowArch,0.5,height*0.43,1.5,Math.min(3,height*0.39));
         }
         if (home) {
@@ -645,7 +956,18 @@ export class ChristmasMap {
       for (let i = 1; i <= 27; i++) {
         const x = THREE.MathUtils.lerp(minX,maxX,i*0.618034%1);
         const z = THREE.MathUtils.lerp(minZ,maxZ,i*0.414214%1);
-        if (Math.hypot(x,z) < 280 && clearance.inside({x,z},ring)) plant({x,z});
+        if (Math.hypot(x,z) < 280 && clearance.inside({x,z},ring)) {
+          plant({x,z});
+          if (clearance.clear({x,z}, 1.8) && this.mapData.woodlands.length < 12) {
+            this.mapData.woodlands.push({x,z});
+          }
+        }
+      }
+    }
+    if (!this.mapData.woodlands.length && snapshot.forests.length) {
+      for (const patch of snapshot.forests.slice(0, 6)) {
+        const pt = { x: patch.centerX + 3.2, z: patch.centerZ - 2.4 };
+        if (clearance.clear(pt, 1.8)) this.mapData.woodlands.push(pt);
       }
     }
     const ornaments: {x: number; z: number; radius: number}[] = [];
@@ -738,11 +1060,12 @@ export class ChristmasMap {
       const geometry = material === logWood ? logBeam : material === bayWood ? bayGeometry : material === powder ? drift : material === hat ? topHat : material === snowmanSnow || material === coal ? snowBall :
         material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : material === lightPool ? floorPlane :
         material === canopyWood || material === canopySnow ? canopyGeometry : material === firWreath ? fir :
+        material === spireMat ? spireCone :
         material === icicleMaterial ? icicle : material === berries || lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
-        [glass,crest,windowRound,windowArch,...cottageDoors].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
+        [glass,glassStar,glassCandles,crest,windowRound,windowArch,...cottageDoors].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));
-      mesh.castShadow = [powder,snowmanSnow,hat].includes(material as THREE.MeshStandardMaterial);
+      mesh.castShadow = [powder,snowmanSnow,hat,churchWall,spireMat].includes(material as THREE.MeshStandardMaterial);
       mesh.receiveShadow = mesh.castShadow;
       this.instances.push(mesh);
       this.group.add(mesh);

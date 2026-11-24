@@ -138,6 +138,97 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
   return geometry;
 }
 
+// Soft wind-drifted snowbanks along both edges of each mapped street, tapering cleanly at junctions.
+export function snowbankGeometry(roads: OsmRoadRibbon[], elevation?: (x: number, z: number) => number, junctions?: Map<string, Junction>): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const uvs: number[] = [];
+  const junctionList = junctions ? [...junctions.values()] : [];
+
+  for (const road of roads) {
+    if (road.tunnel) continue;
+    const vertices = road.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.z !== all[i - 1].z);
+    if (vertices.length < 2) continue;
+    const points = vertices.flatMap((b, i) => {
+      if (!i) return [b];
+      const a = vertices[i - 1];
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2.5));
+      return Array.from({ length: steps }, (_, j) => {
+        const t = (j + 1) / steps;
+        return { x: THREE.MathUtils.lerp(a.x, b.x, t), z: THREE.MathUtils.lerp(a.z, b.z, t) };
+      });
+    });
+
+    const half = road.widthM * 0.5;
+    for (const sideSign of [1, -1] as const) {
+      let traveled = 0;
+      const cols = 4;
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const prev = points[Math.max(0, i - 1)];
+        const next = points[Math.min(points.length - 1, i + 1)];
+        const incoming = Math.hypot(p.x - prev.x, p.z - prev.z) || 1;
+        const outgoing = Math.hypot(next.x - p.x, next.z - p.z) || 1;
+        const inX = (p.z - prev.z) / incoming, inZ = (prev.x - p.x) / incoming;
+        const outX = (next.z - p.z) / outgoing, outZ = (p.x - next.x) / outgoing;
+        const sumX = inX + outX, sumZ = inZ + outZ;
+        const span = Math.hypot(sumX, sumZ);
+        const nx = span > 0.001 ? sumX / span : outX;
+        const nz = span > 0.001 ? sumZ / span : outZ;
+        const alignment = i === 0 || i === points.length - 1 ? 1 : Math.max(0.5, nx * outX + nz * outZ);
+        if (i) traveled += Math.hypot(p.x - prev.x, p.z - prev.z);
+
+        const endTaper = i === 0 || i === points.length - 1 ? 0.15 : (i === 1 || i === points.length - 2 ? 0.72 : 1);
+        const bankSampleX = p.x + nx * sideSign * (half + 0.85);
+        const bankSampleZ = p.z + nz * sideSign * (half + 0.85);
+        let junctionClear = 1;
+        for (const node of junctionList) {
+          const dist = Math.hypot(bankSampleX - node.point.x, bankSampleZ - node.point.z);
+          if (dist < node.radius * 2.25) {
+            const clear = THREE.MathUtils.smoothstep(dist, node.radius * 1.15, node.radius * 2.25);
+            if (clear < junctionClear) junctionClear = clear;
+          }
+        }
+        const scale = endTaper * junctionClear;
+        const wave = 0.86 + 0.18 * Math.sin(traveled * 0.24 + sideSign * 1.7) + 0.08 * Math.cos(traveled * 0.43);
+        const profile = sideSign === 1
+          ? [
+              { offset: half + 1.85, y: -0.05 },
+              { offset: half + 1.18, y: THREE.MathUtils.lerp(-0.04, 0.26 * wave, scale) },
+              { offset: half + 0.65, y: THREE.MathUtils.lerp(-0.04, 0.34 * wave, scale) },
+              { offset: half + 0.05, y: THREE.MathUtils.lerp(-0.04, 0.015, scale) },
+            ]
+          : [
+              { offset: -(half + 0.05), y: THREE.MathUtils.lerp(-0.04, 0.015, scale) },
+              { offset: -(half + 0.65), y: THREE.MathUtils.lerp(-0.04, 0.34 * wave, scale) },
+              { offset: -(half + 1.18), y: THREE.MathUtils.lerp(-0.04, 0.26 * wave, scale) },
+              { offset: -(half + 1.85), y: -0.05 },
+            ];
+
+        const start = positions.length / 3;
+        for (let k = 0; k < cols; k++) {
+          const { offset, y } = profile[k];
+          const x = p.x + (nx * offset) / alignment;
+          const z = p.z + (nz * offset) / alignment;
+          positions.push(x, (elevation?.(x, z) ?? 0) + y, z);
+          uvs.push(k / (cols - 1), traveled * 0.15);
+          if (i && k > 0) {
+            const j = start + k;
+            indices.push(j - cols - 1, j - cols, j - 1, j - 1, j - cols, j);
+          }
+        }
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export function streetAtCar(snapshot: OsmMapSnapshot, car: TelemetryFrame): OsmRoadRibbon | undefined {
   const pos = geoDeltaMeters(snapshot.originLat, snapshot.originLon, car.latitude, car.longitude);
   const angle = car.headingDeg * Math.PI / 180;

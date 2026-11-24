@@ -141,6 +141,8 @@ button {
 }
 
 .pill-btn {
+  color: inherit;
+  text-decoration: none;
   padding: 10px 16px;
   border-radius: 999px;
   background: var(--glass-bg);
