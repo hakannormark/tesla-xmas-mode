@@ -162,19 +162,22 @@ export class SleighMagic {
     }
   }
 
-  private emitTrail(x: number, y: number, z: number, speedNorm: number, heading: number): void {
+  private emitTrail(x: number, y: number, z: number, speedNorm: number, heading: number, sideSign: -1 | 1): void {
     const i = this.trailCursor;
     this.trailCursor = (this.trailCursor + 1) % TRAIL_COUNT;
-    const spread = 0.35 + speedNorm * 0.95;
+    const rightX = Math.cos(heading);
+    const rightZ = Math.sin(heading);
     const backX = -Math.sin(heading);
     const backZ = Math.cos(heading);
-    this.trailPos[i * 3] = x + (Math.random() - 0.5) * spread;
-    this.trailPos[i * 3 + 1] = y + (Math.random() - 0.5) * (0.2 + speedNorm * 0.45);
-    this.trailPos[i * 3 + 2] = z + (Math.random() - 0.5) * spread;
-    this.trailVel[i * 3] = backX * (1.2 + speedNorm * 2.8) + (Math.random() - 0.5) * 0.9;
-    this.trailVel[i * 3 + 1] = 0.25 + Math.random() * 0.65;
-    this.trailVel[i * 3 + 2] = backZ * (1.2 + speedNorm * 2.8) + (Math.random() - 0.5) * 0.9;
-    this.trailLife[i] = 1.0;
+    const runnerOffset = sideSign * 0.88;
+    const spread = 0.18 + speedNorm * 0.28;
+    this.trailPos[i * 3] = x + rightX * runnerOffset + (Math.random() - 0.5) * spread;
+    this.trailPos[i * 3 + 1] = y - 0.42 + (Math.random() - 0.5) * 0.14;
+    this.trailPos[i * 3 + 2] = z + rightZ * runnerOffset + (Math.random() - 0.5) * spread;
+    this.trailVel[i * 3] = backX * (0.9 + speedNorm * 1.9) + rightX * sideSign * 0.38;
+    this.trailVel[i * 3 + 1] = 0.08 + Math.random() * 0.24;
+    this.trailVel[i * 3 + 2] = backZ * (0.9 + speedNorm * 1.9) + rightZ * sideSign * 0.38;
+    this.trailLife[i] = 0.85;
   }
 
   private emitSpray(x: number, y: number, z: number, speedNorm: number, heading: number): void {
@@ -222,34 +225,35 @@ export class SleighMagic {
     const rightX = north;
     const rightZ = east;
 
-    // 2. Two-Tone Gold + Ice-Cyan Stardust Wake
+    // 2. Subtle Twin-Runner Gold + Ice-Cyan Stardust Wake (never obscures center road view)
     if (visible && (sleigh.group.visible || frame.speedKmh > 8)) {
       if (sleigh.group.visible) {
         sleigh.getTrailOrigin(this.trailOrigin);
       } else {
-        this.trailOrigin.set(avatarPos.x - east * 2.2, avatarPos.y + 0.65, avatarPos.z + north * 2.2);
+        this.trailOrigin.set(avatarPos.x - east * 2.2, avatarPos.y + 0.55, avatarPos.z + north * 2.2);
       }
-      const emitCount = frame.speedKmh > 50 ? 4 : frame.speedKmh > 10 ? 2 : 1;
-      for (let e = 0; e < emitCount; e++) {
-        this.emitTrail(this.trailOrigin.x, this.trailOrigin.y, this.trailOrigin.z, speedNorm, heading);
+      const emitPairs = frame.speedKmh > 45 ? 1 : frame.speedKmh > 10 ? 1 : 0;
+      for (let e = 0; e < emitPairs; e++) {
+        const side: -1 | 1 = this.trailCursor % 2 === 0 ? -1 : 1;
+        this.emitTrail(this.trailOrigin.x, this.trailOrigin.y, this.trailOrigin.z, speedNorm, heading, side);
       }
     }
-    const decay = 0.62 + (1 - speedNorm) * 0.35;
+    const decay = 0.92 + (1 - speedNorm) * 0.35;
     for (let i = 0; i < TRAIL_COUNT; i++) {
       if (this.trailLife[i] > 0) {
         this.trailLife[i] -= dt * decay;
         if (this.trailLife[i] <= 0) {
           this.trailPos[i * 3 + 1] = -999;
         } else {
-          this.trailPos[i * 3] += (this.trailVel[i * 3] + Math.sin(time * 4.5 + i * 0.4) * 0.35) * dt;
+          this.trailPos[i * 3] += (this.trailVel[i * 3] + Math.sin(time * 4.0 + i * 0.4) * 0.22) * dt;
           this.trailPos[i * 3 + 1] += this.trailVel[i * 3 + 1] * dt;
-          this.trailPos[i * 3 + 2] += (this.trailVel[i * 3 + 2] + Math.cos(time * 4.0 + i * 0.4) * 0.35) * dt;
+          this.trailPos[i * 3 + 2] += (this.trailVel[i * 3 + 2] + Math.cos(time * 3.6 + i * 0.4) * 0.22) * dt;
         }
       }
     }
     this.trailPoints.geometry.attributes.position.needsUpdate = true;
-    this.trailMat.size = 0.58 + speedNorm * 0.62 + this.flightFactor * 0.35 + beat * 0.22;
-    this.trailMat.opacity = Math.min(1, 0.66 + speedNorm * 0.3 + beat * 0.14);
+    this.trailMat.size = 0.24 + speedNorm * 0.16 + this.flightFactor * 0.10 + beat * 0.06;
+    this.trailMat.opacity = Math.min(0.46, 0.26 + speedNorm * 0.16 + beat * 0.06);
 
     // 3. Powder Snow Spray behind wheels & low sleigh runners + convoy trucks
     if (visible && frame.speedKmh > 12) {

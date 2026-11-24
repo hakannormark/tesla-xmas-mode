@@ -14,7 +14,7 @@ import { LiveSkyRig } from './liveSkyRig';
 import { MapLivingWorld } from './MapLivingWorld';
 import { pointAlongStreet, streetAtCar } from './mappedRoads';
 import { PixarElonRig } from './pixarElonEvents';
-import { getStarSpriteTexture } from './pixarMaterials';
+import { getSoftGlowTexture } from './pixarMaterials';
 import type { PixarSleighHandle } from './pixarModels';
 import {
   createAccurateCybertruck,
@@ -51,6 +51,9 @@ interface WishStarTarget {
   id: string;
   mesh: THREE.Group;
   active: boolean;
+  placed: boolean;
+  worldX: number;
+  worldZ: number;
   respawnTimer: number;
   aheadOffset: number;
   latOffset: number;
@@ -80,14 +83,14 @@ export class DriveFestivities {
   private readonly effects = new THREE.Group();
 
   private readonly convoy = [
-    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 108 },
-    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 142 },
-    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 176 },
-    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 210 },
+    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 98 },
+    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 152 },
   ];
   readonly convoyPositions: Array<{ x: number; y: number; z: number; heading: number }> = [];
 
   private readonly redLightOptimus = createAccurateOptimusGen2();
+  private optimusAnchorPos: THREE.Vector3 | null = null;
+  private optimusAnchorYaw = 0;
   private readonly redLightPlow = createAccurateCybertruck(true, true);
   private stoppedSec = 0;
   private plowActive = false;
@@ -108,7 +111,7 @@ export class DriveFestivities {
   private readonly burstLife = new Float32Array(BURST_COUNT);
 
   private readonly rings: ExpandingRing[] = [];
-  private readonly ringGeo = new THREE.TorusGeometry(1.7, 0.13, 10, 30);
+  private readonly ringGeo = new THREE.TorusGeometry(1.15, 0.055, 8, 28);
 
   private readonly starmanAnchor = new THREE.Vector3();
   private readonly vertical = new THREE.Vector3(0, 1, 0);
@@ -187,7 +190,7 @@ export class DriveFestivities {
       });
     }
 
-    const starTex = getStarSpriteTexture();
+    const softGlowTex = getSoftGlowTexture();
     // 4-slot Ice Snowball Pool
     const snowGeo = new THREE.SphereGeometry(0.36, 10, 10);
     const snowMat = new THREE.MeshPhysicalMaterial({
@@ -210,30 +213,30 @@ export class DriveFestivities {
       });
     }
 
-    // 6-slot Collectible Floating Wish Stars (minigame)
-    const wishGeo = new THREE.OctahedronGeometry(0.95, 0);
+    // 6-slot Collectible Floating Wish Stars (compact golden crystal + gentle halo, zero screen-blocking cross flares)
+    const wishGeo = new THREE.OctahedronGeometry(0.46, 0);
     const wishMat = new THREE.MeshBasicMaterial({ color: '#ffe378', toneMapped: false });
     const wishHaloMat = new THREE.SpriteMaterial({
-      map: starTex,
+      map: softGlowTex,
       color: '#ffdf7e',
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.44,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     const wishSlots = [
-      { aheadOffset: 24, latOffset: -5.5, heightOffset: 3.4 },
-      { aheadOffset: 42, latOffset: 6.2, heightOffset: 3.8 },
-      { aheadOffset: 62, latOffset: -4.2, heightOffset: 4.1 },
-      { aheadOffset: 82, latOffset: 5.0, heightOffset: 3.6 },
-      { aheadOffset: 102, latOffset: -6.4, heightOffset: 4.2 },
-      { aheadOffset: 122, latOffset: 4.0, heightOffset: 3.9 },
+      { aheadOffset: 24, latOffset: -5.5, heightOffset: 2.4 },
+      { aheadOffset: 42, latOffset: 6.2, heightOffset: 2.7 },
+      { aheadOffset: 62, latOffset: -4.2, heightOffset: 2.9 },
+      { aheadOffset: 82, latOffset: 5.0, heightOffset: 2.5 },
+      { aheadOffset: 102, latOffset: -6.4, heightOffset: 3.0 },
+      { aheadOffset: 122, latOffset: 4.0, heightOffset: 2.8 },
     ];
     wishSlots.forEach((slot, idx) => {
       const wg = new THREE.Group();
       const core = new THREE.Mesh(wishGeo, wishMat);
       const halo = new THREE.Sprite(wishHaloMat);
-      halo.scale.set(4.4, 4.4, 1);
+      halo.scale.set(1.75, 1.75, 1);
       wg.add(core, halo);
       wg.visible = false;
       scene.add(wg);
@@ -241,6 +244,9 @@ export class DriveFestivities {
         id: `wish-${idx}`,
         mesh: wg,
         active: true,
+        placed: false,
+        worldX: 0,
+        worldZ: 0,
         respawnTimer: 0,
         ...slot,
       });
@@ -252,11 +258,11 @@ export class DriveFestivities {
     this.chimneyPts = new THREE.Points(
       chGeo,
       new THREE.PointsMaterial({
-        map: starTex,
+        map: softGlowTex,
         color: '#ffdf6b',
-        size: 1.5,
+        size: 0.44,
         transparent: true,
-        opacity: 0.96,
+        opacity: 0.72,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
@@ -270,11 +276,11 @@ export class DriveFestivities {
     this.burstPts = new THREE.Points(
       burstGeo,
       new THREE.PointsMaterial({
-        map: starTex,
+        map: softGlowTex,
         color: '#ffe47a',
-        size: 1.05,
+        size: 0.40,
         transparent: true,
-        opacity: 0.95,
+        opacity: 0.72,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
@@ -403,6 +409,15 @@ export class DriveFestivities {
     }
     for (const r of this.rings) {
       r.mesh.position.add(offset);
+    }
+    if (this.optimusAnchorPos) {
+      this.optimusAnchorPos.add(offset);
+    }
+    for (const ws of this.wishStars) {
+      if (ws.placed) {
+        ws.worldX += offset.x;
+        ws.worldZ += offset.z;
+      }
     }
   }
 
@@ -940,16 +955,28 @@ export class DriveFestivities {
       this.convoyPositions.push({ x: tx, y: ty, z: tz, heading: truckHeading });
     });
 
-    // Red-Light Cameos: Waving Santa-Hat Optimus + Oncoming Cybertruck Snowplow
-    const optimusSpot = this.stoppedSec > 3.0 && street && pointAlongStreet(street, center, heading, 11);
-    this.redLightOptimus.group.visible = !!optimusSpot;
-    if (optimusSpot && street) {
-      const shoulder = street.widthM * 0.5 + 1.85;
-      const ox = optimusSpot.x + Math.cos(optimusSpot.heading) * shoulder;
-      const oz = optimusSpot.z + Math.sin(optimusSpot.heading) * shoulder;
-      this.redLightOptimus.group.position.set(ox, groundAt(ox, oz), oz);
-      this.redLightOptimus.group.rotation.y = -optimusSpot.heading + Math.PI - 0.35;
+    // Red-Light Cameo: World-pinned waving Santa-Hat Optimus (never slides alongside the moving sleigh)
+    if (frame.speedKmh < 2.0 && this.stoppedSec > 3.2 && street) {
+      if (!this.optimusAnchorPos) {
+        const optimusSpot = pointAlongStreet(street, center, heading, 11);
+        if (optimusSpot) {
+          const shoulder = street.widthM * 0.5 + 1.85;
+          const ox = optimusSpot.x + Math.cos(optimusSpot.heading) * shoulder;
+          const oz = optimusSpot.z + Math.sin(optimusSpot.heading) * shoulder;
+          this.optimusAnchorPos = new THREE.Vector3(ox, groundAt(ox, oz), oz);
+          this.optimusAnchorYaw = -optimusSpot.heading + Math.PI - 0.35;
+        }
+      }
+    } else if (frame.speedKmh > 4.5) {
+      this.optimusAnchorPos = null;
+    }
+    if (this.optimusAnchorPos && this.optimusAnchorPos.distanceTo(center) < 30) {
+      this.redLightOptimus.group.visible = true;
+      this.redLightOptimus.group.position.copy(this.optimusAnchorPos);
+      this.redLightOptimus.group.rotation.y = this.optimusAnchorYaw;
       this.redLightOptimus.update(time);
+    } else {
+      this.redLightOptimus.group.visible = false;
     }
 
     if (this.stoppedSec > 3.8 && !this.plowActive && this.plowCooldown <= 0 && street) {
@@ -1038,22 +1065,41 @@ export class DriveFestivities {
     for (const [idx, star] of this.wishStars.entries()) {
       if (!star.active) {
         star.respawnTimer -= dt;
-        if (star.respawnTimer <= 0) star.active = true;
-      }
-      star.mesh.visible = star.active && hasActiveWorld;
-      if (!star.mesh.visible) continue;
-      const cycleAhead = 18 + ((star.aheadOffset - time * 1.5 + 120) % 105);
-      let wx = center.x + fwdX * cycleAhead + rightX * star.latOffset;
-      let wz = center.z + fwdZ * cycleAhead + rightZ * star.latOffset;
-      if (street) {
-        const pt = pointAlongStreet(street, center, heading, cycleAhead);
-        if (pt) {
-          wx = pt.x + Math.cos(pt.heading) * star.latOffset;
-          wz = pt.z + Math.sin(pt.heading) * star.latOffset;
+        if (star.respawnTimer <= 0) {
+          star.active = true;
+          star.placed = false;
         }
       }
-      const gy = groundAt(wx, wz);
-      star.mesh.position.set(wx, gy + star.heightOffset + Math.sin(time * 2.8 + idx) * 0.45, wz);
+      if (!hasActiveWorld || !star.active) {
+        star.mesh.visible = false;
+        continue;
+      }
+      if (star.placed) {
+        const dx = star.worldX - center.x;
+        const dz = star.worldZ - center.z;
+        const ahead = dx * fwdX + dz * fwdZ;
+        if (ahead < -14 || Math.hypot(dx, dz) > 165) {
+          star.placed = false;
+        }
+      }
+      if (!star.placed) {
+        const spawnAhead = 28 + ((star.aheadOffset + idx * 14) % 95);
+        let wx = center.x + fwdX * spawnAhead + rightX * star.latOffset;
+        let wz = center.z + fwdZ * spawnAhead + rightZ * star.latOffset;
+        if (street) {
+          const pt = pointAlongStreet(street, center, heading, spawnAhead);
+          if (pt) {
+            wx = pt.x + Math.cos(pt.heading) * star.latOffset;
+            wz = pt.z + Math.sin(pt.heading) * star.latOffset;
+          }
+        }
+        star.worldX = wx;
+        star.worldZ = wz;
+        star.placed = true;
+      }
+      star.mesh.visible = true;
+      const gy = groundAt(star.worldX, star.worldZ);
+      star.mesh.position.set(star.worldX, gy + star.heightOffset + Math.sin(time * 2.8 + idx) * 0.45, star.worldZ);
       star.mesh.rotation.y = time * 2.1 + idx;
     }
 

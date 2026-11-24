@@ -2,7 +2,16 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { HolidayThemeId } from '../core/environment';
 import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld';
-import { createSnowTextures, createTimberWallTexture, getSoftGlowTexture } from './pixarMaterials';
+import {
+  createClapboardTextures,
+  createGigaSolarRoofTexture,
+  createGigafactoryWallTexture,
+  createPlasterBrickTextures,
+  createShingleRoofTextures,
+  createSnowTextures,
+  createTimberWallTexture,
+  getSoftGlowTexture,
+} from './pixarMaterials';
 import { streetGeometry, roadJunctions, junctionGeometry, snowbankGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
 import { createWinterRoad, updateWinterRoad } from './winterSurfaces';
@@ -19,34 +28,65 @@ const logBeam = new THREE.CylinderGeometry(0.5,0.5,1,8).rotateZ(Math.PI/2);
 const logWood = new THREE.MeshStandardMaterial({color:'#925d3d',roughness:0.92});
 const bayGeometry = buildCottageBay();
 const bayWood = new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.79});
-const roofCap = new THREE.MeshStandardMaterial({color:'#eef2fb',roughness:0.84,bumpMap:snowTexture,bumpScale:0.12});
+const shingleTextures = createShingleRoofTextures();
+const roofCap = new THREE.MeshStandardMaterial({
+  color: '#e8eef8',
+  map: shingleTextures.map,
+  bumpMap: shingleTextures.bumpMap,
+  bumpScale: 0.2,
+  roughness: 0.78,
+});
 const marketRed = new THREE.MeshStandardMaterial({ color: '#9c202c', roughness: 0.78 });
 const marketCream = new THREE.MeshStandardMaterial({ color: '#f5e8cc', roughness: 0.82 });
 const timber = createTimberWallTexture('#d3b8ad');
 timber.wrapS = timber.wrapT = THREE.RepeatWrapping;
-const boards = timber.clone();
-boards.rotation = Math.PI/2;
-boards.repeat.set(0.55,1.15);
-boards.needsUpdate = true;
+const clapboardTex = createClapboardTextures();
+const plasterTex = createPlasterBrickTextures();
+const gigaWallTex = createGigafactoryWallTexture();
+gigaWallTex.repeat.set(0.18, 0.25);
+const gigaSolarTex = createGigaSolarRoofTexture();
 const cottageWalls = cottageStyles.map(style => new THREE.MeshStandardMaterial({
-  color:style.color, map:style.finish === 'plaster' ? null : style.finish === 'boards' ? boards : timber, roughness:0.86,
+  color: style.color,
+  map: style.finish === 'plaster' ? plasterTex.map : style.finish === 'boards' ? clapboardTex.map : timber,
+  bumpMap: style.finish === 'plaster' ? plasterTex.bumpMap : clapboardTex.bumpMap,
+  bumpScale: style.finish === 'plaster' ? 0.14 : 0.16,
+  roughness: 0.84,
 }));
 const cottageTrim = cottageStyles.map(style => new THREE.MeshStandardMaterial({color:style.trim,roughness:0.82}));
-const foundationStone = new THREE.MeshStandardMaterial({color:'#6f667a',roughness:0.94});
-const factoryWall = new THREE.MeshStandardMaterial({color:'#9aa3b2', roughness:0.72, metalness:0.12});
-const largeBuildingWalls = ['#c8885a', '#b65b4a', '#d4ad74', '#4d6f8c', '#8e6c64'].map(color =>
-  new THREE.MeshStandardMaterial({ color, map: timber, roughness: 0.84 })
+const foundationStone = new THREE.MeshStandardMaterial({color:'#6f667a', map: plasterTex.map, bumpMap: plasterTex.bumpMap, bumpScale: 0.16, roughness:0.94});
+const factoryWall = new THREE.MeshStandardMaterial({
+  color: '#f2f6fc',
+  map: gigaWallTex,
+  roughness: 0.36,
+  metalness: 0.28,
+});
+const gigaSolarMat = new THREE.MeshStandardMaterial({
+  map: gigaSolarTex,
+  roughness: 0.24,
+  metalness: 0.68,
+});
+const largeBuildingWalls = ['#c8885a', '#b65b4a', '#d4ad74', '#4d6f8c', '#8e6c64'].map((color, idx) =>
+  new THREE.MeshStandardMaterial({
+    color,
+    map: idx % 2 === 0 ? plasterTex.map : clapboardTex.map,
+    bumpMap: idx % 2 === 0 ? plasterTex.bumpMap : clapboardTex.bumpMap,
+    bumpScale: 0.16,
+    roughness: 0.82,
+  })
 );
-const churchWall = new THREE.MeshStandardMaterial({color:'#e4dccd', roughness:0.84});
+const churchWall = new THREE.MeshStandardMaterial({color:'#e4dccd', map: plasterTex.map, bumpMap: plasterTex.bumpMap, bumpScale: 0.14, roughness:0.84});
 const spireMat = new THREE.MeshStandardMaterial({color:'#263550', roughness:0.55, metalness:0.28});
 const solarMat = new THREE.MeshStandardMaterial({color:'#162646', roughness:0.25, metalness:0.72});
-const brick = new THREE.MeshStandardMaterial({color:'#683b43', roughness:0.88});
-const trim = new THREE.MeshStandardMaterial({color:'#f4d9af', roughness:0.81});
-const eave = new THREE.MeshStandardMaterial({color:'#402b39', roughness:0.83});
+const graniteMat = new THREE.MeshStandardMaterial({color:'#4c5566', bumpMap: plasterTex.bumpMap, bumpScale: 0.22, roughness:0.90});
+const fenceWoodMat = new THREE.MeshStandardMaterial({color:'#6d472e', roughness:0.90});
+const graniteRock = new THREE.DodecahedronGeometry(1, 0);
+const brick = new THREE.MeshStandardMaterial({color:'#683b43', map: plasterTex.map, bumpMap: plasterTex.bumpMap, bumpScale: 0.18, roughness:0.88});
+const trim = new THREE.MeshStandardMaterial({color:'#f4d9af',roughness:0.81});
+const eave = new THREE.MeshStandardMaterial({color:'#402b39',roughness:0.83});
 const roofSnow = new THREE.MeshStandardMaterial({color:'#f2edff',roughness:0.84});
 const cedar = new THREE.MeshStandardMaterial({color:'#603a30',roughness:0.83});
 const shutters = cottageStyles.map(style => new THREE.MeshStandardMaterial({
-  color:style.door,map:boards,roughness:0.82,
+  color:style.door,map:clapboardTex.map,roughness:0.82,
 }));
 const lightStringPalette = ['#ffe4a8', '#e84366', '#6cf6dd', '#b692ff', '#ffca57'];
 const lightStrings = lightStringPalette.map(color => new THREE.MeshBasicMaterial({color, toneMapped: false}));
@@ -741,14 +781,28 @@ export class ChristmasMap {
       batches.set(material,geometries);
     }
     let landmarkSigns = 0;
+    let gigaCount = 0;
     for (const b of snapshot.buildings) {
       const cottage = cottageModel(b);
       const home = !!cottage;
       const church = b.kind === 'church';
-      const factory = !church && (b.tesla || b.kind === 'gigafactory' || b.kind === 'large_building');
+      const isGiga =
+        !church &&
+        (!!b.tesla ||
+          b.kind === 'gigafactory' ||
+          (b.kind === 'large_building' &&
+            b.areaM2 >= 220 &&
+            gigaCount < 4 &&
+            Math.abs(Math.round(b.centerX * 13 + b.centerZ * 7)) % 10 < 5));
+      if (isGiga) gigaCount++;
+      const factory = !church && (isGiga || b.kind === 'large_building');
       const height = church
         ? Math.max(6.5, Math.min(13, buildingWallHeight(b)))
-        : factory ? Math.min(11,buildingWallHeight(b)) : buildingWallHeight(b);
+        : isGiga
+          ? Math.max(7.4, Math.min(12.2, buildingWallHeight(b)))
+          : factory
+            ? Math.min(11, buildingWallHeight(b))
+            : buildingWallHeight(b);
       const shape = outline(b.footprint);
       const levels = b.footprint.flatMap((a,i) => {
         const bNext = b.footprint[(i+1)%b.footprint.length];
@@ -758,7 +812,7 @@ export class ChristmasMap {
       const base = Math.max(levels[Math.floor(levels.length/2)],highest-0.8);
       const foundation = levels[0]-0.3;
       const largeWallIdx = Math.abs(Math.round(b.centerX * 3 + b.centerZ * 5)) % largeBuildingWalls.length;
-      const wall = cottage ? cottageWalls[cottage.index] : church ? churchWall : b.tesla ? factoryWall : factory ? largeBuildingWalls[largeWallIdx] : walls[0];
+      const wall = cottage ? cottageWalls[cottage.index] : church ? churchWall : isGiga ? factoryWall : factory ? largeBuildingWalls[largeWallIdx] : walls[0];
       const frame = cottage ? cottageTrim[cottage.index] : trim;
       if (elevation) {
         const stone = new THREE.ExtrudeGeometry(shape,{depth:base-foundation+0.06,bevelEnabled:false});
@@ -767,9 +821,9 @@ export class ChristmasMap {
       const body = new THREE.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false});
       batch(body.rotateX(-Math.PI/2).translate(0,base,0),wall);
       const gambrelLarge = [[0,0],[0.22,0.72],[0.5,1],[0.78,0.72],[1,0]] as const;
-      const roofShape = church ? ([[0,0],[0.5,1],[1,0]] as const) : cottage ? cottage.roof : (!b.tesla && b.widthM < 42 && b.depthM < 42 ? gambrelLarge : [[0,0],[1,0]] as const);
-      const roofPitch = church ? 0.48 : cottage ? cottage.style.pitch : (!b.tesla && b.widthM < 42 && b.depthM < 42 ? 0.34 : 0);
-      const roofFootprint = expandPolygon(b.footprint, b.tesla ? 0.14 : 0.54);
+      const roofShape = church ? ([[0,0],[0.5,1],[1,0]] as const) : cottage ? cottage.roof : (!isGiga && b.widthM < 42 && b.depthM < 42 ? gambrelLarge : [[0,0],[1,0]] as const);
+      const roofPitch = church ? 0.48 : cottage ? cottage.style.pitch : (!isGiga && b.widthM < 42 && b.depthM < 42 ? 0.34 : 0);
+      const roofFootprint = expandPolygon(b.footprint, isGiga ? 0.14 : 0.54);
       const roofExpanded = roofFootprint !== b.footprint;
       const roofShapePoly = roofExpanded ? outline(roofFootprint) : shape;
       const profile = roofProjection(roofFootprint, roofShape, roofPitch, church ? 6.5 : 5.8);
@@ -827,19 +881,34 @@ export class ChristmasMap {
         buildingTopY = base + spireBase + spireH + 1.1;
       }
 
-      if ((b.tesla || b.kind === 'gigafactory') && b.widthM >= 10 && b.depthM >= 10) {
-        const minX = Math.min(...b.footprint.map(p => p.x)), maxX = Math.max(...b.footprint.map(p => p.x));
-        const minZ = Math.min(...b.footprint.map(p => p.z)), maxZ = Math.max(...b.footprint.map(p => p.z));
-        const cols = Math.min(4, Math.max(2, Math.floor((maxX - minX) / 8)));
-        const rows = Math.min(4, Math.max(2, Math.floor((maxZ - minZ) / 8)));
-        for (let px = 0; px < cols; px++) {
-          for (let pz = 0; pz < rows; pz++) {
-            const sx = THREE.MathUtils.lerp(minX + 3, maxX - 3, (px + 0.5) / cols);
-            const sz = THREE.MathUtils.lerp(minZ + 3, maxZ - 3, (pz + 0.5) / rows);
-            if (clearance.inside({ x: sx, z: sz }, b.footprint)) {
-              addDetail(solarMat, sx, height + 0.36, sz, 0, 3.6, 0.18, 4.4, 0, base);
-            }
+      if (isGiga && b.widthM >= 8 && b.depthM >= 8) {
+        // Giga Texas / Berlin rooftop photovoltaic solar deck aligned with building orientation
+        let bestLen = 0;
+        let bestYaw = 0;
+        for (let i = 0; i < b.footprint.length; i++) {
+          const p0 = b.footprint[i], p1 = b.footprint[(i + 1) % b.footprint.length];
+          const len = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+          if (len > bestLen) {
+            bestLen = len;
+            bestYaw = Math.atan2(p1.x - p0.x, p1.z - p0.z);
           }
+        }
+        const solarW = Math.min(16, Math.max(5.5, bestLen * 0.54));
+        const perp = (b.areaM2 / Math.max(bestLen, 1));
+        const solarD = Math.min(8.5, Math.max(3.2, perp * 0.54));
+        if (clearance.inside({ x: b.centerX, z: b.centerZ }, b.footprint)) {
+          const solarGeo = new THREE.PlaneGeometry(solarW, solarD).rotateX(-Math.PI * 0.5);
+          const solarMesh = new THREE.Mesh(solarGeo, gigaSolarMat);
+          solarMesh.position.set(b.centerX, base + height + profile.rise + 0.28, b.centerZ);
+          solarMesh.rotation.y = bestYaw - Math.PI * 0.5;
+          solarMesh.receiveShadow = true;
+          this.group.add(solarMesh);
+          this.geometries.push(solarGeo);
+
+          // Glowing Giga Christmas Star rising above solar array
+          addDetail(starGold, b.centerX, height + profile.rise + 1.65, b.centerZ, 0, 0.75, 0.75, 0.75, 0, base);
+          addDetail(starGold, b.centerX, height + profile.rise + 1.65, b.centerZ, Math.PI * 0.5, 0.75, 0.75, 0.75, 0, base);
+          buildingTopY = Math.max(buildingTopY, base + height + profile.rise + 2.2);
         }
       }
 
@@ -849,10 +918,10 @@ export class ChristmasMap {
         this.spawnCelebrationStar(b.centerX, buildingTopY, b.centerZ);
       }
 
-      if (b.name && landmarkSigns < 6 && (b.tesla || b.kind === 'gigafactory' || church || (b.kind === 'large_building' && b.areaM2 > 220))) {
-        const text = b.tesla || b.kind === 'gigafactory' ? 'TESLA GIGAFACTORY' : b.name;
-        const sign = createLandmarkLabelMesh(text, !!(b.tesla || b.kind === 'gigafactory'));
-        sign.mesh.position.set(b.centerX, buildingTopY + 2.3, b.centerZ);
+      if (landmarkSigns < 3 && (isGiga || church)) {
+        const text = isGiga ? 'TESLA GIGA JUL' : (b.name || 'KYRKA');
+        const sign = createLandmarkLabelMesh(text, isGiga);
+        sign.mesh.position.set(b.centerX, buildingTopY + 1.9, b.centerZ);
         this.group.add(sign.mesh);
         this.dynamicAssets.push({ geometry: sign.mesh.geometry, material: sign.material, texture: sign.texture });
         landmarkSigns++;
@@ -899,31 +968,45 @@ export class ChristmasMap {
           }
         }
         if (factory && length >= 6) {
-          detail(b.tesla ? factoryCandy : frame,0.5,Math.min(3.55,height*0.52),length+0.12,0.18,0.22);
-          detail(roofLedge,0.5,height-0.30,length+0.3,0.48,0.38);
-          detail(lightPool,0.5,0.07,Math.min(length,30),9,1,2.8);
-          if (b.tesla && i === mainFace) detail(crest,0.5,height*0.77,Math.min(11,length*0.8),Math.min(2,height*0.3));
-          const bays = Math.max(2,Math.min(14,Math.floor(length/4.4)));
+          detail(isGiga ? factoryCandy : frame, 0.5, isGiga ? height - 0.62 : Math.min(3.55, height * 0.52), length + 0.16, isGiga ? 0.42 : 0.18, 0.26);
+          detail(roofLedge, 0.5, height - 0.24, length + 0.34, 0.46, 0.38);
+          detail(lightPool, 0.5, 0.07, Math.min(length, 30), 9, 1, 2.8);
+          if (isGiga && i === mainFace) {
+            detail(crest, 0.5, height * 0.77, Math.min(11, length * 0.8), Math.min(2, height * 0.3));
+            // Cyber-glass entrance marquee canopy with festive candy-cane columns & wrapped Megapack gifts
+            detail(solarMat, 0.5, 3.35, Math.min(6.4, length * 0.46), 0.22, 2.5, 1.25);
+            detail(roofSnow, 0.5, 3.52, Math.min(6.6, length * 0.48), 0.16, 2.6, 1.25);
+            for (const side of [-1, 1]) {
+              const colT = 0.5 + side * Math.min(2.7, length * 0.19) / length;
+              for (let rIdx = 0; rIdx < 6; rIdx++) {
+                detail(rIdx % 2 === 0 ? marketRed : marketCream, colT, 0.28 + rIdx * 0.54, 0.32, 0.54, 0.32, 2.15);
+              }
+            }
+            detail(marketRed, 0.5 - 1.2 / length, 0.65, 1.05, 1.3, 0.85, 1.8);
+            detail(marketCream, 0.5 + 1.15 / length, 0.52, 0.9, 1.04, 0.78, 1.85);
+            detail(starGold, 0.5 - 1.2 / length, 1.42, 0.26, 0.26, 0.26, 1.8);
+          }
+          const bays = Math.max(2, Math.min(14, Math.floor(length / 4.4)));
           const festivePanes = [glass, glassStar, glassCandles, glassTree];
           for (let bay = 0; bay < bays; bay++) {
-            const t = (bay+0.5)/bays;
-            if (height > 5 && i === mainFace && (!b.tesla || Math.abs(t-0.5)*length > 7)) {
-              const wide = Math.min(2.8,length/bays*0.64);
-              detail(canopyWood,t,3.4,wide+0.5,0.85,0.8,0.26);
-              detail(canopySnow,t,3.52,wide+0.64,0.85,0.92,0.26);
+            const t = (bay + 0.5) / bays;
+            if (height > 5 && i === mainFace && (!isGiga || Math.abs(t - 0.5) * length > 7)) {
+              const wide = Math.min(2.8, length / bays * 0.64);
+              detail(canopyWood, t, 3.4, wide + 0.5, 0.85, 0.8, 0.26);
+              detail(canopySnow, t, 3.52, wide + 0.64, 0.85, 0.92, 0.26);
             }
-            detail(frame,t-0.46/bays,height*0.5,0.20,height,0.22);
+            detail(frame, t - 0.46 / bays, height * 0.5, 0.20, height, 0.22);
             const paneMat = festivePanes[(i + bay) % festivePanes.length];
-            detail(paneMat,t,Math.min(2.0,height*0.3),Math.min(2.5,length/bays*0.62),Math.min(2.3,height*0.42),1,0.08);
-            detail(frame,t,Math.min(2.0,height*0.3)-Math.min(1.18,height*0.22),Math.min(2.7,length/bays*0.66),0.14,0.22,0.11);
+            detail(paneMat, t, Math.min(2.0, height * 0.3), Math.min(2.5, length / bays * 0.62), Math.min(2.3, height * 0.42), 1, 0.08);
+            detail(frame, t, Math.min(2.0, height * 0.3) - Math.min(1.18, height * 0.22), Math.min(2.7, length / bays * 0.66), 0.14, 0.22, 0.11);
             if (height >= 6.8) {
               const upperPane = festivePanes[(i + bay + 2) % festivePanes.length];
-              detail(upperPane,t,5.3,Math.min(2.1,length/bays*0.54),1.75,1,0.08);
-              detail(frame,t,4.38,Math.min(2.3,length/bays*0.58),0.12,0.20,0.11);
+              detail(upperPane, t, 5.3, Math.min(2.1, length / bays * 0.54), 1.75, 1, 0.08);
+              detail(frame, t, 4.38, Math.min(2.3, length / bays * 0.58), 0.12, 0.20, 0.11);
             }
             if (height >= 10.2) {
               const topPane = festivePanes[(i + bay + 1) % festivePanes.length];
-              detail(topPane,t,8.3,Math.min(2.0,length/bays*0.52),1.65,1,0.08);
+              detail(topPane, t, 8.3, Math.min(2.0, length / bays * 0.52), 1.65, 1, 0.08);
             }
           }
         }
@@ -1389,6 +1472,85 @@ export class ChristmasMap {
       addDetail(powder,x,-0.03,z,yard.yaw+i*0.7,radius,0.21 + i%5*0.065,radius*0.62);
       drifts++;
     }
+    // Rich Open Winter Landscape: Nordic split-rail fences (gärdesgårdar), frosted granite boulders, silver birches & winter arches
+    const landscapeOccupied: OsmPoint2D[] = [...planted];
+    const landscapeClear = (pt: OsmPoint2D, r: number) =>
+      Math.hypot(pt.x, pt.z) < 255 &&
+      clearance.clear(pt, r) &&
+      !landscapeOccupied.some(q => Math.hypot(q.x - pt.x, q.z - pt.z) < r + 2.4) &&
+      !ornaments.some(q => Math.hypot(q.x - pt.x, q.z - pt.z) < r + q.radius);
+
+    // 1. Nordic split-rail fences along road verges & yards
+    let fenceRuns = 0;
+    for (let rIdx = 0; rIdx < snapshot.roads.length && fenceRuns < 18; rIdx++) {
+      const road = snapshot.roads[rIdx];
+      for (let i = 1; i < road.points.length && fenceRuns < 18; i++) {
+        const a = road.points[i - 1], b = road.points[i];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz);
+        if (len < 12) continue;
+        const tx = dx / len, tz = dz / len;
+        const nx = -tz, nz = tx;
+        const side = (rIdx + i) % 2 === 0 ? 1 : -1;
+        const fx = (a.x + b.x) * 0.5 + nx * side * (road.widthM * 0.5 + 3.4);
+        const fz = (a.z + b.z) * 0.5 + nz * side * (road.widthM * 0.5 + 3.4);
+        if (!landscapeClear({ x: fx, z: fz }, 2.6)) continue;
+        landscapeOccupied.push({ x: fx, z: fz });
+        fenceRuns++;
+        const yaw = Math.atan2(tx, tz);
+        const posts = 4;
+        const span = 8.4;
+        for (let p = 0; p < posts; p++) {
+          const u = (p / (posts - 1) - 0.5) * span;
+          addDetail(fenceWoodMat, fx + tx * u, 0.52, fz + tz * u, yaw, 0.14, 1.04, 0.14);
+        }
+        addDetail(fenceWoodMat, fx, 0.42, fz, yaw, 0.10, 0.10, span);
+        addDetail(fenceWoodMat, fx, 0.80, fz, yaw, 0.10, 0.10, span);
+        addDetail(roofSnow, fx, 0.88, fz, yaw, 0.14, 0.08, span);
+      }
+    }
+
+    // 2. Open meadow granite boulders, silver birch copses & festive park gazebos (never plain flat white plains)
+    let boulderClusters = 0;
+    let birchCount = 0;
+    let gazebos = 0;
+    for (let ring = 14; ring <= 215 && (boulderClusters < 28 || birchCount < 32); ring += 18) {
+      for (let step = 0; step < 12; step++) {
+        const ang = (step / 12) * Math.PI * 2 + ring * 0.17;
+        const px = Math.cos(ang) * ring;
+        const pz = Math.sin(ang) * ring;
+        if (!landscapeClear({ x: px, z: pz }, 2.4)) continue;
+        const hash = Math.abs(Math.sin(px * 12.9898 + pz * 78.233));
+
+        if (gazebos < 4 && ring >= 26 && ring <= 145 && hash > 0.84) {
+          gazebos++;
+          landscapeOccupied.push({ x: px, z: pz });
+          addDetail(aoShadowMat, px, 0.022, pz, 0, 5.2, 5.2);
+          for (const [cx, cz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) {
+            addDetail(cedar, px + cx, 1.35, pz + cz, 0, 0.18, 2.7, 0.18);
+          }
+          addDetail(cedar, px, 2.95, pz, 0, 3.2, 0.65, 3.2);
+          addDetail(snow, px, 3.28, pz, 0, 3.4, 0.24, 3.4);
+          addDetail(lampOrbMat, px, 2.42, pz, 0, 0.24, 0.24, 0.24);
+          addDetail(lightPool, px, 0.068, pz, 0, 7.2, 7.2);
+          addDetail(starGold, px, 3.68, pz, 0, 0.42, 0.42, 0.42);
+        } else if (birchCount < 28 && hash > 0.45) {
+          birchCount++;
+          landscapeOccupied.push({ x: px, z: pz });
+          // Natural open-meadow evergreen spruce sapling instead of blocky spheres/dodecahedra
+          planted.push({ x: px, z: pz });
+        } else if (boulderClusters < 24) {
+          boulderClusters++;
+          landscapeOccupied.push({ x: px, z: pz });
+          const sc = 0.72 + (hash % 0.65);
+          addDetail(aoShadowMat, px, 0.021, pz, 0, 2.8 * sc, 2.4 * sc);
+          addDetail(graniteMat, px, 0.38 * sc, pz, hash * 5.0, 1.15 * sc, 0.72 * sc, 0.92 * sc);
+          addDetail(snow, px, 0.68 * sc, pz, hash * 5.0, 0.96 * sc, 0.28 * sc, 0.78 * sc);
+          addDetail(graniteMat, px + 0.95 * sc, 0.26 * sc, pz + 0.45 * sc, hash * 2.1, 0.65 * sc, 0.46 * sc, 0.58 * sc);
+        }
+      }
+    }
+
     const tiers = [{y:0.84,r:1.75,h:2.05},{y:1.79,r:1.43,h:1.87},
       {y:2.74,r:1.07,h:1.6},{y:3.62,r:0.74,h:1.49}];
     const treeScale = (p: OsmPoint2D) => 0.82 + Math.abs(Math.sin(p.x*16.84+p.z*9.15))*0.36;
@@ -1443,7 +1605,7 @@ export class ChristmasMap {
       this.group.add(mesh);
     }
     for (const [material, matrices] of details) {
-      const geometry = material === logWood ? logBeam : material === bayWood ? bayGeometry : material === powder ? drift : material === hat ? topHat : material === snowmanSnow || material === coal ? snowBall :
+      const geometry = material === logWood ? logBeam : material === bayWood ? bayGeometry : material === powder ? drift : material === hat ? topHat : material === graniteMat ? graniteRock : material === snowmanSnow || material === coal ? snowBall :
         material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : [lightPool, aoShadowMat, zebraMat].includes(material as THREE.MeshBasicMaterial) ? floorPlane :
         material === canopyWood || material === canopySnow ? canopyGeometry : material === firWreath ? fir :
         material === spireMat ? spireCone :
@@ -1451,7 +1613,7 @@ export class ChristmasMap {
         [glass,glassStar,glassCandles,glassTree,crest,windowRound,windowArch,...cottageDoors].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));
-      mesh.castShadow = [powder,snowmanSnow,hat,churchWall,spireMat,lampIronMat,marketRed].includes(material as THREE.MeshStandardMaterial);
+      mesh.castShadow = [powder,snowmanSnow,hat,churchWall,spireMat,lampIronMat,marketRed,graniteMat,fenceWoodMat].includes(material as THREE.MeshStandardMaterial);
       mesh.receiveShadow = material !== aoShadowMat && mesh.castShadow;
       this.instances.push(mesh);
       this.group.add(mesh);

@@ -359,6 +359,8 @@ export class HolidayAudioEngine {
   private lastChurchBellMs = 0;
 
   private wavDataUri: string | null = null;
+  private santaVoiceBuf: AudioBuffer | null = null;
+  private santaVoiceLoading = false;
 
   constructor() {
     try {
@@ -524,6 +526,28 @@ export class HolidayAudioEngine {
     if (this.routing === 'media' && this.mediaAudioEl) {
       this.mediaAudioEl.play().catch(() => {});
     }
+    this.preloadSantaVoice();
+  }
+
+  private santaAudioUrl(): string {
+    return new URL('audio/santa-hohoho.mp3', document.baseURI).href;
+  }
+
+  private preloadSantaVoice(): void {
+    if (this.santaVoiceBuf || this.santaVoiceLoading || !this.ctx) return;
+    this.santaVoiceLoading = true;
+    fetch(this.santaAudioUrl())
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error('Santa audio unavailable'))))
+      .then((arr) => (this.ctx ? this.ctx.decodeAudioData(arr) : Promise.reject(new Error('No audio ctx'))))
+      .then((decoded) => {
+        this.santaVoiceBuf = decoded;
+      })
+      .catch(() => {
+        // Fallback path in playHoHoHo handles offline or slow decode
+      })
+      .finally(() => {
+        this.santaVoiceLoading = false;
+      });
   }
 
   private reconnectOutput(): void {
@@ -919,77 +943,52 @@ export class HolidayAudioEngine {
     setTimeout(() => this.triggerSleighBell(0.45, 0.3), 90);
   }
 
+  private speakHoHoHoFallback(): void {
+    const fallbackEl = new Audio(this.santaAudioUrl());
+    fallbackEl.volume = Math.max(0.55, this.volume);
+    fallbackEl.play().catch(() => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance('Ho! Ho! Ho!');
+          utter.pitch = 0.55;
+          utter.rate = 0.85;
+          utter.volume = Math.max(0.55, this.volume);
+          window.speechSynthesis.speak(utter);
+        } catch {
+          // Ignore speech synthesis errors
+        }
+      }
+    });
+  }
+
   playHoHoHo(): void {
     this.unlock();
-    if (!this.ctx || this.mixMode === 'muted') return;
-    // Showstopping theatrical 3-beat booming Santa "HO! HO! HO!" + sleigh bells + brass chord
-    const vocalNotes = [146.83, 130.81, 110.0]; // D3 -> C3 -> A2 jolly baritone contour
-    vocalNotes.forEach((f, idx) => {
+    this.preloadSantaVoice();
+    if (this.mixMode === 'muted') return;
+
+    if (this.ctx && this.santaVoiceBuf && (this.dryBus || this.reverbBus)) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.santaVoiceBuf;
+      const g = this.ctx.createGain();
+      g.gain.value = 1.15;
+      src.connect(g);
+      if (this.dryBus) g.connect(this.dryBus);
+      if (this.reverbBus) g.connect(this.reverbBus);
+      src.start();
+    } else {
+      this.speakHoHoHoFallback();
+    }
+
+    // Layer crisp sleigh bells & sparkle gently underneath Santa's spoken voice
+    [0, 280, 560].forEach((ms, idx) => {
       setTimeout(() => {
-        if (!this.ctx || this.ctx.state !== 'running') return;
-        const now = this.ctx.currentTime;
-
-        // 1. Aspirated "H" breath burst before vowel
-        if (this.whiteNoiseBuf) {
-          const hSrc = this.ctx.createBufferSource();
-          hSrc.buffer = this.whiteNoiseBuf;
-          const hp = this.ctx.createBiquadFilter();
-          hp.type = 'bandpass';
-          hp.frequency.value = 1150;
-          hp.Q.value = 1.4;
-          const hg = this.ctx.createGain();
-          hg.gain.setValueAtTime(0.0001, now);
-          hg.gain.linearRampToValueAtTime(0.16, now + 0.02);
-          hg.gain.exponentialRampToValueAtTime(0.0001, now + 0.085);
-          hSrc.connect(hp);
-          hp.connect(hg);
-          if (this.dryBus) hg.connect(this.dryBus);
-          hSrc.start(now);
-          hSrc.stop(now + 0.095);
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.triggerSleighBell(0.72, (idx - 1) * 0.28);
         }
-
-        // 2. Warm "OH" formant baritone voice + fifth harmony
-        const saw = this.ctx.createOscillator();
-        const fifth = this.ctx.createOscillator();
-        saw.type = 'sawtooth';
-        fifth.type = 'triangle';
-        const vStart = now + 0.035;
-        saw.frequency.setValueAtTime(f * 1.12, vStart);
-        saw.frequency.exponentialRampToValueAtTime(f * 0.94, vStart + 0.28);
-        fifth.frequency.setValueAtTime(f * 1.5, vStart);
-
-        const formant1 = this.ctx.createBiquadFilter();
-        formant1.type = 'bandpass';
-        formant1.frequency.value = 470;
-        formant1.Q.value = 3.2;
-
-        const formant2 = this.ctx.createBiquadFilter();
-        formant2.type = 'bandpass';
-        formant2.frequency.value = 860;
-        formant2.Q.value = 4.0;
-
-        const vg = this.ctx.createGain();
-        vg.gain.setValueAtTime(0.0001, vStart);
-        vg.gain.linearRampToValueAtTime(0.28, vStart + 0.045);
-        vg.gain.exponentialRampToValueAtTime(0.0001, vStart + 0.36);
-
-        saw.connect(formant1);
-        saw.connect(formant2);
-        fifth.connect(formant2);
-        formant1.connect(vg);
-        formant2.connect(vg);
-        if (this.dryBus) vg.connect(this.dryBus);
-        if (this.reverbBus) vg.connect(this.reverbBus);
-
-        saw.start(vStart);
-        fifth.start(vStart);
-        saw.stop(vStart + 0.38);
-        fifth.stop(vStart + 0.38);
-        this.triggerSleighBell(0.95, (idx - 1) * 0.32);
-      }, idx * 255);
+      }, ms);
     });
-    setTimeout(() => this.playSparkleChime(), 560);
-    setTimeout(() => this.playComboFanfare(3), 760);
+    setTimeout(() => this.playSparkleChime(), 680);
   }
 
   playSnowballSplat(): void {

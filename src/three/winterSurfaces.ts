@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EnvironmentState, HolidayThemeId } from '../core/environment';
 import type { LiveWorldState } from '../core/liveWorldData';
-import { createMoonSurfaceTexture } from './pixarMaterials';
+import { createMarsSurfaceTexture, createMoonSurfaceTexture } from './pixarMaterials';
 
 const snowNoise = /* glsl */`
 float winterHash(vec2 p) {
@@ -218,11 +218,15 @@ export function updateWinterRoad(
 }
 
 export const moonDirection = new THREE.Vector3(-0.29,0.22,-0.93).normalize();
+export const marsDirection = new THREE.Vector3(0.46, 0.215, 0.86).normalize(); // Ecliptic SE/SSE sky
 
 export function shapeChristmasSky(material: THREE.ShaderMaterial): void {
   material.uniforms.uMoonDirection = { value: moonDirection };
   material.uniforms.uMoonMap = { value: createMoonSurfaceTexture() };
   material.uniforms.uMoonPhase = { value: 0.5 };
+  material.uniforms.uMarsDirection = { value: marsDirection.clone() };
+  material.uniforms.uMarsMap = { value: createMarsSurfaceTexture() };
+  material.uniforms.uMarsVis = { value: 0.92 };
   material.uniforms.uTopColor.value.set('#10173c');
   material.uniforms.uMidColor.value.set('#234c7c');
   material.uniforms.uHorizonColor.value.set('#5c638d');
@@ -270,9 +274,35 @@ export function shapeChristmasSky(material: THREE.ShaderMaterial): void {
           col = mix(col,disk,diskMask);
         }
       }
+      // Red Planet Mars (magical Elon touch in upper winter sky with crisp desert basins & polar cap)
+      if (uMarsVis > 0.02 && dot(dir, uMarsDirection) > 0.0) {
+        vec3 marsRight = normalize(cross(uMarsDirection, vec3(0.0, 1.0, 0.0)));
+        vec3 marsUp = cross(marsRight, uMarsDirection);
+        vec2 marsCoord = vec2(dot(dir, marsRight), dot(dir, marsUp)) / 0.025;
+        float marsRadius = length(marsCoord);
+        if (marsRadius < 3.4) {
+          float mVis = uMarsVis * (0.35 + 0.65 * nightVis);
+          col += vec3(1.0, 0.45, 0.22) * exp(-marsRadius * marsRadius * 0.95) * 0.34 * mVis;
+          if (marsRadius < 1.0) {
+            vec3 mNormal = vec3(marsCoord, sqrt(max(0.0, 1.0 - dot(marsCoord, marsCoord))));
+            vec2 mUv = vec2(fract(0.5 + atan(mNormal.x, mNormal.z) / 6.28318 + uTime * 0.008), 0.5 + asin(mNormal.y) / 3.14159);
+            vec3 mTex = texture2D(uMarsMap, mUv).rgb;
+            float basinNoise = winterNoise(vec2(mUv.x * 9.0, mUv.y * 5.0));
+            vec3 surfaceCol = mix(mTex * vec3(0.72, 0.42, 0.34), mTex * vec3(1.18, 0.94, 0.80), basinNoise);
+            float polarCap = smoothstep(0.78, 0.92, mNormal.y);
+            surfaceCol = mix(surfaceCol, vec3(1.0, 0.95, 0.92), polarCap * 0.85);
+            vec3 mSun = normalize(vec3(0.60, 0.28, 0.75));
+            float mLit = mix(0.22, 1.08, smoothstep(-0.22, 0.38, dot(mNormal, mSun)));
+            float limb = mix(0.68, 1.05, sqrt(max(0.0, 1.0 - dot(marsCoord, marsCoord))));
+            vec3 mDisk = surfaceCol * mLit * limb;
+            float mMask = (1.0 - smoothstep(0.92, 1.0, marsRadius)) * mVis;
+            col = mix(col, mDisk, mMask);
+          }
+        }
+      }
       gl_FragColor = vec4(col, 1.0);
     `);
-  material.fragmentShader = 'uniform vec3 uMoonDirection;\nuniform sampler2D uMoonMap;\nuniform float uMoonPhase;\n' + snowNoise + material.fragmentShader;
+  material.fragmentShader = 'uniform vec3 uMoonDirection;\nuniform sampler2D uMoonMap;\nuniform float uMoonPhase;\nuniform vec3 uMarsDirection;\nuniform sampler2D uMarsMap;\nuniform float uMarsVis;\n' + snowNoise + material.fragmentShader;
 }
 
 const midnightHorizonTarget = new THREE.Color('#344572');
@@ -289,6 +319,13 @@ export function applyChristmasSkyEnv(
   u.uThemeMode.value = env.theme === 'cyber2099' ? 2.0 : env.theme === 'nordic' ? 1.0 : 0.0;
   u.uDaylight.value = env.daylightFactor;
   if (u.uMoonPhase) u.uMoonPhase.value = env.moonPhase;
+  if (u.uMarsVis && u.uTime) {
+    // Mars shines strongly (~70s visible, ~20s softly veiled) & slowly orbits ecliptic in world coordinates
+    const wave = 0.5 + 0.5 * Math.sin(u.uTime.value * 0.07 + 1.05);
+    u.uMarsVis.value = THREE.MathUtils.smoothstep(wave, 0.14, 0.42);
+    const orbitAz = 2.66 + u.uTime.value * 0.0022;
+    u.uMarsDirection.value.set(Math.sin(orbitAz), 0.215, -Math.cos(orbitAz)).normalize();
+  }
   u.uAuroraBoost.value =
     THREE.MathUtils.clamp(live.auroraLiveBoost, 0.9, 1.7) * 1.12 +
     beat * 0.45 +

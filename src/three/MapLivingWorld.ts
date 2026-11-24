@@ -6,11 +6,9 @@ import type { ChristmasMapData } from './ChristmasMap';
 import { pointAlongStreet } from './mappedRoads';
 import { createSparklingSnowMaterial, getSoftGlowTexture } from './pixarMaterials';
 import {
-  createHolidayRoadSign,
+  createMagicalFloatingSign,
   createPixarSnowman,
-  createSwedishRoadSign,
-  type HolidayRoadSignHandle,
-  type SwedishRoadSignHandle,
+  type MagicalFloatingSignHandle,
 } from './pixarModels';
 import { createPixarForestAnimal, type PixarAnimalHandle, type WildlifeKind } from './pixarWildlife';
 
@@ -83,11 +81,11 @@ export class MapLivingWorld {
   // 5. Interactive Crownable Snowmen
   private readonly snowmen: CrownSnowman[] = [];
 
-  // 6. Authentic Road Signs along mapped street shoulders
-  private readonly swedishSign: SwedishRoadSignHandle;
-  private swedishSignPlaced = false;
-  private readonly holidaySign: HolidayRoadSignHandle;
-  private holidaySignPlaced = false;
+  // 6. Rarer Magical Floating Holiday Sign along mapped street shoulders
+  private readonly magicalSign: MagicalFloatingSignHandle;
+  private magicalSignPlaced = false;
+  private signCooldownM = 18;
+  private lastSignPos = new THREE.Vector3();
 
   constructor(onTownTreeLit?: () => void) {
     this.onTownTreeLit = onTownTreeLit;
@@ -197,47 +195,125 @@ export class MapLivingWorld {
     this.owlGroup.visible = false;
     this.group.add(this.owlGroup);
 
-    // --- 4. Giant 15m Town Tree ---
+    // --- 4. Giant 15m Organic Pixar Spruce Tree (Multi-tier sculpted drooping boughs + helical garland) ---
+    const skirt = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.8, 3.6, 0.22, 24),
+      new THREE.MeshStandardMaterial({ color: '#9c172e', roughness: 0.85 })
+    );
+    skirt.position.y = 0.11;
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.48, 0.85, 2.4, 8),
+      new THREE.CylinderGeometry(0.45, 0.92, 3.0, 12),
       new THREE.MeshStandardMaterial({ color: '#3b2016', roughness: 0.9 })
     );
-    trunk.position.y = 1.2;
-    this.townTreeGroup.add(trunk);
+    trunk.position.y = 1.5;
+    this.townTreeGroup.add(skirt, trunk);
 
+    const buildBoughTier = (snowCap: boolean): THREE.BufferGeometry => {
+      const pos: number[] = [];
+      const uvs: number[] = [];
+      const idx: number[] = [];
+      const segs = 36;
+      const rings = snowCap
+        ? [{ y: 0.14, r: 0.96 }, { y: 0.34, r: 0.84 }, { y: 0.68, r: 0.45 }, { y: 0.98, r: 0.03 }]
+        : [{ y: 0.0, r: 0.20 }, { y: 0.06, r: 1.02 }, { y: 0.32, r: 0.85 }, { y: 0.66, r: 0.44 }, { y: 1.0, r: 0.025 }];
+      rings.forEach(({ y, r }, rIdx) => {
+        for (let i = 0; i <= segs; i++) {
+          const a = (i / segs) * Math.PI * 2;
+          const boughLobe =
+            Math.cos(a * 9 + Math.sin(a * 3) * 0.6) * 0.18 +
+            Math.sin(a * 18 + y * 2.2) * 0.07;
+          const droop = (1 - y) * Math.abs(boughLobe) * (snowCap ? 0.32 : 0.42);
+          const rad = r * (1 + boughLobe * (1 - y * 0.72));
+          pos.push(Math.cos(a) * rad, y - droop, Math.sin(a) * rad);
+          uvs.push(i / segs, y);
+          if (rIdx > 0 && i < segs) {
+            const k = rIdx * (segs + 1) + i;
+            idx.push(k - segs - 1, k, k + 1, k - segs - 1, k + 1, k - segs);
+          }
+        }
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      return g;
+    };
+
+    const organicSpruceGeo = buildBoughTier(false);
+    const organicSnowGeo = buildBoughTier(true);
     const spruceMat = new THREE.MeshPhysicalMaterial({
-      color: '#0c362a',
-      roughness: 0.78,
-      sheen: 0.3,
-      sheenColor: new THREE.Color('#286e58'),
+      color: '#0e4232',
+      roughness: 0.76,
+      sheen: 0.45,
+      sheenColor: new THREE.Color('#2c8c68'),
     });
-    const snowRoofMat = createSparklingSnowMaterial('#bed6f2');
-    for (let t = 0; t < 7; t++) {
-      const r = 4.2 - t * 0.52;
-      const h = 3.0 - t * 0.2;
-      const y = 2.5 + t * 1.65;
-      const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 12), spruceMat);
+    const snowRoofMat = createSparklingSnowMaterial('#cce2fc');
+    for (let t = 0; t < 11; t++) {
+      const frac = t / 10;
+      const r = 4.35 * (1 - frac * 0.79);
+      const h = 2.45 - frac * 0.85;
+      const y = 2.0 + frac * 9.8;
+      const c = new THREE.Mesh(organicSpruceGeo, spruceMat);
+      c.scale.set(r, h, r);
       c.position.y = y;
-      c.rotation.y = t * 0.55;
-      const sc = new THREE.Mesh(new THREE.ConeGeometry(r * 0.78, h * 0.44, 12), snowRoofMat);
-      sc.position.y = y + h * 0.3;
-      sc.rotation.y = t * 0.55;
+      c.rotation.y = t * 0.62;
+      const sc = new THREE.Mesh(organicSnowGeo, snowRoofMat);
+      sc.scale.set(r * 0.94, h * 0.86, r * 0.94);
+      sc.position.y = y + 0.14;
+      sc.rotation.y = t * 0.62;
       this.townTreeGroup.add(c, sc);
     }
+
+    // Helical golden light garland spiraling up the tree
+    const garlandPts: THREE.Vector3[] = [];
+    for (let s = 0; s <= 90; s++) {
+      const f = s / 90;
+      const ang = f * Math.PI * 10;
+      const rad = THREE.MathUtils.lerp(4.05, 0.45, f);
+      garlandPts.push(new THREE.Vector3(Math.cos(ang) * rad, 2.2 + f * 10.6, Math.sin(ang) * rad));
+    }
+    const garlandTube = new THREE.Mesh(
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(garlandPts), 96, 0.085, 6, false),
+      new THREE.MeshBasicMaterial({ color: '#ffd978', toneMapped: false })
+    );
+    this.townTreeGroup.add(garlandTube);
+
     const palette = ['#ffd468', '#ff3b4c', '#5ce6ff', '#ffe99e'];
-    for (let i = 0; i < 32; i++) {
-      const f = i / 32;
-      const ang = i * 1.65;
-      const y = 2.1 + f * 10.8;
-      const rad = 3.65 * (1 - f * 0.84);
+    for (let i = 0; i < 48; i++) {
+      const f = i / 48;
+      const ang = i * 1.48;
+      const y = 2.15 + f * 10.7;
+      const rad = 3.88 * (1 - f * 0.82);
       const bm = new THREE.MeshBasicMaterial({ color: palette[i % palette.length], toneMapped: false });
       this.townTreeBulbs.push(bm);
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.19, 6, 6), bm);
+      const b = new THREE.Mesh(new THREE.SphereGeometry(i % 3 === 0 ? 0.22 : 0.16, 8, 8), bm);
       b.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
       this.townTreeGroup.add(b);
     }
+
+    // Wrapped gift boxes around base skirt
+    const giftColors = ['#e01b3a', '#1b7a52', '#2662c8', '#f2b830'];
+    const ribbonGoldMat = new THREE.MeshStandardMaterial({ color: '#ffd872', metalness: 0.72, roughness: 0.22 });
+    for (let g = 0; g < 8; g++) {
+      const a = (g / 8) * Math.PI * 2 + 0.3;
+      const sz = 0.65 + (g % 3) * 0.16;
+      const gx = Math.cos(a) * (2.15 + (g % 2) * 0.65);
+      const gz = Math.sin(a) * (2.15 + (g % 2) * 0.65);
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(sz, sz * 0.8, sz),
+        new THREE.MeshPhysicalMaterial({ color: giftColors[g % giftColors.length], roughness: 0.32, clearcoat: 0.55 })
+      );
+      box.position.set(gx, sz * 0.4, gz);
+      box.rotation.y = a;
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(sz * 1.05, sz * 0.84, sz * 0.18), ribbonGoldMat);
+      rib.position.copy(box.position);
+      rib.rotation.y = a;
+      this.townTreeGroup.add(box, rib);
+    }
+
     this.townTreeStar = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.64, 0),
+      new THREE.OctahedronGeometry(0.76, 0),
       new THREE.MeshBasicMaterial({ color: '#ffe888', toneMapped: false })
     );
     this.townTreeStar.position.y = 14.3;
@@ -246,13 +322,13 @@ export class MapLivingWorld {
         map: glowTex,
         color: '#ffd86b',
         transparent: true,
-        opacity: 0.14,
+        opacity: 0.16,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
     );
-    this.townTreeHalo.scale.set(15, 17, 1);
-    this.townTreeHalo.position.y = 8.0;
+    this.townTreeHalo.scale.set(14, 16, 1);
+    this.townTreeHalo.position.y = 8.2;
     this.townTreeGroup.add(this.townTreeStar, this.townTreeHalo);
     this.townTreeGroup.visible = false;
     this.group.add(this.townTreeGroup);
@@ -316,16 +392,10 @@ export class MapLivingWorld {
       });
     }
 
-    // --- 6. Authentic Road Signs ---
-    this.swedishSign = createSwedishRoadSign();
-    this.swedishSign.group.scale.setScalar(1.12);
-    this.swedishSign.group.visible = false;
-    this.group.add(this.swedishSign.group);
-
-    this.holidaySign = createHolidayRoadSign();
-    this.holidaySign.group.scale.setScalar(1.12);
-    this.holidaySign.group.visible = false;
-    this.group.add(this.holidaySign.group);
+    // --- 6. Rarer Compact Floating Magical Sign ---
+    this.magicalSign = createMagicalFloatingSign();
+    this.magicalSign.group.visible = false;
+    this.group.add(this.magicalSign.group);
   }
 
   private clearWildlife(): void {
@@ -351,10 +421,9 @@ export class MapLivingWorld {
     this.clearWildlife();
     this.townTreePlaced = false;
     this.townTreeGroup.visible = false;
-    this.swedishSignPlaced = false;
-    this.swedishSign.group.visible = false;
-    this.holidaySignPlaced = false;
-    this.holidaySign.group.visible = false;
+    this.magicalSignPlaced = false;
+    this.magicalSign.group.visible = false;
+    this.signCooldownM = 18;
     for (const sm of this.snowmen) {
       sm.placed = false;
       sm.group.visible = false;
@@ -713,37 +782,37 @@ export class MapLivingWorld {
       if (sm.crowned) sm.crown.rotation.y = time * 1.8;
     }
 
-    // 6. Swedish Trafikverket & Carved Holiday Road Signs
+    // 6. Rarer Levitating Aurora-Crystal Magical Sign (no cluttering oversized street posts)
     const roadLabel = road?.name || osm.roadName || 'Vinterväg';
     const placeLabel = osm.placeName || 'Vintervärlden';
-    this.swedishSign.setDirections(frame.northPoleDistanceKm, placeLabel, roadLabel);
-    this.holidaySign.setText(`GOD JUL, ${placeLabel.toUpperCase()}`, osm.nearbyLandmark || osm.nearbyChargerName || roadLabel);
+    this.magicalSign.setDirections(frame.northPoleDistanceKm, placeLabel, roadLabel);
 
-    if (this.swedishSignPlaced && (aheadDist(this.swedishSign.group.position) < -14 || this.swedishSign.group.position.distanceTo(center) > 160)) {
-      this.swedishSignPlaced = false;
+    const movedStep = Math.hypot(center.x - this.lastSignPos.x, center.z - this.lastSignPos.z);
+    if (movedStep < 50 && this.lastSignPos.lengthSq() > 0.01) {
+      this.signCooldownM = Math.max(0, this.signCooldownM - movedStep);
     }
-    if (!this.swedishSignPlaced && road) {
-      const spot = this.tryPlaceAlongStreet(road, center, heading, 46, -1, 3.0, 1.1, mapData);
+    this.lastSignPos.copy(center);
+
+    if (
+      this.magicalSignPlaced &&
+      (aheadDist(this.magicalSign.group.position) < -12 || this.magicalSign.group.position.distanceTo(center) > 165)
+    ) {
+      this.magicalSignPlaced = false;
+      this.signCooldownM = 185;
+    }
+    if (!this.magicalSignPlaced && this.signCooldownM <= 0 && road) {
+      const spot = this.tryPlaceAlongStreet(road, center, heading, 58, -1, 3.2, 1.0, mapData);
       if (spot) {
-        this.swedishSign.group.position.set(spot.x, spot.y, spot.z);
-        this.swedishSign.group.rotation.y = -spot.heading + 0.14;
-        this.swedishSignPlaced = true;
+        this.magicalSign.group.position.set(spot.x, spot.y, spot.z);
+        this.magicalSign.group.rotation.y = -spot.heading + 0.14;
+        this.magicalSignPlaced = true;
       }
     }
-    this.swedishSign.group.visible = this.swedishSignPlaced;
-
-    if (this.holidaySignPlaced && (aheadDist(this.holidaySign.group.position) < -14 || this.holidaySign.group.position.distanceTo(center) > 160)) {
-      this.holidaySignPlaced = false;
+    this.magicalSign.group.visible = this.magicalSignPlaced;
+    if (this.magicalSignPlaced) {
+      this.magicalSign.group.position.y =
+        groundY(this.magicalSign.group.position.x, this.magicalSign.group.position.z) + Math.sin(time * 2.1) * 0.24;
     }
-    if (!this.holidaySignPlaced && road) {
-      const spot = this.tryPlaceAlongStreet(road, center, heading, 84, 1, 2.9, 1.1, mapData);
-      if (spot && (!this.swedishSignPlaced || Math.hypot(spot.x - this.swedishSign.group.position.x, spot.z - this.swedishSign.group.position.z) > 22)) {
-        this.holidaySign.group.position.set(spot.x, spot.y, spot.z);
-        this.holidaySign.group.rotation.y = -spot.heading - 0.18;
-        this.holidaySignPlaced = true;
-      }
-    }
-    this.holidaySign.group.visible = this.holidaySignPlaced;
   }
 
   dispose(): void {

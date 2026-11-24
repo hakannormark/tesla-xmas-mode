@@ -19,9 +19,9 @@ export class VehicleLighting {
   private readonly blinkerMatR: THREE.SpriteMaterial;
 
   constructor() {
-    this.beamMat = createVolumetricBeamMaterial('#fff1ce', 0.17);
-    const beamGeo = new THREE.ConeGeometry(2.6, 22, 18, 1, true);
-    beamGeo.translate(0, -11, 0);
+    this.beamMat = createVolumetricBeamMaterial('#fff1ce', 0.085);
+    const beamGeo = new THREE.ConeGeometry(1.75, 16, 16, 1, true);
+    beamGeo.translate(0, -8, 0);
     beamGeo.rotateX(Math.PI * 0.5);
 
     this.leftBeam = new THREE.Mesh(beamGeo, this.beamMat);
@@ -88,7 +88,7 @@ export class VehicleLighting {
     this.leftBeam.rotation.y = steerYaw;
     this.rightBeam.rotation.y = steerYaw;
 
-    this.beamMat.uniforms.uOpacity.value = 0.17 * nightFactor;
+    this.beamMat.uniforms.uOpacity.value = 0.085 * nightFactor;
     this.beamMat.uniforms.uColor.value.set(
       env.theme === 'cyber2099' ? '#8aeaff' : '#fff0cb'
     );

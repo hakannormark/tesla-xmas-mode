@@ -194,12 +194,12 @@ export class FlightStars {
           label = document.createElement('span');
           button.replaceChildren(label);
         }
-        const badgeText = `✈ ${f.callsign}`;
+        const badgeText = `🚀 ${f.callsign}`;
         if (label.textContent !== badgeText) label.textContent = badgeText;
         const p = project(f);
         button.hidden = !p.visible;
-        button.style.left = p.x + '%';
-        button.style.top = p.y + '%';
+        button.style.left = Math.max(8, Math.min(92, p.x)) + '%';
+        button.style.top = Math.max(11, Math.min(72, p.y)) + '%';
         if (p.width !== undefined) button.style.width = Math.max(7.5, p.width) + '%';
         if (p.height !== undefined) button.style.height = Math.max(6.2, p.height) + '%';
         continue;

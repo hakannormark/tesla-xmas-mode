@@ -511,6 +511,325 @@ export function createMoonSurfaceTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+let cachedClapboard: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
+let cachedPlasterBrick: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
+let cachedShingleRoof: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
+let cachedGigaWall: THREE.CanvasTexture | null = null;
+let cachedGigaSolarRoof: THREE.CanvasTexture | null = null;
+let cachedMarsTex: THREE.CanvasTexture | null = null;
+
+function pseudoRand(seed: number): number {
+  const s = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** Crisp Nordic horizontal beveled clapboard siding (neutral grayscale/warm base tinted by material.color) */
+export function createClapboardTextures(): { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } {
+  if (cachedClapboard) return cachedClapboard;
+  const s = 256;
+  const mapC = document.createElement('canvas');
+  mapC.width = mapC.height = s;
+  const mCtx = mapC.getContext('2d')!;
+
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = s;
+  const bCtx = bumpC.getContext('2d')!;
+
+  const planks = 10;
+  const ph = s / planks;
+  for (let i = 0; i < planks; i++) {
+    const y = i * ph;
+    const tone = 218 + Math.round((pseudoRand(i + 1) - 0.5) * 26);
+    const g = mCtx.createLinearGradient(0, y, 0, y + ph);
+    g.addColorStop(0, `rgb(${Math.min(255, tone + 16)},${Math.min(255, tone + 14)},${Math.min(255, tone + 12)})`);
+    g.addColorStop(0.75, `rgb(${tone},${tone - 3},${tone - 6})`);
+    g.addColorStop(0.92, `rgb(${tone - 28},${tone - 30},${tone - 32})`);
+    g.addColorStop(1, 'rgb(110,104,100)');
+    mCtx.fillStyle = g;
+    mCtx.fillRect(0, y, s, ph);
+
+    const bg = bCtx.createLinearGradient(0, y, 0, y + ph);
+    bg.addColorStop(0, '#c8c8c8');
+    bg.addColorStop(0.84, '#f0f0f0');
+    bg.addColorStop(0.93, '#404040');
+    bg.addColorStop(1, '#262626');
+    bCtx.fillStyle = bg;
+    bCtx.fillRect(0, y, s, ph);
+
+    // Subtle woodgrain lines
+    mCtx.strokeStyle = 'rgba(70, 50, 40, 0.10)';
+    mCtx.lineWidth = 1;
+    for (let k = 0; k < 3; k++) {
+      const gy = y + (0.22 + k * 0.24) * ph;
+      mCtx.beginPath();
+      mCtx.moveTo(0, gy);
+      mCtx.bezierCurveTo(s * 0.3, gy + (pseudoRand(i * 9 + k) - 0.5) * 4, s * 0.7, gy - (pseudoRand(i * 13 + k) - 0.5) * 4, s, gy);
+      mCtx.stroke();
+    }
+    const jointX = ((i * 89 + 44) % (s - 40)) + 20;
+    mCtx.fillStyle = 'rgba(60,48,42,0.22)';
+    mCtx.fillRect(jointX, y, 2, ph);
+    bCtx.fillStyle = '#383838';
+    bCtx.fillRect(jointX, y, 2, ph);
+  }
+
+  const map = new THREE.CanvasTexture(mapC);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bumpMap = new THREE.CanvasTexture(bumpC);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  cachedClapboard = { map, bumpMap };
+  return cachedClapboard;
+}
+
+/** Realistic European stucco/brick masonry texture with weathered variation & bump map */
+export function createPlasterBrickTextures(): { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } {
+  if (cachedPlasterBrick) return cachedPlasterBrick;
+  const s = 256;
+  const mapC = document.createElement('canvas');
+  mapC.width = mapC.height = s;
+  const mCtx = mapC.getContext('2d')!;
+
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = s;
+  const bCtx = bumpC.getContext('2d')!;
+
+  mCtx.fillStyle = '#dad4cc';
+  mCtx.fillRect(0, 0, s, s);
+  bCtx.fillStyle = '#606060';
+  bCtx.fillRect(0, 0, s, s);
+
+  const rows = 16;
+  const cols = 8;
+  const rh = s / rows;
+  const cw = s / cols;
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) * (cw * 0.5);
+    for (let c = -1; c <= cols; c++) {
+      const bx = c * cw + offset + 1.5;
+      const by = r * rh + 1.5;
+      const v = 205 + Math.round((pseudoRand(r * 31 + c * 17) - 0.5) * 42);
+      mCtx.fillStyle = `rgb(${v},${v - 5},${v - 9})`;
+      mCtx.fillRect(bx, by, cw - 3, rh - 3);
+      const bv = 175 + Math.round((pseudoRand(r * 19 + c * 23) - 0.5) * 30);
+      bCtx.fillStyle = `rgb(${bv},${bv},${bv})`;
+      bCtx.fillRect(bx, by, cw - 3, rh - 3);
+    }
+  }
+  for (let i = 0; i < 420; i++) {
+    const x = pseudoRand(i * 3.1) * s;
+    const y = pseudoRand(i * 7.3) * s;
+    mCtx.fillStyle = i % 2 === 0 ? 'rgba(255,252,246,0.16)' : 'rgba(90,82,78,0.10)';
+    mCtx.fillRect(x, y, 4, 3);
+  }
+
+  const map = new THREE.CanvasTexture(mapC);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bumpMap = new THREE.CanvasTexture(bumpC);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  cachedPlasterBrick = { map, bumpMap };
+  return cachedPlasterBrick;
+}
+
+/** Layered Nordic slate/shingle roof tiles with snow-dusted pockets & ridge bump */
+export function createShingleRoofTextures(): { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } {
+  if (cachedShingleRoof) return cachedShingleRoof;
+  const s = 256;
+  const mapC = document.createElement('canvas');
+  mapC.width = mapC.height = s;
+  const mCtx = mapC.getContext('2d')!;
+
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = s;
+  const bCtx = bumpC.getContext('2d')!;
+
+  mCtx.fillStyle = '#6d7b92';
+  mCtx.fillRect(0, 0, s, s);
+  bCtx.fillStyle = '#646464';
+  bCtx.fillRect(0, 0, s, s);
+
+  const rows = 10;
+  const cols = 8;
+  const rh = s / rows;
+  const cw = s / cols;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * (cw * 0.5);
+    for (let c = -1; c <= cols; c++) {
+      const x = c * cw + off;
+      const y = r * rh;
+      const baseL = 88 + Math.round((pseudoRand(r * 29 + c * 11) - 0.5) * 28);
+      mCtx.fillStyle = `rgb(${baseL},${baseL + 8},${baseL + 22})`;
+      mCtx.fillRect(x + 1, y + 1, cw - 2, rh - 2);
+      mCtx.fillStyle = 'rgba(18, 25, 40, 0.45)';
+      mCtx.fillRect(x, y + rh - 3, cw, 3);
+
+      const snowChance = pseudoRand(r * 41 + c * 13);
+      if (snowChance > 0.34) {
+        const sg = mCtx.createLinearGradient(0, y, 0, y + rh * 0.72);
+        sg.addColorStop(0, 'rgba(240, 246, 255, 0.92)');
+        sg.addColorStop(0.55, 'rgba(218, 232, 250, 0.65)');
+        sg.addColorStop(1, 'rgba(200, 220, 246, 0.0)');
+        mCtx.fillStyle = sg;
+        mCtx.fillRect(x + 1, y + 1, cw - 2, rh * 0.72);
+      }
+
+      const bg = bCtx.createLinearGradient(0, y, 0, y + rh);
+      bg.addColorStop(0, '#787878');
+      bg.addColorStop(0.82, '#ebebeb');
+      bg.addColorStop(1, '#262626');
+      bCtx.fillStyle = bg;
+      bCtx.fillRect(x + 1, y, cw - 2, rh);
+    }
+  }
+
+  const map = new THREE.CanvasTexture(mapC);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  const bumpMap = new THREE.CanvasTexture(bumpC);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  cachedShingleRoof = { map, bumpMap };
+  return cachedShingleRoof;
+}
+
+/** Iconic Giga Texas / Giga Berlin exterior: architectural white metal cladding + horizontal curtain glass ribbons */
+export function createGigafactoryWallTexture(): THREE.CanvasTexture {
+  if (cachedGigaWall) return cachedGigaWall;
+  const w = 512;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const baseGrad = ctx.createLinearGradient(0, 0, 0, h);
+  baseGrad.addColorStop(0, '#eef3fa');
+  baseGrad.addColorStop(0.5, '#dde5f0');
+  baseGrad.addColorStop(1, '#c8d2e2');
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = 'rgba(85, 102, 132, 0.28)';
+  ctx.lineWidth = 2;
+  for (let x = 0; x <= w; x += 32) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= h; y += 32) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  for (const bandY of [48, 136]) {
+    const bandH = 44;
+    ctx.fillStyle = '#152236';
+    ctx.fillRect(0, bandY, w, bandH);
+    for (let x = 8; x < w; x += 32) {
+      const lit = pseudoRand(bandY * 3 + x) > 0.25;
+      const g = ctx.createLinearGradient(x, bandY + 4, x, bandY + bandH - 4);
+      g.addColorStop(0, lit ? 'rgba(255, 224, 152, 0.78)' : 'rgba(54, 92, 148, 0.45)');
+      g.addColorStop(1, lit ? 'rgba(240, 154, 72, 0.55)' : 'rgba(20, 38, 66, 0.8)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, bandY + 5, 22, bandH - 10);
+    }
+    ctx.fillStyle = '#f5f8fc';
+    ctx.fillRect(0, bandY - 3, w, 3);
+    ctx.fillRect(0, bandY + bandH, w, 3);
+  }
+
+  ctx.fillStyle = '#c8102e';
+  ctx.fillRect(0, 14, w, 10);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGigaWall = tex;
+  return tex;
+}
+
+/** Giga Texas iconic photovoltaic solar array roof with bright frosted negative-space "TESLA" lettering */
+export function createGigaSolarRoofTexture(): THREE.CanvasTexture {
+  if (cachedGigaSolarRoof) return cachedGigaSolarRoof;
+  const w = 512;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  ctx.fillStyle = '#e8f0fa';
+  ctx.fillRect(0, 0, w, h);
+
+  const stepX = 16;
+  const stepY = 16;
+  for (let y = 14; y < h - 14; y += stepY) {
+    for (let x = 14; x < w - 14; x += stepX) {
+      ctx.fillStyle = ((x + y) / 16) % 2 === 0 ? '#142648' : '#192e56';
+      ctx.fillRect(x + 1, y + 1, stepX - 2, stepY - 2);
+    }
+  }
+
+  ctx.fillStyle = '#f7faff';
+  ctx.strokeStyle = '#c8102e';
+  ctx.lineWidth = 4;
+  ctx.font = '900 72px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeText('T E S L A', w * 0.5, h * 0.5);
+  ctx.fillText('T E S L A', w * 0.5, h * 0.5);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGigaSolarRoof = tex;
+  return tex;
+}
+
+/** Red Planet Mars equatorial map for festive SpaceX sky easter egg */
+export function createMarsSurfaceTexture(): THREE.CanvasTexture {
+  if (cachedMarsTex) return cachedMarsTex;
+  const w = 256;
+  const h = 128;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const base = ctx.createLinearGradient(0, 0, 0, h);
+  base.addColorStop(0, '#f4ece8');
+  base.addColorStop(0.14, '#d96e3c');
+  base.addColorStop(0.5, '#c64c26');
+  base.addColorStop(0.86, '#ad3f1f');
+  base.addColorStop(1, '#e8ddd6');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+
+  const patches: [number, number, number, string][] = [
+    [0.32, 0.48, 0.24, 'rgba(72, 24, 14, 0.42)'],
+    [0.64, 0.56, 0.28, 'rgba(84, 28, 16, 0.36)'],
+    [0.52, 0.38, 0.16, 'rgba(240, 140, 82, 0.34)'],
+    [0.18, 0.62, 0.18, 'rgba(68, 22, 12, 0.38)'],
+  ];
+  for (const [px, py, pr, col] of patches) {
+    const g = ctx.createRadialGradient(px * w, py * h, 2, px * w, py * h, pr * w);
+    g.addColorStop(0, col);
+    g.addColorStop(1, 'rgba(180, 70, 34, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(px * w, py * h, pr * w, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedMarsTex = tex;
+  return tex;
+}
+
 export function createVolumetricBeamMaterial(colorHex = '#ffdf9e', opacity = 0.28): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {

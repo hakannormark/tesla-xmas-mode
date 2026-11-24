@@ -157,7 +157,21 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   const backrestMesh = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.82, 0.24), sleighHullMat);
   backrestMesh.position.set(0, 1.08, 1.72);
   backrestMesh.rotation.x = -0.24;
-  sleighBodyGroup.add(backrestMesh);
+  const backrestTrim = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 1.46, 6, 10), goldMat);
+  backrestTrim.rotation.z = Math.PI * 0.5;
+  backrestTrim.position.set(0, 1.50, 1.82);
+  sleighBodyGroup.add(backrestMesh, backrestTrim);
+
+  // Warm Crimson/Gold Rear Sleigh Tail Lanterns + Front Golden Bow Emblem
+  const rearSleighLampMat = new THREE.MeshBasicMaterial({ color: '#ff364c', toneMapped: false });
+  for (const side of [-0.74, 0.74]) {
+    const rLamp = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), rearSleighLampMat);
+    rLamp.position.set(side, 0.98, 1.92);
+    sleighBodyGroup.add(rLamp);
+  }
+  const bowOrb = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), goldMat);
+  bowOrb.position.set(0, 1.24, -0.78);
+  sleighBodyGroup.add(bowOrb);
 
   const seatCushion = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.92, 8, 12), velvetMat);
   seatCushion.rotation.z = Math.PI * 0.5;
@@ -173,17 +187,20 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   frontCowl.position.set(0, 1.05, -0.38);
   sleighBodyGroup.add(frontCowl);
 
-  // Curved Golden Runners via TubeGeometry splines
+  // Curved Golden Runners via TubeGeometry splines + ornate curled tips & filigree side rails
   for (const rx of [-0.82, 0.82]) {
     const runnerCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(rx, 0.16, 2.02),
+      new THREE.Vector3(rx, 0.18, 2.08),
       new THREE.Vector3(rx, 0.12, 0.95),
       new THREE.Vector3(rx, 0.12, -0.45),
-      new THREE.Vector3(rx, 0.42, -1.05),
-      new THREE.Vector3(rx, 0.85, -1.16),
-      new THREE.Vector3(rx, 0.98, -0.92),
+      new THREE.Vector3(rx, 0.44, -1.08),
+      new THREE.Vector3(rx, 0.90, -1.20),
+      new THREE.Vector3(rx, 1.04, -0.90),
     ]);
-    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(runnerCurve, 28, 0.055, 8, false), runnerTrimMat));
+    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(runnerCurve, 30, 0.058, 8, false), runnerTrimMat));
+    const curlTip = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), runnerTrimMat);
+    curlTip.position.set(rx, 1.04, -0.90);
+    sleighBodyGroup.add(curlTip);
 
     for (const sz of [1.4, 0.35, -0.45]) {
       const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.46, 8), runnerTrimMat);
@@ -196,7 +213,7 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       new THREE.Vector3(rx * 1.06, 1.08, 0.65),
       new THREE.Vector3(rx * 1.06, 1.4, -0.48),
     ]);
-    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(trimCurve, 20, 0.032, 6, false), runnerTrimMat));
+    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(trimCurve, 20, 0.035, 6, false), runnerTrimMat));
   }
 
   // Spring-Physics Swinging Brass Bow Lantern
@@ -1548,6 +1565,102 @@ export function createFrozenLakePlane(width = 80, length = 80): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, length), mat);
   mesh.rotation.x = -Math.PI * 0.5;
   return mesh;
+}
+
+export interface MagicalFloatingSignHandle {
+  group: THREE.Group;
+  setDirections(northPoleKm: number, placeName: string, roadName: string): void;
+}
+
+/**
+ * Compact, levitating frosted aurora-crystal holiday sign with golden filigree frame & zero street posts.
+ */
+export function createMagicalFloatingSign(): MagicalFloatingSignHandle {
+  const group = new THREE.Group();
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: '#ffd67a',
+    metalness: 0.85,
+    roughness: 0.2,
+    emissive: '#6e4a00',
+    emissiveIntensity: 0.45,
+  });
+  const crystalMat = new THREE.MeshBasicMaterial({
+    color: '#7ee8ff',
+    transparent: true,
+    opacity: 0.85,
+    toneMapped: false,
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 768;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+
+  const faceMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+
+  const panelW = 3.35;
+  const panelH = 1.12;
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), faceMat);
+  panel.position.y = 3.75;
+  group.add(panel);
+
+  // Delicate floating golden filigree frame bars (top & bottom) + tiny corner stars
+  for (const sy of [-panelH * 0.52, panelH * 0.52]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(panelW + 0.12, 0.05, 0.06), frameMat);
+    bar.position.set(0, 3.75 + sy, 0);
+    group.add(bar);
+  }
+  for (const sx of [-panelW * 0.52, panelW * 0.52]) {
+    const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), crystalMat);
+    star.position.set(sx, 3.75, 0);
+    group.add(star);
+  }
+
+  let lastKey = '';
+  const setDirections = (northPoleKm: number, placeName: string, roadName: string) => {
+    const npRounded = Math.round(northPoleKm);
+    const key = `${npRounded}|${placeName}|${roadName}`;
+    if (key === lastKey) return;
+    lastKey = key;
+
+    ctx.clearRect(0, 0, 768, 256);
+    const grad = ctx.createLinearGradient(0, 0, 768, 256);
+    grad.addColorStop(0, 'rgba(14, 28, 64, 0.84)');
+    grad.addColorStop(0.55, 'rgba(22, 52, 88, 0.80)');
+    grad.addColorStop(1, 'rgba(42, 20, 62, 0.84)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 748, 236, 40);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 222, 130, 0.92)';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff9e6';
+    ctx.font = '800 50px "Cinzel", Georgia, serif';
+    ctx.fillText(`✦ ${placeName.slice(0, 18)} · ${roadName.slice(0, 18)}`, 384, 92, 690);
+
+    ctx.fillStyle = '#8cf2ff';
+    ctx.font = '700 42px Inter, sans-serif';
+    ctx.fillText(`Nordpolen ${npRounded.toLocaleString('sv-SE')} km ✨`, 384, 174, 690);
+
+    tex.needsUpdate = true;
+  };
+
+  setDirections(3407, 'Djursholm', 'Lokevägen');
+  return { group, setDirections };
 }
 
 export interface PixarOptimusHandle {

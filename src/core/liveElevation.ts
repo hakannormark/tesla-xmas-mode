@@ -3,8 +3,9 @@ import * as THREE from 'three';
 const ZOOM = 14;
 const GRID_COUNT = 1 << ZOOM; // 16384
 const TILE_PX = 256;
-const METERS_PER_DEG_LAT = 111320;
-const MAX_CACHED_TILES = 16;
+const METERS_PER_DEG_LAT = 110540;
+const METERS_PER_DEG_LON_EQ = 111320;
+const MAX_CACHED_TILES = 25;
 
 interface TileEntry {
   status: 'loading' | 'ready' | 'failed';
@@ -41,6 +42,7 @@ function decodeTerrariumTile(img: ImageBitmap | HTMLImageElement): Float32Array 
 export class LiveElevationManager {
   private readonly cache = new Map<string, TileEntry>();
   private version = 0;
+  private anchorDatumM: number | undefined;
 
   getVersion(): number {
     return this.version;
@@ -52,18 +54,18 @@ export class LiveElevationManager {
     const tx = Math.floor(fx);
     const ty = Math.floor(fy);
 
-    // Fetch center tile first, plus immediate neighbor tiles if close to tile boundary
+    // Fetch center tile first + generous adjacent tiles covering +-500m around the car
     this.ensureTile(tx, ty);
     const localU = fx - tx;
     const localV = fy - ty;
-    if (localU < 0.32) this.ensureTile(tx - 1, ty);
-    if (localU > 0.68) this.ensureTile(tx + 1, ty);
-    if (localV < 0.32) this.ensureTile(tx, ty - 1);
-    if (localV > 0.68) this.ensureTile(tx, ty + 1);
-    if (localU < 0.32 && localV < 0.32) this.ensureTile(tx - 1, ty - 1);
-    if (localU > 0.68 && localV < 0.32) this.ensureTile(tx + 1, ty - 1);
-    if (localU < 0.32 && localV > 0.68) this.ensureTile(tx - 1, ty + 1);
-    if (localU > 0.68 && localV > 0.68) this.ensureTile(tx + 1, ty + 1);
+    if (localU < 0.45) this.ensureTile(tx - 1, ty);
+    if (localU > 0.55) this.ensureTile(tx + 1, ty);
+    if (localV < 0.45) this.ensureTile(tx, ty - 1);
+    if (localV > 0.55) this.ensureTile(tx, ty + 1);
+    if (localU < 0.45 && localV < 0.45) this.ensureTile(tx - 1, ty - 1);
+    if (localU > 0.55 && localV < 0.45) this.ensureTile(tx + 1, ty - 1);
+    if (localU < 0.45 && localV > 0.55) this.ensureTile(tx - 1, ty + 1);
+    if (localU > 0.55 && localV > 0.55) this.ensureTile(tx + 1, ty + 1);
   }
 
   private ensureTile(rawX: number, rawY: number): void {
@@ -131,33 +133,40 @@ export class LiveElevationManager {
     }
   }
 
+  private sampleGlobalPixel(gx: number, gy: number): number | undefined {
+    const tx = ((Math.floor(gx / TILE_PX) % GRID_COUNT) + GRID_COUNT) % GRID_COUNT;
+    const ty = THREE.MathUtils.clamp(Math.floor(gy / TILE_PX), 0, GRID_COUNT - 1);
+    const entry = this.cache.get(`${ZOOM}/${tx}/${ty}`);
+    if (!entry || entry.status !== 'ready' || !entry.heights) return undefined;
+    const px = ((gx % TILE_PX) + TILE_PX) % TILE_PX;
+    const py = THREE.MathUtils.clamp(gy - ty * TILE_PX, 0, TILE_PX - 1);
+    return entry.heights[py * TILE_PX + px];
+  }
+
   private sampleMetersAbs(lat: number, lon: number, fallbackTx?: number, fallbackTy?: number): number | undefined {
     const { fx, fy } = latLonToTileFloat(lat, lon);
-    const tx = ((Math.floor(fx) % GRID_COUNT) + GRID_COUNT) % GRID_COUNT;
-    const ty = THREE.MathUtils.clamp(Math.floor(fy), 0, GRID_COUNT - 1);
-    let entry = this.cache.get(`${ZOOM}/${tx}/${ty}`);
-    let px = (fx - Math.floor(fx)) * (TILE_PX - 1);
-    let py = (fy - Math.floor(fy)) * (TILE_PX - 1);
+    const gpx = fx * TILE_PX - 0.5;
+    const gpy = fy * TILE_PX - 0.5;
+    const x0 = Math.floor(gpx);
+    const y0 = Math.floor(gpy);
+    const x1 = x0 + 1;
+    const y1 = y0 + 1;
+    const txFrac = gpx - x0;
+    const tyFrac = gpy - y0;
 
-    if ((!entry || entry.status !== 'ready' || !entry.heights) && fallbackTx !== undefined && fallbackTy !== undefined) {
-      entry = this.cache.get(`${ZOOM}/${fallbackTx}/${fallbackTy}`);
-      px = THREE.MathUtils.clamp((fx - fallbackTx) * (TILE_PX - 1), 0, TILE_PX - 1);
-      py = THREE.MathUtils.clamp((fy - fallbackTy) * (TILE_PX - 1), 0, TILE_PX - 1);
+    let h00 = this.sampleGlobalPixel(x0, y0);
+    if (h00 === undefined && fallbackTx !== undefined && fallbackTy !== undefined) {
+      const fb = this.cache.get(`${ZOOM}/${fallbackTx}/${fallbackTy}`);
+      if (!fb || fb.status !== 'ready' || !fb.heights) return undefined;
+      const cx = THREE.MathUtils.clamp(Math.round(fx * TILE_PX - fallbackTx * TILE_PX), 0, TILE_PX - 1);
+      const cy = THREE.MathUtils.clamp(Math.round(fy * TILE_PX - fallbackTy * TILE_PX), 0, TILE_PX - 1);
+      return fb.heights[cy * TILE_PX + cx];
     }
+    if (h00 === undefined) return undefined;
 
-    if (!entry || entry.status !== 'ready' || !entry.heights) return undefined;
-    const h = entry.heights;
-    const x0 = Math.floor(px);
-    const y0 = Math.floor(py);
-    const x1 = Math.min(TILE_PX - 1, x0 + 1);
-    const y1 = Math.min(TILE_PX - 1, y0 + 1);
-    const txFrac = px - x0;
-    const tyFrac = py - y0;
-
-    const h00 = h[y0 * TILE_PX + x0];
-    const h10 = h[y0 * TILE_PX + x1];
-    const h01 = h[y1 * TILE_PX + x0];
-    const h11 = h[y1 * TILE_PX + x1];
+    const h10 = this.sampleGlobalPixel(x1, y0) ?? h00;
+    const h01 = this.sampleGlobalPixel(x0, y1) ?? h00;
+    const h11 = this.sampleGlobalPixel(x1, y1) ?? h10;
 
     const top = THREE.MathUtils.lerp(h00, h10, txFrac);
     const bot = THREE.MathUtils.lerp(h01, h11, txFrac);
@@ -174,28 +183,33 @@ export class LiveElevationManager {
     const center = latLonToTileFloat(originLat, originLon);
     const centerTx = ((Math.floor(center.fx) % GRID_COUNT) + GRID_COUNT) % GRID_COUNT;
     const centerTy = THREE.MathUtils.clamp(Math.floor(center.fy), 0, GRID_COUNT - 1);
-    const datum = this.sampleMetersAbs(originLat, originLon);
-    if (datum === undefined) return undefined;
+    const localCenterDatum = this.sampleMetersAbs(originLat, originLon, centerTx, centerTy);
+    if (localCenterDatum === undefined) return undefined;
 
-    const lonScale = METERS_PER_DEG_LAT * Math.max(0.15, Math.cos((originLat * Math.PI) / 180));
+    if (this.anchorDatumM === undefined || Math.abs(localCenterDatum - this.anchorDatumM) > 45) {
+      this.anchorDatumM = localCenterDatum;
+    }
+    const datum = this.anchorDatumM;
+
+    const lonScale = METERS_PER_DEG_LON_EQ * Math.max(0.15, Math.cos((originLat * Math.PI) / 180));
     const sampleSmoothAbs = (x: number, z: number): number | undefined => {
       const c = this.sampleMetersAbs(originLat - z / METERS_PER_DEG_LAT, originLon + x / lonScale, centerTx, centerTy);
       if (c === undefined) return undefined;
-      const d = 7.5;
+      const d = 4.5;
       const n = this.sampleMetersAbs(originLat - (z - d) / METERS_PER_DEG_LAT, originLon + x / lonScale, centerTx, centerTy) ?? c;
       const s = this.sampleMetersAbs(originLat - (z + d) / METERS_PER_DEG_LAT, originLon + x / lonScale, centerTx, centerTy) ?? c;
       const w = this.sampleMetersAbs(originLat - z / METERS_PER_DEG_LAT, originLon + (x - d) / lonScale, centerTx, centerTy) ?? c;
       const e = this.sampleMetersAbs(originLat - z / METERS_PER_DEG_LAT, originLon + (x + d) / lonScale, centerTx, centerTy) ?? c;
-      return c * 0.44 + (n + s + w + e) * 0.14;
+      return c * 0.52 + (n + s + w + e) * 0.12;
     };
 
     return (x: number, z: number) => {
       const dist = Math.hypot(x, z);
-      if (dist > 375) return 0;
+      if (dist > 395) return 0;
       const raw = sampleSmoothAbs(x, z);
       if (raw === undefined) return 0;
-      const fade = 1 - THREE.MathUtils.smoothstep(dist, 290, 370);
-      return THREE.MathUtils.clamp((raw - datum) * 2.2, -36, 48) * fade;
+      const fade = 1 - THREE.MathUtils.smoothstep(dist, 315, 390);
+      return THREE.MathUtils.clamp((raw - datum) * 1.05, -45, 75) * fade;
     };
   }
 }

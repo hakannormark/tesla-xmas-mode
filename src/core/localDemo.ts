@@ -13,10 +13,21 @@ const buildings: OsmBuilding[] = district.buildings.map(({ ring, height }, index
   const zs = ring.map(([, z]) => z);
   const widthM = Math.max(...xs) - Math.min(...xs);
   const depthM = Math.max(...zs) - Math.min(...zs);
+  const areaM2 = widthM * depthM;
+  const isLarge = areaM2 >= 215 || index % 9 === 3 || index === 5 || index === 11;
+  const isGiga = isLarge && (index === 5 || index === 11 || index % 18 === 3);
   return {
-    id: 'djursholm-' + index, footprint, name: null, kind: 'small_cottage',
-    centerX: Math.min(...xs) + widthM / 2, centerZ: Math.min(...zs) + depthM / 2,
-    widthM, depthM, heightM: height, areaM2: widthM * depthM,
+    id: 'djursholm-' + index,
+    footprint,
+    name: isGiga ? 'Tesla Giga Djursholm' : null,
+    kind: isGiga ? 'gigafactory' : isLarge ? 'large_building' : 'small_cottage',
+    tesla: isGiga || undefined,
+    centerX: Math.min(...xs) + widthM / 2,
+    centerZ: Math.min(...zs) + depthM / 2,
+    widthM,
+    depthM,
+    heightM: isGiga ? Math.max(height, 9.2) : height,
+    areaM2,
   };
 });
 

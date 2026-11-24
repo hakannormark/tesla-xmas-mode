@@ -84,6 +84,7 @@ if (!stage) {
   let wheelPhase = 0;
   let flightSpeed = 0;
   let hoverPhase = 0;
+  let sleighVehicleLift = 0;
   let liveState = live.getState();
   let activeFlights: LiveFlight[] = [];
   let demoPrevHeading = 0;
@@ -129,11 +130,11 @@ if (!stage) {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
 
-  const liveReliefGeo = new THREE.PlaneGeometry(760, 760, 76, 76).rotateX(-Math.PI / 2);
+  const liveReliefGeo = new THREE.PlaneGeometry(640, 640, 112, 112).rotateX(-Math.PI / 2);
   const liveRelief = new THREE.Mesh(liveReliefGeo, groundMaterial);
   liveRelief.receiveShadow = true;
   liveRelief.visible = false;
-  const outerSkirt = new THREE.Mesh(new THREE.RingGeometry(360, 960, 48).rotateX(-Math.PI / 2), groundMaterial);
+  const outerSkirt = new THREE.Mesh(new THREE.RingGeometry(310, 960, 48).rotateX(-Math.PI / 2), groundMaterial);
   outerSkirt.position.y = -0.06;
   outerSkirt.receiveShadow = true;
   outerSkirt.visible = false;
@@ -274,6 +275,7 @@ if (!stage) {
     hasPosition = false;
     priorMapOrigin = undefined;
     lastTerrainKey = '';
+    sleighVehicleLift = 0;
     demoHasInit = false;
     avatar.position.set(0, 0, 0);
     avatar.rotation.set(0, 0, 0);
@@ -368,50 +370,7 @@ if (!stage) {
   scene.add(flightsRoot);
   const projection = new THREE.Vector3();
 
-  function createChristmasAirliner(): THREE.Group {
-    const g = new THREE.Group();
-    const silverMat = new THREE.MeshStandardMaterial({ color: '#eef4fc', metalness: 0.55, roughness: 0.28, fog: false });
-    const crimsonMat = new THREE.MeshStandardMaterial({ color: '#c81632', metalness: 0.35, roughness: 0.3, fog: false });
-    const wingMat = new THREE.MeshStandardMaterial({ color: '#c4d2e6', metalness: 0.45, roughness: 0.35, fog: false });
-    const winMat = new THREE.MeshBasicMaterial({ color: '#ffe588', toneMapped: false, fog: false });
-    const greenNav = new THREE.MeshBasicMaterial({ color: '#38f28c', toneMapped: false, fog: false });
-    const redNav = new THREE.MeshBasicMaterial({ color: '#ff3048', toneMapped: false, fog: false });
-
-    // Forward points along +X (to match rotation.y = Math.PI / 2 - headingDeg)
-    const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 2.5, 6, 10), silverMat);
-    fuselage.rotation.z = Math.PI * 0.5;
-    const livery = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.24, 0.92), crimsonMat);
-    livery.position.y = -0.14;
-    const wings = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 3.8), wingMat);
-    wings.position.set(0.1, -0.08, 0);
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.95, 0.1), crimsonMat);
-    tail.position.set(-1.35, 0.62, 0);
-    const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.06, 1.45), wingMat);
-    tailPlane.position.set(-1.35, 0.14, 0);
-    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.22, 0.48), winMat);
-    cockpit.position.set(1.32, 0.15, 0);
-    const beaconR = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 6), greenNav);
-    beaconR.position.set(0.05, -0.05, 1.92);
-    const beaconL = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 6), redNav);
-    beaconL.position.set(0.05, -0.05, -1.92);
-    const santaHat = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.48, 8), crimsonMat);
-    santaHat.position.set(-1.35, 1.24, 0);
-    santaHat.rotation.z = 0.28;
-    const hatPom = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), winMat);
-    hatPom.position.set(-1.46, 1.44, 0);
-
-    g.add(fuselage, livery, wings, tail, tailPlane, cockpit, beaconR, beaconL, santaHat, hatPom);
-    for (let w = -3; w <= 3; w++) {
-      for (const side of [-0.45, 0.45]) {
-        const win = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.11, 0.06), winMat);
-        win.position.set(w * 0.28, 0.14, side);
-        g.add(win);
-      }
-    }
-    return g;
-  }
-
-  const flightTemplate = createChristmasAirliner();
+  const flightTemplate = createAccurateStarmanRoadster({ forSky: true });
   const flightBounds = new THREE.Box3().setFromObject(flightTemplate);
   const corners: THREE.Vector3[] = [];
   for (const x of [flightBounds.min.x, flightBounds.max.x]) {
@@ -488,7 +447,10 @@ if (!stage) {
           return;
         }
       }
-      for (const c of festivities.livingWorld.getTappableCritters(avatar.position)) {
+      for (const c of [
+        ...festivities.livingWorld.getTappableCritters(avatar.position),
+        ...ambientTraffic.getTappableCritters(avatar.position),
+      ]) {
         const p = projectToPx(c.x, c.y, c.z);
         if (p.visible && Math.hypot(p.sx - e.clientX, p.sy - e.clientY) < 56) {
           c.onTap();
@@ -577,7 +539,16 @@ if (!stage) {
       ? terrainMap
       : demo
         ? demo.map
-        : director.update(dt, 'gps', gpsFrame.latitude, gpsFrame.longitude, gpsFrame.isMoving, gpsFrame.speedKmh, gpsFix);
+        : director.update(
+            dt,
+            'gps',
+            gpsFrame.latitude,
+            gpsFrame.longitude,
+            gpsFrame.isMoving,
+            gpsFrame.speedKmh,
+            gpsFix,
+            gpsFrame.headingDeg
+          );
 
     const fix = !!trial || !!demo || gpsFix;
     const hasActiveWorld = !!trial || !!demo || gpsFix || hasPosition;
@@ -660,7 +631,26 @@ if (!stage) {
     const flying = sleigh.group.visible;
     if (flying) {
       hoverPhase += dt * (1.25 + 0.65 * lift);
-      sleigh.group.position.y = 1.35 + 1.75 * lift + Math.sin(hoverPhase) * (0.13 - 0.06 * lift);
+      const cruiseAlt = THREE.MathUtils.smoothstep(flightSpeed, 22, 92);
+      const baseSleighY = 0.28 + 1.35 * cruiseAlt + Math.sin(hoverPhase) * (0.09 - 0.04 * lift);
+      let needLift = 0;
+      for (const b of ambientTraffic.getVehicleBounds()) {
+        if (Math.hypot(b.x - avatar.position.x, b.z - avatar.position.z) < b.radius + 2.6) {
+          needLift = Math.max(needLift, b.height + 1.15 - baseSleighY);
+        }
+      }
+      for (const c of festivities.convoyPositions) {
+        if (Math.hypot(c.x - avatar.position.x, c.z - avatar.position.z) < 6.8 + 2.6) {
+          needLift = Math.max(needLift, 3.3 + 1.15 - baseSleighY);
+        }
+      }
+      sleighVehicleLift = THREE.MathUtils.damp(
+        sleighVehicleLift,
+        needLift,
+        needLift > sleighVehicleLift ? 7.5 : 3.2,
+        dt
+      );
+      sleigh.group.position.y = baseSleighY + sleighVehicleLift;
       const pitch = THREE.MathUtils.clamp((airspeed - flightSpeed) * 0.009, -0.075, 0.075);
       sleigh.group.rotation.x = THREE.MathUtils.damp(sleigh.group.rotation.x, pitch, 3.5, dt);
       sleigh.update(dt, flightSpeed, frame.turnRate, frame.acceleration, time);
@@ -685,7 +675,18 @@ if (!stage) {
     );
     vehicleLighting.update(time, frame, env, hasActiveWorld, flying ? sleigh.group.position.y : 0);
     if (snapshot) {
-      ambientTraffic.update(dt, time, snapshot, map.mapData, avatar.position, heading, activeElevation, elevVersion);
+      ambientTraffic.update(
+        dt,
+        time,
+        snapshot,
+        map.mapData,
+        avatar.position,
+        heading,
+        activeElevation,
+        elevVersion,
+        festivities.convoyPositions,
+        festivities.getSleighAlert()
+      );
     }
     ambientTraffic.group.visible = !!snapshot && ambientTraffic.isEnabled() && !trial;
 
@@ -828,19 +829,23 @@ if (!stage) {
 
     for (const [fIdx, flight] of activeFlights.entries()) {
       const model = aircraftModels.get(flight.hex || flight.callsign)!;
-      // Spread regional scheduled airliners across the forward/diagonal sky arc so routes are visible & clickable in FSD view,
-      // while live ADS-B aircraft keep exact compass azimuth
-      const regionalYaw = heading + ((fIdx - (activeFlights.length - 1) * 0.5) * 0.44) + Math.sin(time * 0.08 + fIdx * 1.7) * 0.22;
-      const azimuth = flight.isLive && !flight.originLabel ? (flight.bearingDeg * Math.PI) / 180 : regionalYaw;
-      const radius = THREE.MathUtils.clamp(flight.distanceKm * 5.2, 85, 165);
-      const elevation = THREE.MathUtils.clamp(Math.atan2(flight.altitudeM, flight.distanceKm * 1000) * 0.36, 0.13, 0.22);
+      // Fixed world compass azimuth (never rotates when the sleigh turns) flying high in the winter sky
+      const azimuth = (flight.bearingDeg * Math.PI) / 180;
+      const radius = THREE.MathUtils.clamp(flight.distanceKm * 5.8, 115, 185);
+      const elevation = THREE.MathUtils.clamp(
+        0.19 + (fIdx % 3) * 0.032 + Math.atan2(flight.altitudeM, Math.max(8000, flight.distanceKm * 1000)) * 0.14,
+        0.19,
+        0.27
+      );
       model.position.set(
         avatar.position.x + Math.sin(azimuth) * radius,
         avatar.position.y + Math.tan(elevation) * radius,
         avatar.position.z - Math.cos(azimuth) * radius
       );
+      model.rotation.order = 'YXZ';
       model.rotation.y = Math.PI / 2 - (flight.headingDeg * Math.PI) / 180;
-      model.scale.setScalar(2.1 + radius / 52);
+      model.rotation.x = Math.sin(time * 0.9 + fIdx) * 0.06;
+      model.scale.setScalar(1.95 + radius / 90);
     }
 
     flightStars.update(activeFlights, frame, projectFlight);

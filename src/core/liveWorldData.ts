@@ -120,33 +120,33 @@ function formatCountdown(netIso: string | null): { label: string; isToday: boole
 function pickRegionalSeeds(lat: number, lon: number): RegionalFlightSeed[] {
   if (lat > 54 && lon > 4 && lon < 32) {
     return [
-      { callsign: 'SAS403', airline: 'SAS', aircraft: 'A320neo', originLabel: 'Stockholm · ARN', destinationLabel: 'Köpenhamn · CPH', altitudeM: 9600, groundspeedKts: 448, baseBearing: 342, headingDeg: 205, distanceKm: 16, resolved: false },
-      { callsign: 'SAS142', airline: 'SAS', aircraft: 'A320neo', originLabel: 'Oslo · OSL', destinationLabel: 'Stockholm · ARN', altitudeM: 10200, groundspeedKts: 462, baseBearing: 28, headingDeg: 95, distanceKm: 21, resolved: false },
-      { callsign: 'FIN801', airline: 'Finnair', aircraft: 'A350', originLabel: 'Helsingfors · HEL', destinationLabel: 'London · LHR', altitudeM: 10900, groundspeedKts: 485, baseBearing: 312, headingDeg: 245, distanceKm: 24, resolved: false },
-      { callsign: 'DLH801', airline: 'Lufthansa', aircraft: 'A321', originLabel: 'Stockholm · ARN', destinationLabel: 'Frankfurt · FRA', altitudeM: 8800, groundspeedKts: 430, baseBearing: 56, headingDeg: 192, distanceKm: 19, resolved: false },
+      { callsign: 'SAS403', airline: 'SAS', aircraft: 'Starman Roadster', originLabel: 'Stockholm · ARN', destinationLabel: 'Köpenhamn · CPH', altitudeM: 9600, groundspeedKts: 448, baseBearing: 124, headingDeg: 205, distanceKm: 18, resolved: false },
+      { callsign: 'SAS142', airline: 'SAS', aircraft: 'Starman Roadster', originLabel: 'Oslo · OSL', destinationLabel: 'Stockholm · ARN', altitudeM: 10200, groundspeedKts: 462, baseBearing: 162, headingDeg: 95, distanceKm: 21, resolved: false },
+      { callsign: 'FIN801', airline: 'Finnair', aircraft: 'Starman Roadster', originLabel: 'Helsingfors · HEL', destinationLabel: 'London · LHR', altitudeM: 10900, groundspeedKts: 485, baseBearing: 248, headingDeg: 245, distanceKm: 24, resolved: false },
+      { callsign: 'DLH801', airline: 'Lufthansa', aircraft: 'Starman Roadster', originLabel: 'Stockholm · ARN', destinationLabel: 'Frankfurt · FRA', altitudeM: 8800, groundspeedKts: 430, baseBearing: 22, headingDeg: 192, distanceKm: 19, resolved: false },
     ];
   }
   if (lon > -15 && lon < 40 && lat > 34) {
     return [
-      { callsign: 'BAW781', airline: 'British Airways', aircraft: 'A320', originLabel: 'Stockholm · ARN', destinationLabel: 'London · LHR', altitudeM: 10100, groundspeedKts: 455, baseBearing: 344, headingDeg: 235, distanceKm: 18, resolved: false },
-      { callsign: 'KLM1109', airline: 'KLM', aircraft: 'B737-800', originLabel: 'Amsterdam · AMS', destinationLabel: 'Stockholm · ARN', altitudeM: 9400, groundspeedKts: 442, baseBearing: 24, headingDeg: 45, distanceKm: 22, resolved: false },
-      { callsign: 'AFR1062', airline: 'Air France', aircraft: 'A220', originLabel: 'Paris · CDG', destinationLabel: 'Stockholm · ARN', altitudeM: 10600, groundspeedKts: 450, baseBearing: 316, headingDeg: 35, distanceKm: 24, resolved: false },
-      { callsign: 'DLH400', airline: 'Lufthansa', aircraft: 'B747-8', originLabel: 'Frankfurt · FRA', destinationLabel: 'New York · JFK', altitudeM: 11200, groundspeedKts: 492, baseBearing: 52, headingDeg: 295, distanceKm: 20, resolved: false },
+      { callsign: 'BAW781', airline: 'British Airways', aircraft: 'Starman Roadster', originLabel: 'Stockholm · ARN', destinationLabel: 'London · LHR', altitudeM: 10100, groundspeedKts: 455, baseBearing: 126, headingDeg: 235, distanceKm: 18, resolved: false },
+      { callsign: 'KLM1109', airline: 'KLM', aircraft: 'Starman Roadster', originLabel: 'Amsterdam · AMS', destinationLabel: 'Stockholm · ARN', altitudeM: 9400, groundspeedKts: 442, baseBearing: 168, headingDeg: 45, distanceKm: 22, resolved: false },
+      { callsign: 'AFR1062', airline: 'Air France', aircraft: 'Starman Roadster', originLabel: 'Paris · CDG', destinationLabel: 'Stockholm · ARN', altitudeM: 10600, groundspeedKts: 450, baseBearing: 256, headingDeg: 35, distanceKm: 24, resolved: false },
+      { callsign: 'DLH400', airline: 'Lufthansa', aircraft: 'Starman Roadster', originLabel: 'Frankfurt · FRA', destinationLabel: 'New York · JFK', altitudeM: 11200, groundspeedKts: 492, baseBearing: 28, headingDeg: 295, distanceKm: 20, resolved: false },
     ];
   }
   if (lon < -35) {
     return [
-      { callsign: 'UAL1', airline: 'United Airlines', aircraft: 'B787-9', originLabel: 'San Francisco · SFO', destinationLabel: 'Singapore · SIN', altitudeM: 10900, groundspeedKts: 495, baseBearing: 340, headingDeg: 290, distanceKm: 18, resolved: false },
-      { callsign: 'DAL40', airline: 'Delta Air Lines', aircraft: 'A350', originLabel: 'Los Angeles · LAX', destinationLabel: 'Sydney · SYD', altitudeM: 10400, groundspeedKts: 488, baseBearing: 26, headingDeg: 235, distanceKm: 22, resolved: false },
-      { callsign: 'AAL100', airline: 'American Airlines', aircraft: 'B777', originLabel: 'New York · JFK', destinationLabel: 'London · LHR', altitudeM: 11100, groundspeedKts: 505, baseBearing: 315, headingDeg: 55, distanceKm: 24, resolved: false },
-      { callsign: 'ACA872', airline: 'Air Canada', aircraft: 'B787', originLabel: 'Toronto · YYZ', destinationLabel: 'Frankfurt · FRA', altitudeM: 10600, groundspeedKts: 480, baseBearing: 48, headingDeg: 50, distanceKm: 20, resolved: false },
+      { callsign: 'UAL1', airline: 'United Airlines', aircraft: 'Starman Roadster', originLabel: 'San Francisco · SFO', destinationLabel: 'Singapore · SIN', altitudeM: 10900, groundspeedKts: 495, baseBearing: 120, headingDeg: 290, distanceKm: 18, resolved: false },
+      { callsign: 'DAL40', airline: 'Delta Air Lines', aircraft: 'Starman Roadster', originLabel: 'Los Angeles · LAX', destinationLabel: 'Sydney · SYD', altitudeM: 10400, groundspeedKts: 488, baseBearing: 166, headingDeg: 235, distanceKm: 22, resolved: false },
+      { callsign: 'AAL100', airline: 'American Airlines', aircraft: 'Starman Roadster', originLabel: 'New York · JFK', destinationLabel: 'London · LHR', altitudeM: 11100, groundspeedKts: 505, baseBearing: 252, headingDeg: 55, distanceKm: 24, resolved: false },
+      { callsign: 'ACA872', airline: 'Air Canada', aircraft: 'Starman Roadster', originLabel: 'Toronto · YYZ', destinationLabel: 'Frankfurt · FRA', altitudeM: 10600, groundspeedKts: 480, baseBearing: 24, headingDeg: 50, distanceKm: 20, resolved: false },
     ];
   }
   return [
-    { callsign: 'UAE1', airline: 'Emirates', aircraft: 'A380', originLabel: 'Dubai · DXB', destinationLabel: 'London · LHR', altitudeM: 11200, groundspeedKts: 502, baseBearing: 340, headingDeg: 305, distanceKm: 19, resolved: false },
-    { callsign: 'SIA308', airline: 'Singapore Airlines', aircraft: 'A350', originLabel: 'Singapore · SIN', destinationLabel: 'London · LHR', altitudeM: 10800, groundspeedKts: 490, baseBearing: 28, headingDeg: 315, distanceKm: 23, resolved: false },
-    { callsign: 'ANA211', airline: 'ANA', aircraft: 'B777', originLabel: 'Tokyo · HND', destinationLabel: 'London · LHR', altitudeM: 10900, groundspeedKts: 486, baseBearing: 314, headingDeg: 335, distanceKm: 22, resolved: false },
-    { callsign: 'QFA1', airline: 'Qantas', aircraft: 'A380', originLabel: 'Sydney · SYD', destinationLabel: 'London · LHR', altitudeM: 11500, groundspeedKts: 498, baseBearing: 52, headingDeg: 310, distanceKm: 20, resolved: false },
+    { callsign: 'UAE1', airline: 'Emirates', aircraft: 'Starman Roadster', originLabel: 'Dubai · DXB', destinationLabel: 'London · LHR', altitudeM: 11200, groundspeedKts: 502, baseBearing: 122, headingDeg: 305, distanceKm: 19, resolved: false },
+    { callsign: 'SIA308', airline: 'Singapore Airlines', aircraft: 'Starman Roadster', originLabel: 'Singapore · SIN', destinationLabel: 'London · LHR', altitudeM: 10800, groundspeedKts: 490, baseBearing: 164, headingDeg: 315, distanceKm: 23, resolved: false },
+    { callsign: 'ANA211', airline: 'ANA', aircraft: 'Starman Roadster', originLabel: 'Tokyo · HND', destinationLabel: 'London · LHR', altitudeM: 10900, groundspeedKts: 486, baseBearing: 244, headingDeg: 335, distanceKm: 22, resolved: false },
+    { callsign: 'QFA1', airline: 'Qantas', aircraft: 'Starman Roadster', originLabel: 'Sydney · SYD', destinationLabel: 'London · LHR', altitudeM: 11500, groundspeedKts: 498, baseBearing: 26, headingDeg: 310, distanceKm: 20, resolved: false },
   ];
 }
 
@@ -378,7 +378,8 @@ export class LiveWorldDataManager {
 
     const t = Date.now() / 1000;
     const regionalFlights: LiveFlight[] = this.regionalSeeds.map((s, idx) => {
-      const drift = Math.sin(t * 0.045 + idx * 1.6) * 26;
+      // Gentle slow orbital sky transit strictly in fixed world compass degrees (never swings with vehicle heading)
+      const drift = Math.sin(t * 0.012 + idx * 1.4) * 10;
       return {
         callsign: s.callsign,
         aircraft: s.aircraft,
