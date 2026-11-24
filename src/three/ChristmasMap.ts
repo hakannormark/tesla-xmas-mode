@@ -6,6 +6,7 @@ import { streetGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
 import { createWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
+import { buildCottageBay } from './cottageBay';
 import { VillageLights } from './VillageLights';
 
 const asphalt = createWinterRoad();
@@ -13,6 +14,10 @@ const verge = new THREE.MeshStandardMaterial({color: '#d3e6ed', roughness: 0.96}
 const snowTexture = createSnowTextures().bumpMap;
 snowTexture.wrapS = snowTexture.wrapT = THREE.RepeatWrapping;
 const snow = new THREE.MeshStandardMaterial({color: '#fff8f4', roughness: 0.83, bumpMap: snowTexture, bumpScale: 0.12});
+const logBeam = new THREE.CylinderGeometry(0.5,0.5,1,8).rotateZ(Math.PI/2);
+const logWood = new THREE.MeshStandardMaterial({color:'#925d3d',roughness:0.92});
+const bayGeometry = buildCottageBay();
+const bayWood = new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.79});
 const roofCap = new THREE.MeshStandardMaterial({color:'#e6e6f5',roughness:0.87,bumpMap:snowTexture,bumpScale:0.095});
 const timber = createTimberWallTexture('#d3b8ad');
 timber.wrapS = timber.wrapT = THREE.RepeatWrapping;
@@ -160,15 +165,15 @@ const lantern = new THREE.MeshBasicMaterial({color:'#ffbe66'});
 // Scallops give the snow cap the outline of individual laden branches.
 function spruceTier(snowCap: boolean): THREE.BufferGeometry {
   const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
-  const sides = 18;
+  const sides = 32;
   const rings = snowCap ? [{y:0.08,r:0.87},{y:0.25,r:0.82},{y:0.64,r:0.44},{y:0.99,r:0.025}]
     : [{y:0.0,r:0.22},{y:0.02,r:1.0},{y:0.24,r:0.82},{y:0.64,r:0.41},{y:1,r:0.021}];
   rings.forEach(({y,r}, ring) => {
     for (let i = 0; i <= sides; i++) {
       const angle = i / sides * Math.PI * 2;
-      const scallop = Math.cos(angle*6);
-      const radius = r*(1+scallop*(1-y)*0.12);
-      positions.push(radius*Math.cos(angle),y-scallop*r*0.043,radius*Math.sin(angle));
+      const scallop = Math.cos(angle*8+0.48*Math.sin(angle*3)+0.45*y);
+      const radius = r*(1+scallop*(1-y)*0.21);
+      positions.push(radius*Math.cos(angle),y-scallop*r*(snowCap ? 0.096 : 0.12),radius*Math.sin(angle));
       uvs.push(i/sides,y);
       if (ring && i < sides) {
         const k = ring*(sides+1)+i;
@@ -421,6 +426,13 @@ export class ChristmasMap {
           detail(snow,0.5,height+0.025,length+0.14,0.14,0.3);
         }
         detail(home && cottage.style.finish === 'plaster' ? cedar : frame,0.015,height/2,0.17,height,0.16);
+        if (cottage?.style.finish === 'logs' && length > 1) {
+          const courses = Math.round(height/0.29);
+          for (let k = 0; k < courses; k++) {
+            detail(logWood,0.5,height*(k+0.5)/courses,length+(k%2 ? 0.15 : 0.05),
+              height/courses*1.04,0.24,-0.075);
+          }
+        }
         if (factory && length >= 8) {
           detail(factoryCandy,0.5,height*0.56,length,0.28,0.18);
           detail(trim,0.5,height*0.56-0.25,length,0.09,0.24);
@@ -430,6 +442,12 @@ export class ChristmasMap {
           const bays = Math.max(1,Math.min(14,Math.floor(length/6)));
           for (let bay = 0; bay < bays; bay++) {
             const t = (bay+0.5)/bays;
+            if (height > 5 && i === mainFace && (!b.tesla || Math.abs(t-0.5)*length > 7)) {
+              const wide = Math.min(3.2,length/bays*0.68);
+              detail(canopyWood,t,height*0.77,wide+0.54,1.2,0.85,0.28);
+              detail(canopySnow,t,height*0.77+0.12,wide+0.68,1.2,0.95,0.28);
+              detail(windowRound,t,height*0.77-0.08,0.55,0.55,1,0.73);
+            }
             detail(roofLedge,t-0.43/bays,height*0.25,0.24,height*0.5,0.34);
             detail(windowArch,t,Math.min(2.15,height*0.32),Math.min(3.6,length/bays*0.66), Math.min(3.1,height*0.49));
           }
@@ -548,6 +566,20 @@ export class ChristmasMap {
               : 0.5;
             if (length < wide + 0.8 || (hasDoor && Math.abs(t-doorT)*length < 1.28)) continue;
             const y = 1.42;
+            if (i === mainFace && j === 0 && length >= 6 && cottage.style.finish !== 'logs' &&
+                cottage.variation > 0.24 && (!hasDoor || Math.abs(t-doorT)*length > 1.85)) {
+              detail(bayWood,t,0,1,1,1,0.03);
+              detail(glass,t,1.37,0.94,1.04,1,0.48);
+              for (const side of [-1,1]) {
+                const angle = side*Math.atan2(0.46,0.35);
+                const offset = side*0.71;
+                addDetail(glass,a.x+dx*t+Math.cos(yaw)*offset+nx*0.26,1.37,
+                  a.z+dz*t-Math.sin(yaw)*offset+nz*0.26,yaw+angle,0.47,1.02,1,0,base);
+              }
+              detail(greenGarland,t,0.74,1.12,0.17,0.19,0.50);
+              detail(lightPool,t,0.064,4.1,3.1,1,1.4);
+              continue;
+            }
             detail(window,t,y,wide,1.06,1,0.084);
             detail(frame,t,y-0.54,wide+0.19,0.13,0.24,0.12);
             detail(powder,t,y-0.45,(wide+0.18)/2,0.075,0.17,0.14);
@@ -698,7 +730,7 @@ export class ChristmasMap {
       this.group.add(mesh);
     }
     for (const [material, matrices] of details) {
-      const geometry = material === powder ? drift : material === hat ? topHat : material === snowmanSnow || material === coal ? snowBall :
+      const geometry = material === logWood ? logBeam : material === bayWood ? bayGeometry : material === powder ? drift : material === hat ? topHat : material === snowmanSnow || material === coal ? snowBall :
         material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : material === lightPool ? floorPlane :
         material === canopyWood || material === canopySnow ? canopyGeometry : material === firWreath ? fir :
         material === icicleMaterial ? icicle : material === berries || lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :

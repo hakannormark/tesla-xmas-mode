@@ -14,22 +14,24 @@ export function createAlpineHorizon(): THREE.Group {
     const positions: number[] = [], colors: number[] = [], indices: number[] = [];
     const base = new THREE.Color(layer.blue), top = new THREE.Color(layer.snow);
     const rose = new THREE.Color('#f0aac0');
-    const stride = 6;
+    const stride = 12;
     for (let i = 0; i <= sectors; i++) {
       const a = 2*Math.PI*i/sectors;
       const broad = 0.5+0.5*Math.sin(a*5+layer.seed);
       const jagged = 0.66+Math.sin(a*9+layer.seed)*0.18 + Math.cos(a*23-layer.seed)*0.12 +
         Math.sin(a*39+1.7)*0.055;
-      const peak = layer.low + layer.high*Math.pow(broad,0.82)*jagged;
+      const spine = 1-Math.abs(Math.sin(a*14+0.8*Math.sin(a*5)+layer.seed));
+      const peak = layer.low + layer.high*(0.23+0.77*broad)*jagged*(0.68+0.53*spine);
       const crease = Math.cos(a*35 + layer.seed);
       for (let j = 0; j < stride; j++) {
         const t = j/(stride-1);
-        const radius = layer.radius - (1-t)*59 + crease*2.5;
+        const ravine = Math.cos(a*39+layer.seed+2.7*(1-t)*Math.sin(a*7));
+        const radius = layer.radius - (1-t)*59 + ravine*9*Math.sin(Math.PI*t);
         const height = THREE.MathUtils.lerp(-3,peak,Math.pow(t,1.21));
         positions.push(Math.sin(a)*radius,height,Math.cos(a)*radius);
-        const snowy = THREE.MathUtils.smoothstep(t+crease*0.045,0.42,1);
+        const snowy = THREE.MathUtils.smoothstep(t+(ravine*0.17+0.09*Math.sin(a*71))*Math.sin(Math.PI*t),0.39,0.86);
         const tint = base.clone().lerp(top,snowy).lerp(rose,snowy*Math.max(0,Math.sin(a+1.1))*0.26);
-        tint.multiplyScalar(0.82+0.17*crease+0.09*t);
+        tint.multiplyScalar(0.76+0.20*ravine+0.11*crease+0.09*t);
         colors.push(tint.r,tint.g,tint.b);
         if (i > 0 && j > 0) {
           const k = i*stride+j;

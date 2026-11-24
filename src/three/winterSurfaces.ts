@@ -36,7 +36,12 @@ export function createWinterGround(): THREE.MeshStandardMaterial {
       diffuseColor.rgb *= mix(cool,warm,broad*0.68+drifts*0.27);
       diffuseColor.rgb *= (0.85+0.22*smoothstep(0.15,0.9,broad*0.64+drifts*0.36)) * (0.93+0.13*powder);
       `,
-    );
+    ).replace('#include <normal_fragment_maps>', /* glsl */`
+      #include <normal_fragment_maps>
+      float driftSlope = sin(sweep)*0.095 + sin(sweep*2.6+broad*5.0)*0.032;
+      vec3 windNormal = mat3(viewMatrix)*vec3(0.82,0.0,0.57);
+      normal = normalize(normal+windNormal*driftSlope);
+    `);
   };
   return material;
 }
