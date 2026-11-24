@@ -245,6 +245,8 @@ if (stage) {
     }
   };
   let wheelPhase = 0;
+  let flightSpeed = 0;
+  let hoverPhase = 0;
 
   function drivingView() {
     const east = Math.sin(heading), north = Math.cos(heading);
@@ -321,8 +323,19 @@ if (stage) {
       const pitch = Math.atan2(trialHeight(x+east,z-north)-trialHeight(x-east,z+north),10);
       avatar.rotation.x = THREE.MathUtils.lerp(avatar.rotation.x,pitch,Math.min(1,dt*6));
     }
-    sleigh.group.position.y = 0.5 + Math.sin(time*1.8)*0.12;
-    if (sleigh.group.visible) sleigh.update(dt,frame.speedKmh,frame.turnRate,frame.acceleration,time);
+    const airspeed = frame.isMoving && (trial || fix) ? frame.speedKmh : 0;
+    flightSpeed = THREE.MathUtils.damp(flightSpeed,airspeed,2.6,dt);
+    const lift = THREE.MathUtils.smoothstep(flightSpeed,0,75);
+    const flying = sleigh.group.visible;
+    if (flying) {
+      hoverPhase += dt*(1.25+0.65*lift);
+      sleigh.group.position.y = 1.35+1.75*lift+Math.sin(hoverPhase)*(0.13-0.06*lift);
+      const pitch = THREE.MathUtils.clamp((airspeed-flightSpeed)*0.009,-0.075,0.075);
+      sleigh.group.rotation.x = THREE.MathUtils.damp(sleigh.group.rotation.x,pitch,3.5,dt);
+      sleigh.update(dt,flightSpeed,frame.turnRate,frame.acceleration,time);
+    }
+    shadow.scale.setScalar(flying ? 1.06+0.18*lift : 1);
+    shadow.material.opacity = flying ? 0.47-0.12*lift : 0.52;
     wheelPhase += frame.speedKmh * dt;
     if (semi.group.visible) semi.update(dt,wheelPhase,frame.isBraking,0,time);
     if (truck.group.visible) truck.update(wheelPhase,time);
@@ -345,7 +358,9 @@ if (stage) {
     mountains.position.set(camera.position.x,trial ? avatar.position.y : 0,camera.position.z);
     sky.material.uniforms.uTime.value = time;
     snowfall.group.position.copy(avatar.position);
-    snowfall.update(dt,0.12,-0.16,1.2);
+    // The snow field is car-relative. Let nearby flakes stream past in the direction of travel.
+    const slipstream = flying ? Math.min(13,flightSpeed/3.6)*0.75 : 0;
+    snowfall.update(dt,0.12-Math.sin(heading)*slipstream,-0.16+Math.cos(heading)*slipstream,1.2);
 
     if (now - lastUi >= 240) {
       lastUi = now;

@@ -306,7 +306,8 @@ export class DriveFestivities {
           hasTarget = true;
         }
         if (hasTarget) {
-          this.origin.copy(center).add(new THREE.Vector3(0,2,0));
+          this.origin.copy(center);
+          this.origin.y += 2+(this.sleigh.group.visible ? this.sleigh.group.position.y : 0);
           this.giftAge = 0;
           this.sleigh.triggerReaction('gift');
           this.audio.playGiftLaunch();
