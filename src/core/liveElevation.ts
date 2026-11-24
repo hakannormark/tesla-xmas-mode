@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
-const ZOOM = 13;
-const GRID_COUNT = 1 << ZOOM; // 8192
+const ZOOM = 14;
+const GRID_COUNT = 1 << ZOOM; // 16384
 const TILE_PX = 256;
 const METERS_PER_DEG_LAT = 111320;
-const MAX_CACHED_TILES = 12;
+const MAX_CACHED_TILES = 16;
 
 interface TileEntry {
   status: 'loading' | 'ready' | 'failed';
@@ -56,10 +56,14 @@ export class LiveElevationManager {
     this.ensureTile(tx, ty);
     const localU = fx - tx;
     const localV = fy - ty;
-    if (localU < 0.25) this.ensureTile(tx - 1, ty);
-    if (localU > 0.75) this.ensureTile(tx + 1, ty);
-    if (localV < 0.25) this.ensureTile(tx, ty - 1);
-    if (localV > 0.75) this.ensureTile(tx, ty + 1);
+    if (localU < 0.32) this.ensureTile(tx - 1, ty);
+    if (localU > 0.68) this.ensureTile(tx + 1, ty);
+    if (localV < 0.32) this.ensureTile(tx, ty - 1);
+    if (localV > 0.68) this.ensureTile(tx, ty + 1);
+    if (localU < 0.32 && localV < 0.32) this.ensureTile(tx - 1, ty - 1);
+    if (localU > 0.68 && localV < 0.32) this.ensureTile(tx + 1, ty - 1);
+    if (localU < 0.32 && localV > 0.68) this.ensureTile(tx - 1, ty + 1);
+    if (localU > 0.68 && localV > 0.68) this.ensureTile(tx + 1, ty + 1);
   }
 
   private ensureTile(rawX: number, rawY: number): void {
@@ -160,6 +164,11 @@ export class LiveElevationManager {
     return THREE.MathUtils.lerp(top, bot, tyFrac);
   }
 
+  getAbsoluteElevationM(lat: number, lon: number): number | undefined {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+    return this.sampleMetersAbs(lat, lon);
+  }
+
   getSampler(originLat: number, originLon: number): ((x: number, z: number) => number) | undefined {
     if (!Number.isFinite(originLat) || !Number.isFinite(originLon)) return undefined;
     const center = latLonToTileFloat(originLat, originLon);
@@ -169,15 +178,24 @@ export class LiveElevationManager {
     if (datum === undefined) return undefined;
 
     const lonScale = METERS_PER_DEG_LAT * Math.max(0.15, Math.cos((originLat * Math.PI) / 180));
+    const sampleSmoothAbs = (x: number, z: number): number | undefined => {
+      const c = this.sampleMetersAbs(originLat - z / METERS_PER_DEG_LAT, originLon + x / lonScale, centerTx, centerTy);
+      if (c === undefined) return undefined;
+      const d = 7.5;
+      const n = this.sampleMetersAbs(originLat - (z - d) / METERS_PER_DEG_LAT, originLon + x / lonScale, centerTx, centerTy) ?? c;
+      const s = this.sampleMetersAbs(originLat - (z + d) / METERS_PER_DEG_LAT, originLon + x / lonScale, centerTx, centerTy) ?? c;
+      const w = this.sampleMetersAbs(originLat - z / METERS_PER_DEG_LAT, originLon + (x - d) / lonScale, centerTx, centerTy) ?? c;
+      const e = this.sampleMetersAbs(originLat - z / METERS_PER_DEG_LAT, originLon + (x + d) / lonScale, centerTx, centerTy) ?? c;
+      return c * 0.44 + (n + s + w + e) * 0.14;
+    };
+
     return (x: number, z: number) => {
       const dist = Math.hypot(x, z);
-      if (dist > 370) return 0;
-      const lat = originLat - z / METERS_PER_DEG_LAT;
-      const lon = originLon + x / lonScale;
-      const raw = this.sampleMetersAbs(lat, lon, centerTx, centerTy);
+      if (dist > 375) return 0;
+      const raw = sampleSmoothAbs(x, z);
       if (raw === undefined) return 0;
-      const fade = 1 - THREE.MathUtils.smoothstep(dist, 275, 365);
-      return THREE.MathUtils.clamp((raw - datum) * 1.15, -24, 34) * fade;
+      const fade = 1 - THREE.MathUtils.smoothstep(dist, 290, 370);
+      return THREE.MathUtils.clamp((raw - datum) * 2.2, -36, 48) * fade;
     };
   }
 }

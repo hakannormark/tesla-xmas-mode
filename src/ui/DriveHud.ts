@@ -68,6 +68,7 @@ export class DriveHud {
   private readonly giftPillEl: HTMLElement;
   private readonly statusEl: HTMLOutputElement;
   private readonly liveLaunchEl: HTMLElement;
+  private readonly hohoBannerEl: HTMLElement;
 
   readonly trialPanelEl: HTMLElement;
   readonly trialPauseBtn: HTMLButtonElement;
@@ -155,11 +156,13 @@ export class DriveHud {
         <div class="drive-action-dock">
           <output class="festive-toast" data-festive-status aria-live="polite"></output>
           <button type="button" class="dock-btn dock-primary" data-gift>🎁 Julklapp</button>
+          <button type="button" class="dock-btn" data-snowball>❄ Snöboll</button>
           <button type="button" class="dock-btn" data-salute>🎺 Tut</button>
           <button type="button" class="dock-btn" data-hohoho>🎅 Ho-Ho</button>
           <button type="button" class="dock-btn" data-light-wave>✨ Ljus</button>
         </div>
       </footer>
+      <div class="hoho-banner" data-hoho-banner hidden>🎅 HO! HO! HO! · GOD JUL! ✨</div>
 
       <div class="drawer-backdrop" data-drawer-backdrop hidden></div>
       <aside class="drive-drawer" data-drawer hidden aria-label="Kontrollpanel">
@@ -300,6 +303,7 @@ export class DriveHud {
     this.giftPillEl = q('[data-gift-pill]');
     this.statusEl = q('[data-festive-status]');
     this.liveLaunchEl = q('[data-live-launch]');
+    this.hohoBannerEl = q('[data-hoho-banner]');
     this.trialPanelEl = q('[data-trial-panel]');
     this.trialPauseBtn = q('[data-trial-pause]');
     this.trialElevationEl = q('[data-trial-elevation]');
@@ -343,13 +347,19 @@ export class DriveHud {
     this.drawerBackdropEl.onclick = () => this.setDrawerOpen(false);
 
     q('[data-gift]').onclick = () => this.festivities.interact(0.5, 0.45);
+    q('[data-snowball]').onclick = () => this.festivities.triggerSnowball(0.5);
     q('[data-salute]').onclick = () => {
       this.festivities.audio.unlock();
       this.festivities.triggerConvoySalute();
     };
     q('[data-hohoho]').onclick = () => {
       this.festivities.audio.unlock();
+      if (this.festivities.audio.getMixMode() === 'muted') {
+        this.festivities.audio.setMixMode('sfx');
+        this.syncSettings();
+      }
       this.festivities.triggerHoHoHo();
+      this.hohoBannerEl.hidden = false;
     };
     q('[data-light-wave]').onclick = () => this.festivities.requestLightWave();
 
@@ -582,14 +592,32 @@ export class DriveHud {
     aheadJunction?: { name: string; meters: number; turn?: 'left' | 'right' | 'straight' };
     maxspeedKmh?: number;
     fsdActive?: boolean;
+    elevationM?: number;
+    gradePct?: number;
     hasWorld: boolean;
     viewHeading: number;
   }): void {
-    const { frame, env, placeName, streetLabel, aheadJunction, maxspeedKmh, fsdActive, hasWorld, viewHeading } = opts;
+    const {
+      frame,
+      env,
+      placeName,
+      streetLabel,
+      aheadJunction,
+      maxspeedKmh,
+      fsdActive,
+      elevationM,
+      gradePct,
+      hasWorld,
+      viewHeading,
+    } = opts;
 
     const metaParts: string[] = [];
     if (placeName) metaParts.push(placeName);
     if (hasWorld) metaParts.push(`${env.temperatureC}°C`);
+    if (elevationM !== undefined && Number.isFinite(elevationM)) {
+      const g = gradePct ? ` (${gradePct > 0 ? '+' : ''}${gradePct}%)` : '';
+      metaParts.push(`⛰ ${Math.round(elevationM)} m${g}`);
+    }
     if (env.holidayCalendar.badgeSv) metaParts.push(env.holidayCalendar.badgeSv);
     const metaText = metaParts.join(' · ');
     if (this.placeEl.textContent !== metaText) this.placeEl.textContent = metaText;
@@ -616,11 +644,18 @@ export class DriveHud {
     this.northDistEl.textContent = Math.round(frame.northPoleDistanceKm).toLocaleString('sv-SE') + ' km';
     this.northArrowEl.style.transform = `rotate(${-viewHeading}rad)`;
 
-    const gifts = this.festivities.getGiftsDelivered();
-    const combo = this.festivities.getComboCount();
-    this.giftPillEl.hidden = gifts <= 0;
-    if (gifts > 0) {
-      this.giftPillEl.textContent = combo >= 2 ? `🎁 ${gifts} · ${combo}×` : `🎁 ${gifts}`;
+    const summary = this.festivities.getScoreSummary();
+    this.hohoBannerEl.hidden = !summary.hoHoBanner;
+    const scoreParts: string[] = [];
+    if (summary.gifts > 0) scoreParts.push(`🎁 ${summary.gifts}`);
+    if (summary.stars > 0) scoreParts.push(`⭐ ${summary.stars}`);
+    if (summary.critters > 0) scoreParts.push(`🦌 ${summary.critters}`);
+    if (summary.snowballs > 0) scoreParts.push(`❄ ${summary.snowballs}`);
+    this.giftPillEl.hidden = scoreParts.length === 0;
+    if (scoreParts.length > 0) {
+      this.giftPillEl.textContent = summary.combo >= 2
+        ? `${scoreParts.join(' · ')} · ${summary.combo}×`
+        : scoreParts.join(' · ');
     }
 
     const status = this.festivities.getStatus();

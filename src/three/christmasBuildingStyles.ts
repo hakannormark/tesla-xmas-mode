@@ -3,20 +3,20 @@ import type { OsmBuilding, OsmPoint2D } from '../core/osmWorld';
 type Roof = readonly (readonly [position: number, height: number])[];
 
 const gabled = [[0,0],[0.5,1],[1,0]] as const;
-const gambrel = [[0,0],[0.22,0.69],[0.5,1],[0.78,0.69],[1,0]] as const;
+const gambrel = [[0,0],[0.22,0.72],[0.5,1],[0.78,0.72],[1,0]] as const;
 const saltbox = [[0,0],[0.36,1],[1,0]] as const;
-const shed = [[0,0.12],[1,1]] as const;
+const shed = [[0,0.16],[1,1]] as const;
 const flat = [[0,0],[1,0]] as const;
 
 export const cottageStyles = [
-  { name:'Falu torp', color:'#ac3d38', finish:'boards', roof:gabled, wall:2.55, pitch:0.38, windows:2, attic:false, porch:'canopy', trim:'#f5d9a6', door:'#467953' },
-  { name:'Skogsstuga', color:'#93593c', finish:'logs', roof:saltbox, wall:2.3, pitch:0.30, windows:1, attic:false, porch:'stoop', trim:'#d9a578', door:'#663631' },
-  { name:'Julbageri', color:'#d39b64', finish:'plaster', roof:gambrel, wall:2.85, pitch:0.37, windows:2, attic:true, porch:'awning', trim:'#fbe2b4', door:'#a93746' },
-  { name:'Ängsvilla', color:'#e9c380', finish:'boards', roof:gabled, wall:3.25, pitch:0.30, windows:2, attic:true, porch:'porch', trim:'#fcf1d5', door:'#2d7881' },
-  { name:'Norrskenstorp', color:'#417c83', finish:'boards', roof:saltbox, wall:2.65, pitch:0.36, windows:1, attic:true, porch:'canopy', trim:'#cde8eb', door:'#793b56' },
-  { name:'Älvstuga', color:'#587942', finish:'logs', roof:shed, wall:2.4, pitch:0.24, windows:2, attic:false, porch:'stoop', trim:'#f5d59a', door:'#c45742' },
-  { name:'Pepparkakshus', color:'#ab765d', finish:'plaster', roof:gabled, wall:2.48, pitch:0.52, windows:1, attic:true, porch:'awning', trim:'#fff0cc', door:'#357755' },
-  { name:'Skymningsvilla', color:'#7578a0', finish:'boards', roof:gambrel, wall:3.05, pitch:0.34, windows:2, attic:true, porch:'porch', trim:'#e4dbec', door:'#a64855' },
+  { name:'Faluröd Sekelskiftesvilla', color:'#9e232a', finish:'boards', roof:gabled, wall:3.55, pitch:0.62, windows:2, attic:true, porch:'porch', trim:'#f7ebd2', door:'#286448' },
+  { name:'Timmerstuga i Fjällen', color:'#82492c', finish:'logs', roof:gambrel, wall:3.35, pitch:0.56, windows:2, attic:true, porch:'porch', trim:'#f0c999', door:'#982230' },
+  { name:'Pepparkaksbageri', color:'#b66939', finish:'plaster', roof:gabled, wall:3.85, pitch:0.74, windows:2, attic:true, porch:'awning', trim:'#fff2d6', door:'#a4243b' },
+  { name:'Solgul Herrgårdsvilla', color:'#d49a3d', finish:'boards', roof:gambrel, wall:4.35, pitch:0.58, windows:3, attic:true, porch:'porch', trim:'#fcf3db', door:'#23686f' },
+  { name:'Vinterblå Saga', color:'#335e86', finish:'boards', roof:gabled, wall:3.65, pitch:0.66, windows:2, attic:true, porch:'canopy', trim:'#f2f6fa', door:'#9e2a45' },
+  { name:'Skogsgrön Alpstuga', color:'#255748', finish:'logs', roof:saltbox, wall:3.45, pitch:0.58, windows:2, attic:true, porch:'porch', trim:'#f6dfaa', door:'#b83935' },
+  { name:'Polarexpressen Station', color:'#9c2536', finish:'plaster', roof:gambrel, wall:3.95, pitch:0.64, windows:2, attic:true, porch:'awning', trim:'#fff1cb', door:'#2b6b4a' },
+  { name:'Gräddvit Drömvilla', color:'#dfd1bc', finish:'boards', roof:gabled, wall:4.15, pitch:0.60, windows:3, attic:true, porch:'porch', trim:'#ffffff', door:'#9e2236' },
 ] as const;
 
 const osmRoofs: Record<string, Roof | undefined> = {
@@ -30,13 +30,17 @@ export function cottageModel(building: OsmBuilding) {
   hash ^= hash >>> 16;
   const index = (hash >>> 0) % cottageStyles.length;
   const style = cottageStyles[index];
-  return { index, style, roof:(building.roofShape && osmRoofs[building.roofShape]) || style.roof,
-    wallHeight: style.wall + (building.levels !== undefined && building.levels >= 2 ? 0.15 : 0),
-    variation: (hash >>> 21) / 2047 };
+  return {
+    index,
+    style,
+    roof: (building.roofShape && osmRoofs[building.roofShape]) || style.roof,
+    wallHeight: style.wall + (building.levels !== undefined && building.levels >= 2 ? 0.95 : 0),
+    variation: (hash >>> 21) / 2047,
+  };
 }
 
 // Measure roof width across the longest façade. Axis and distances are invariant when the map origin moves.
-export function roofProjection(footprint: OsmPoint2D[], profile: Roof, pitch: number, heightLimit = 3.25) {
+export function roofProjection(footprint: OsmPoint2D[], profile: Roof, pitch: number, heightLimit = 5.8) {
   let longest = 0, axis = {x:1,z:0};
   for (let i = 0; i < footprint.length; i++) {
     const a = footprint[i], b = footprint[(i+1)%footprint.length];
@@ -61,11 +65,11 @@ export function roofProjection(footprint: OsmPoint2D[], profile: Roof, pitch: nu
   const yAt = (u: number) => {
     const i = Math.max(1,profile.findIndex(([position]) => position >= u));
     const [a,ya] = profile[i-1], [b,yb] = profile[i];
-    return 0.21+rise*(ya+(yb-ya)*(u-a)/(b-a));
+    return 0.24+rise*(ya+(yb-ya)*(u-a)/(b-a));
   };
   return { widthAt, yAt, sections, rise };
 }
 
 export function buildingWallHeight(building: OsmBuilding): number {
-  return cottageModel(building)?.wallHeight ?? Math.max(3,Math.min(16,building.heightM*0.65));
+  return cottageModel(building)?.wallHeight ?? Math.max(4.4, Math.min(18, building.heightM * 0.74));
 }

@@ -23,7 +23,7 @@ import {
 } from './teslaModels';
 import { moonDirection } from './winterSurfaces';
 
-const BURST_COUNT = 72;
+const BURST_COUNT = 160;
 const CHIMNEY_SPARK_COUNT = 36;
 const ELON_CYCLE: ElonEventType[] = ['starlink', 'starship', 'starman', 'supercharger', 'cyberplow'];
 
@@ -36,6 +36,25 @@ interface GiftProjectile {
   bonusGifts: number;
   bonusKind?: 'town_tree' | 'snowman';
   onLand?: () => void;
+}
+
+interface SnowballProjectile {
+  mesh: THREE.Mesh;
+  active: boolean;
+  t: number;
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+  onLand?: () => void;
+}
+
+interface WishStarTarget {
+  id: string;
+  mesh: THREE.Group;
+  active: boolean;
+  respawnTimer: number;
+  aheadOffset: number;
+  latOffset: number;
+  heightOffset: number;
 }
 
 interface ExpandingRing {
@@ -61,10 +80,10 @@ export class DriveFestivities {
   private readonly effects = new THREE.Group();
 
   private readonly convoy = [
-    { handle: createAccurateTeslaSemi('coca_cola'), dir: 1 as const, baseOffset: 24 },
-    { handle: createAccurateTeslaSemi('tesla'), dir: 1 as const, baseOffset: 44 },
-    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 88 },
-    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 118 },
+    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 108 },
+    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 142 },
+    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 176 },
+    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 210 },
   ];
   readonly convoyPositions: Array<{ x: number; y: number; z: number; heading: number }> = [];
 
@@ -76,6 +95,8 @@ export class DriveFestivities {
   private plowCooldown = 0;
 
   private readonly giftPool: GiftProjectile[] = [];
+  private readonly snowballPool: SnowballProjectile[] = [];
+  private readonly wishStars: WishStarTarget[] = [];
   private readonly chimneyPts: THREE.Points;
   private readonly chimneyPos = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
   private readonly chimneyVel = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
@@ -101,10 +122,15 @@ export class DriveFestivities {
 
   private tunnelBlend = 0;
   private giftsDelivered = 0;
+  private starsCaught = 0;
+  private crittersTapped = 0;
+  private snowballsLanded = 0;
+  private nextMilestoneScore = 5;
   private comboCount = 0;
   private comboTimer = 0;
   private convoyTime = 0;
   private hornFlashTimer = 0;
+  private hoHoBannerUntil = 0;
   private sleighAlert = 0;
   private elonCycleIdx = 0;
   private lastChurchBellTime = -30;
@@ -162,6 +188,64 @@ export class DriveFestivities {
     }
 
     const starTex = getStarSpriteTexture();
+    // 4-slot Ice Snowball Pool
+    const snowGeo = new THREE.SphereGeometry(0.36, 10, 10);
+    const snowMat = new THREE.MeshPhysicalMaterial({
+      color: '#e8f6ff',
+      roughness: 0.45,
+      clearcoat: 0.6,
+      emissive: '#386496',
+      emissiveIntensity: 0.35,
+    });
+    for (let i = 0; i < 4; i++) {
+      const sb = new THREE.Mesh(snowGeo, snowMat);
+      sb.visible = false;
+      scene.add(sb);
+      this.snowballPool.push({
+        mesh: sb,
+        active: false,
+        t: 0,
+        start: new THREE.Vector3(),
+        end: new THREE.Vector3(),
+      });
+    }
+
+    // 6-slot Collectible Floating Wish Stars (minigame)
+    const wishGeo = new THREE.OctahedronGeometry(0.95, 0);
+    const wishMat = new THREE.MeshBasicMaterial({ color: '#ffe378', toneMapped: false });
+    const wishHaloMat = new THREE.SpriteMaterial({
+      map: starTex,
+      color: '#ffdf7e',
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const wishSlots = [
+      { aheadOffset: 24, latOffset: -5.5, heightOffset: 3.4 },
+      { aheadOffset: 42, latOffset: 6.2, heightOffset: 3.8 },
+      { aheadOffset: 62, latOffset: -4.2, heightOffset: 4.1 },
+      { aheadOffset: 82, latOffset: 5.0, heightOffset: 3.6 },
+      { aheadOffset: 102, latOffset: -6.4, heightOffset: 4.2 },
+      { aheadOffset: 122, latOffset: 4.0, heightOffset: 3.9 },
+    ];
+    wishSlots.forEach((slot, idx) => {
+      const wg = new THREE.Group();
+      const core = new THREE.Mesh(wishGeo, wishMat);
+      const halo = new THREE.Sprite(wishHaloMat);
+      halo.scale.set(4.4, 4.4, 1);
+      wg.add(core, halo);
+      wg.visible = false;
+      scene.add(wg);
+      this.wishStars.push({
+        id: `wish-${idx}`,
+        mesh: wg,
+        active: true,
+        respawnTimer: 0,
+        ...slot,
+      });
+    });
+
     for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) this.chimneyPos[i * 3 + 1] = -999;
     const chGeo = new THREE.BufferGeometry();
     chGeo.setAttribute('position', new THREE.BufferAttribute(this.chimneyPos, 3));
@@ -298,6 +382,11 @@ export class DriveFestivities {
       g.start.add(offset);
       g.end.add(offset);
     }
+    for (const s of this.snowballPool) {
+      if (!s.active) continue;
+      s.start.add(offset);
+      s.end.add(offset);
+    }
     for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) {
       if (this.chimneyLife[i] > 0) {
         this.chimneyPos[i * 3] += offset.x;
@@ -331,6 +420,28 @@ export class DriveFestivities {
 
   getComboCount(): number {
     return this.comboCount;
+  }
+
+  getScoreSummary(): { gifts: number; stars: number; critters: number; snowballs: number; combo: number; hoHoBanner: boolean } {
+    return {
+      gifts: this.giftsDelivered,
+      stars: this.starsCaught,
+      critters: this.crittersTapped,
+      snowballs: this.snowballsLanded,
+      combo: this.comboCount,
+      hoHoBanner: this.time < this.hoHoBannerUntil,
+    };
+  }
+
+  private checkMilestoneFireworks(): void {
+    const total = this.giftsDelivered + this.starsCaught + this.crittersTapped + this.snowballsLanded;
+    if (total >= this.nextMilestoneScore) {
+      while (this.nextMilestoneScore <= total) this.nextMilestoneScore += 5;
+      this.sky.triggerCelebrationFireworks(5.2, this.time);
+      this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
+      this.audio.playComboFanfare(4);
+      this.announce('🎉 JULMAGI FULL! STORT FYRVERKERI!', 5.0);
+    }
   }
 
   getStoppedSec(): number {
@@ -382,9 +493,147 @@ export class DriveFestivities {
 
   triggerHoHoHo(): void {
     this.sleighAlert = 1.0;
+    this.hoHoBannerUntil = this.time + 2.6;
     this.sleigh.triggerReaction('hohoho');
     this.audio.playHoHoHo();
-    this.announce('🎅 Ho-Ho-Ho · God Jul!', 3.2);
+    this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
+    this.sky.triggerCelebrationFireworks(4.2, this.time);
+    this.announce('🎅 HO! HO! HO! · GOD JUL!', 3.6);
+
+    const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
+    const ringColors = ['#ffe37a', '#ff3b5c', '#6ff0ff'];
+    ringColors.forEach((col, idx) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: col,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(this.ringGeo, mat);
+      mesh.position.set(
+        this.lastCenter.x + east * (3.5 + idx * 1.4),
+        this.lastCenter.y + 2.0 + (this.sleigh.group.visible ? this.sleigh.group.position.y * 0.45 : 0),
+        this.lastCenter.z - north * (3.5 + idx * 1.4)
+      );
+      mesh.rotation.y = -this.lastHeading;
+      mesh.scale.setScalar(0.8 + idx * 0.45);
+      this.scene.add(mesh);
+      this.rings.push({
+        mesh,
+        mat,
+        age: idx * 0.14,
+        velocity: new THREE.Vector3(east * (11 + idx * 3), 0.6, -north * (11 + idx * 3)),
+      });
+    });
+
+    const bx = this.lastCenter.x + east * 4.5;
+    const by = this.lastCenter.y + 2.4 + (this.sleigh.group.visible ? this.sleigh.group.position.y * 0.5 : 0);
+    const bz = this.lastCenter.z - north * 4.5;
+    for (let i = 0; i < BURST_COUNT; i++) {
+      this.burstPos[i * 3] = bx;
+      this.burstPos[i * 3 + 1] = by;
+      this.burstPos[i * 3 + 2] = bz;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.25) * Math.PI * 0.9;
+      const spd = 6.5 + Math.random() * 14.0;
+      this.burstVel[i * 3] = Math.cos(theta) * Math.cos(phi) * spd + east * 4.5;
+      this.burstVel[i * 3 + 1] = Math.sin(phi) * spd + 4.0;
+      this.burstVel[i * 3 + 2] = Math.sin(theta) * Math.cos(phi) * spd - north * 4.5;
+      this.burstLife[i] = 1.15;
+    }
+  }
+
+  triggerSnowball(normX = 0.5): void {
+    this.sleighAlert = 1.0;
+    this.sleigh.triggerReaction('gift');
+    const slot = this.snowballPool.find(s => !s.active) ?? this.snowballPool[0];
+    if (!slot) return;
+
+    const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
+    const preferSide: -1 | 1 = normX < 0.5 ? -1 : 1;
+    slot.active = true;
+    slot.t = 0;
+    slot.start.set(
+      this.lastCenter.x,
+      this.lastCenter.y + 1.8 + (this.sleigh.group.visible ? this.sleigh.group.position.y : 0.6),
+      this.lastCenter.z
+    );
+
+    const targets = this.livingWorld.getInteractiveTargets(this.lastCenter, this.lastHeading);
+    const hitTarget = targets.find(t => t.kind === 'snowman') ?? targets[0];
+    if (hitTarget) {
+      slot.end.set(hitTarget.x, hitTarget.y, hitTarget.z);
+      slot.onLand = () => {
+        hitTarget.lightUp();
+        this.livingWorld.celebrateCritterNear(hitTarget.x, hitTarget.z, 18);
+      };
+    } else {
+      const critters = this.livingWorld.getTappableCritters(this.lastCenter);
+      const aheadCritter = critters.find(c => (c.x - this.lastCenter.x) * east - (c.z - this.lastCenter.z) * north > 6);
+      if (aheadCritter) {
+        slot.end.set(aheadCritter.x, aheadCritter.y, aheadCritter.z);
+        slot.onLand = aheadCritter.onTap;
+      } else {
+        const tx = this.lastCenter.x + east * 26 + north * preferSide * 7.5;
+        const tz = this.lastCenter.z - north * 26 + east * preferSide * 7.5;
+        const gy = this.map.mapData.elevation?.(tx, tz) ?? this.lastCenter.y;
+        slot.end.set(tx, gy + 0.8, tz);
+        slot.onLand = () => {
+          this.livingWorld.celebrateCritterNear(tx, tz, 16);
+        };
+      }
+    }
+    slot.mesh.position.copy(slot.start);
+    slot.mesh.visible = true;
+    this.audio.playGiftLaunch();
+  }
+
+  getTappableWishStars(): Array<{ id: string; x: number; y: number; z: number; onTap: () => void }> {
+    const out: Array<{ id: string; x: number; y: number; z: number; onTap: () => void }> = [];
+    for (const s of this.wishStars) {
+      if (!s.active || !s.mesh.visible) continue;
+      const p = s.mesh.position;
+      if (Math.hypot(p.x - this.lastCenter.x, p.z - this.lastCenter.z) > 105) continue;
+      out.push({
+        id: s.id,
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        onTap: () => this.catchWishStar(s),
+      });
+    }
+    return out;
+  }
+
+  private catchWishStar(star: WishStarTarget): void {
+    if (!star.active) return;
+    star.active = false;
+    star.respawnTimer = 6.5;
+    star.mesh.visible = false;
+    this.starsCaught += 1;
+    this.comboCount = Math.min(9, this.comboCount + 1);
+    this.comboTimer = 5.0;
+    this.spawnChimneySparks(star.mesh.position.x, star.mesh.position.y, star.mesh.position.z);
+    this.audio.playComboFanfare(this.comboCount + 1);
+    this.announce(`⭐ Önskestjärna fångad! (${this.starsCaught} st)`, 3.6);
+    this.checkMilestoneFireworks();
+  }
+
+  recordCritterTap(kind: 'rudolf' | 'reindeer' | 'elf', x: number, y: number, z: number): void {
+    this.crittersTapped += 1;
+    this.comboCount = Math.min(9, this.comboCount + 1);
+    this.comboTimer = 5.0;
+    this.spawnChimneySparks(x, y + 0.8, z);
+    this.audio.playSparkleChime();
+    const msg =
+      kind === 'rudolf'
+        ? '🔴 Du hälsade på Rudolf!'
+        : kind === 'reindeer'
+          ? '🦌 Renen hoppar av glädje!'
+          : '🧝 Julelven vinkar God Jul!';
+    this.announce(msg, 3.4);
+    this.checkMilestoneFireworks();
   }
 
   requestLightWave(): void {
@@ -675,20 +924,19 @@ export class DriveFestivities {
     const hornPulse = this.hornFlashTimer > 0 ? Math.max(0, Math.sin(this.hornFlashTimer * 12) * 0.4 + 0.85) : 0;
     const lightShowBoost = beat * 0.65 + (this.hornFlashTimer > 0 ? 0.85 : 0);
     this.convoy.forEach((entry, index) => {
-      const aheadMeters = entry.dir === 1
-        ? entry.baseOffset
-        : entry.baseOffset - (16 - this.convoyTime) * 11;
-      const slot = this.convoyTime > 0 && street && pointAlongStreet(street, center, heading, aheadMeters);
+      const aheadMeters = entry.baseOffset - (16 - this.convoyTime) * 15;
+      const slot = this.convoyTime > 0 && street && aheadMeters > -38 && pointAlongStreet(street, center, heading, aheadMeters);
       entry.handle.group.visible = !!slot;
       if (!slot) return;
-      const laneOffset = Math.min(2.05, street.widthM * 0.27) * entry.dir;
+      const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
       const tx = slot.x + Math.cos(slot.heading) * laneOffset;
       const tz = slot.z + Math.sin(slot.heading) * laneOffset;
       const ty = groundAt(tx, tz) + 0.05;
-      const truckHeading = entry.dir === 1 ? slot.heading : slot.heading + Math.PI;
+      const truckHeading = slot.heading + Math.PI;
       entry.handle.group.position.set(tx, ty, tz);
+      entry.handle.group.scale.setScalar(0.76);
       entry.handle.group.rotation.y = -truckHeading;
-      entry.handle.update(dt, time * frame.speedKmh * 0.1 + index, frame.isBraking, lightShowBoost, time, hornPulse);
+      entry.handle.update(dt, time * frame.speedKmh * 0.1 + index, false, lightShowBoost, time, hornPulse);
       this.convoyPositions.push({ x: tx, y: ty, z: tz, heading: truckHeading });
     });
 
@@ -731,7 +979,7 @@ export class DriveFestivities {
       this.redLightPlow.group.visible = false;
     }
 
-    // Update 6-Slot Gift Projectiles + Chimney Impact Fireworks
+    // Update 6-Slot Gift Projectiles + Snowballs + Floating Wish Stars + Chimney Fireworks
     for (const g of this.giftPool) {
       if (!g.active) continue;
       g.t += dt * 0.78;
@@ -756,12 +1004,57 @@ export class DriveFestivities {
         } else {
           this.audio.playChimneyPop();
         }
+        this.checkMilestoneFireworks();
       } else {
         const p = g.t;
         g.mesh.position.lerpVectors(g.start, g.end, p);
         g.mesh.position.y += Math.sin(p * Math.PI) * 9.5;
         g.mesh.rotation.set(time * 5.2, time * 7.1, 0);
       }
+    }
+
+    for (const s of this.snowballPool) {
+      if (!s.active) continue;
+      s.t += dt * 1.15;
+      if (s.t >= 1) {
+        s.active = false;
+        s.mesh.visible = false;
+        s.onLand?.();
+        this.snowballsLanded += 1;
+        this.spawnChimneySparks(s.end.x, s.end.y, s.end.z);
+        this.audio.playSnowballSplat();
+        this.announce('❄ Träff i snön! (+1 Julmagi)', 3.2);
+        this.checkMilestoneFireworks();
+      } else {
+        const p = s.t;
+        s.mesh.position.lerpVectors(s.start, s.end, p);
+        s.mesh.position.y += Math.sin(p * Math.PI) * 5.6;
+        s.mesh.rotation.x += dt * 12;
+      }
+    }
+
+    const fwdX = Math.sin(heading), fwdZ = -Math.cos(heading);
+    const rightX = Math.cos(heading), rightZ = Math.sin(heading);
+    for (const [idx, star] of this.wishStars.entries()) {
+      if (!star.active) {
+        star.respawnTimer -= dt;
+        if (star.respawnTimer <= 0) star.active = true;
+      }
+      star.mesh.visible = star.active && hasActiveWorld;
+      if (!star.mesh.visible) continue;
+      const cycleAhead = 18 + ((star.aheadOffset - time * 1.5 + 120) % 105);
+      let wx = center.x + fwdX * cycleAhead + rightX * star.latOffset;
+      let wz = center.z + fwdZ * cycleAhead + rightZ * star.latOffset;
+      if (street) {
+        const pt = pointAlongStreet(street, center, heading, cycleAhead);
+        if (pt) {
+          wx = pt.x + Math.cos(pt.heading) * star.latOffset;
+          wz = pt.z + Math.sin(pt.heading) * star.latOffset;
+        }
+      }
+      const gy = groundAt(wx, wz);
+      star.mesh.position.set(wx, gy + star.heightOffset + Math.sin(time * 2.8 + idx) * 0.45, wz);
+      star.mesh.rotation.y = time * 2.1 + idx;
     }
 
     for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) {

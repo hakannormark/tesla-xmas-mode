@@ -71,6 +71,7 @@ export class LiveSkyRig {
 
   private fireworkBursts: FireworkBurst[] = [];
   private fireworksGroup = new THREE.Group();
+  private boostFireworksUntil = 0;
 
   private meteors: Array<{
     group: THREE.Group;
@@ -456,8 +457,8 @@ export class LiveSkyRig {
       });
     }
 
-    // 5. Dec 24 Julafton Fireworks over Mountains
-    this.fireworksGroup.visible = env.holidayCalendar.isXmasEve;
+    // 5. Dec 24 Julafton OR Triggered Magic Fireworks over Mountains
+    this.fireworksGroup.visible = env.holidayCalendar.isXmasEve || time < this.boostFireworksUntil;
     if (this.fireworksGroup.visible) {
       for (const b of this.fireworkBursts) {
         b.age += dt;
@@ -576,6 +577,15 @@ export class LiveSkyRig {
           m.group.scale.y = m.endX > m.startX ? 1 : -1;
         }
       }
+    }
+  }
+
+  triggerCelebrationFireworks(durationSec = 4.2, nowTime = 0): void {
+    const end = nowTime + durationSec;
+    if (end > this.boostFireworksUntil) this.boostFireworksUntil = end;
+    for (const b of this.fireworkBursts) {
+      b.age = Math.max(0, b.age);
+      this.resetFirework(b);
     }
   }
 

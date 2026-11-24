@@ -1,11 +1,13 @@
 import * as THREE from 'three';
+import { getSoftGlowTexture } from './pixarMaterials';
 
-export type WildlifeKind = 'stag' | 'fox' | 'owl' | 'rabbit';
+export type WildlifeKind = 'stag' | 'fox' | 'owl' | 'rabbit' | 'reindeer' | 'rudolf' | 'elf';
 
 export interface PixarAnimalHandle {
   group: THREE.Group;
   kind: WildlifeKind;
   update(dt: number, time: number, sleighAlert: number): void;
+  triggerJoyJump?(): void;
 }
 
 interface WildlifeMaterials {
@@ -23,6 +25,12 @@ interface WildlifeMaterials {
   amberGold: THREE.MeshStandardMaterial;
   pinkNose: THREE.MeshStandardMaterial;
   catchlight: THREE.MeshBasicMaterial;
+  reindeerCoat: THREE.MeshPhysicalMaterial;
+  festiveRed: THREE.MeshPhysicalMaterial;
+  elfGreen: THREE.MeshPhysicalMaterial;
+  elfHatRed: THREE.MeshStandardMaterial;
+  goldBell: THREE.MeshStandardMaterial;
+  rudolfNose: THREE.MeshBasicMaterial;
 }
 
 let cachedMats: WildlifeMaterials | null = null;
@@ -82,6 +90,32 @@ function getMats(): WildlifeMaterials {
     amberGold: markShared(new THREE.MeshStandardMaterial({ color: '#ffbe44', roughness: 0.35 })),
     pinkNose: markShared(new THREE.MeshStandardMaterial({ color: '#f08c96', roughness: 0.48 })),
     catchlight: markShared(new THREE.MeshBasicMaterial({ color: '#ffffff' })),
+    reindeerCoat: markShared(
+      new THREE.MeshPhysicalMaterial({
+        color: '#9c623c',
+        roughness: 0.68,
+        sheen: 0.72,
+        sheenColor: new THREE.Color('#deb48e'),
+      })
+    ),
+    festiveRed: markShared(
+      new THREE.MeshPhysicalMaterial({
+        color: '#d41b36',
+        roughness: 0.36,
+        clearcoat: 0.45,
+      })
+    ),
+    elfGreen: markShared(
+      new THREE.MeshPhysicalMaterial({
+        color: '#1f7a4c',
+        roughness: 0.62,
+        sheen: 0.45,
+        sheenColor: new THREE.Color('#6fe0a4'),
+      })
+    ),
+    elfHatRed: markShared(new THREE.MeshStandardMaterial({ color: '#d9213c', roughness: 0.58 })),
+    goldBell: markShared(new THREE.MeshStandardMaterial({ color: '#ffd75e', metalness: 0.85, roughness: 0.18 })),
+    rudolfNose: markShared(new THREE.MeshBasicMaterial({ color: '#ff233d', toneMapped: false })),
   };
   return cachedMats;
 }
@@ -97,6 +131,239 @@ function makePixarEye(mats: WildlifeMaterials, radius: number, irisMat?: THREE.M
 export function createPixarForestAnimal(kind: WildlifeKind, seed = 0): PixarAnimalHandle {
   const mats = getMats();
   const root = new THREE.Group();
+
+  if (kind === 'reindeer' || kind === 'rudolf') {
+    const isRudolf = kind === 'rudolf';
+    const bodyPivot = new THREE.Group();
+    root.add(bodyPivot);
+
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.27, 0.72, 8, 12), mats.reindeerCoat);
+    torso.rotation.x = Math.PI * 0.5;
+    torso.position.y = 0.86;
+    bodyPivot.add(torso);
+
+    const chest = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 10), mats.stagBelly);
+    chest.position.set(0, 0.84, 0.38);
+    bodyPivot.add(chest);
+
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.048, 6, 12), mats.festiveRed);
+    collar.rotation.x = Math.PI * 0.32;
+    collar.position.set(0, 0.96, 0.38);
+    const bell = new THREE.Mesh(new THREE.SphereGeometry(0.068, 8, 8), mats.goldBell);
+    bell.position.set(0, 0.80, 0.61);
+    bodyPivot.add(collar, bell);
+
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.22, 7), mats.whiteTuft);
+    tail.rotation.x = -0.8;
+    tail.position.set(0, 1.0, -0.50);
+    bodyPivot.add(tail);
+
+    const legs: THREE.Group[] = [];
+    const legCoords: [number, number][] = [
+      [-0.15, 0.32],
+      [0.15, 0.32],
+      [-0.15, -0.32],
+      [0.15, -0.32],
+    ];
+    for (const [lx, lz] of legCoords) {
+      const leg = new THREE.Group();
+      leg.position.set(lx, 0.70, lz);
+      const shaft = new THREE.Mesh(new THREE.CapsuleGeometry(0.054, 0.50, 4, 8), mats.reindeerCoat);
+      shaft.position.y = -0.30;
+      const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.062, 0.08, 7), mats.darkDetail);
+      hoof.position.y = -0.63;
+      leg.add(shaft, hoof);
+      bodyPivot.add(leg);
+      legs.push(leg);
+    }
+
+    const headPivot = new THREE.Group();
+    headPivot.position.set(0, 1.02, 0.40);
+    const neck = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.34, 6, 10), mats.reindeerCoat);
+    neck.rotation.x = 0.38;
+    neck.position.set(0, 0.17, 0.10);
+    const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.195, 12, 10), mats.reindeerCoat);
+    cranium.position.set(0, 0.40, 0.22);
+    const snout = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.16, 6, 8), mats.stagBelly);
+    snout.rotation.x = Math.PI * 0.5;
+    snout.position.set(0, 0.35, 0.39);
+    const nose = new THREE.Mesh(
+      new THREE.SphereGeometry(isRudolf ? 0.085 : 0.056, 10, 10),
+      isRudolf ? mats.rudolfNose : mats.darkDetail
+    );
+    nose.position.set(0, 0.38, 0.52);
+    headPivot.add(neck, cranium, snout, nose);
+
+    if (isRudolf) {
+      const noseHaloMat = new THREE.SpriteMaterial({
+        map: getSoftGlowTexture(),
+        color: '#ff2b46',
+        transparent: true,
+        opacity: 0.78,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const noseHalo = new THREE.Sprite(noseHaloMat);
+      noseHalo.scale.set(0.85, 0.85, 1);
+      noseHalo.position.set(0, 0.38, 0.54);
+      headPivot.add(noseHalo);
+    }
+
+    const eyes: THREE.Mesh[] = [];
+    for (const s of [-1, 1]) {
+      const eye = makePixarEye(mats, 0.044);
+      eye.position.set(s * 0.125, 0.44, 0.33);
+      eye.rotation.y = s * 0.35;
+      headPivot.add(eye);
+      eyes.push(eye);
+
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.058, 0.18, 6), mats.reindeerCoat);
+      ear.rotation.z = s * 1.1;
+      ear.position.set(s * 0.19, 0.48, 0.15);
+      headPivot.add(ear);
+
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.032, 0.58, 6), mats.antler);
+      beam.position.set(s * 0.18, 0.76, 0.14);
+      beam.rotation.z = -s * 0.42;
+      beam.rotation.x = -0.22;
+      const tine = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, 0.26, 6), mats.antler);
+      tine.position.set(s * 0.28, 0.88, 0.12);
+      tine.rotation.z = -s * 0.8;
+      const bauble = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 8, 8),
+        s < 0 ? mats.festiveRed : mats.goldBell
+      );
+      bauble.position.set(s * 0.34, 0.82, 0.12);
+      headPivot.add(beam, tine, bauble);
+    }
+    bodyPivot.add(headPivot);
+
+    let joyTimer = 0;
+    let blinkT = 1.6 + (seed % 3);
+    let blinkVal = 0;
+
+    return {
+      group: root,
+      kind,
+      triggerJoyJump(): void {
+        joyTimer = 1.6;
+      },
+      update(dt: number, time: number, sleighAlert: number): void {
+        if (joyTimer > 0) joyTimer = Math.max(0, joyTimer - dt);
+        const trot = Math.sin(time * (4.6 + sleighAlert * 3.0) + seed);
+        legs.forEach((leg, i) => {
+          const swing = (i === 0 || i === 3 ? 1 : -1) * trot * 0.32;
+          leg.rotation.x = swing;
+        });
+        headPivot.rotation.x = Math.sin(time * 2.1 + seed) * 0.14;
+        headPivot.rotation.y = Math.sin(time * 1.2 + seed) * 0.28;
+        bell.rotation.z = Math.sin(time * 8 + seed) * 0.25;
+        bodyPivot.position.y =
+          Math.abs(trot) * 0.06 + (joyTimer > 0 ? Math.abs(Math.sin(joyTimer * 10)) * 0.85 : 0);
+
+        blinkT -= dt;
+        if (blinkT <= 0) {
+          blinkT = 2.6 + ((seed * 1.7 + time) % 3);
+          blinkVal = 1;
+        }
+        blinkVal = Math.max(0, blinkVal - dt * 8);
+        for (const e of eyes) e.scale.y = Math.max(0.14, 1 - blinkVal * 0.86);
+      },
+    };
+  }
+
+  if (kind === 'elf') {
+    const elfPivot = new THREE.Group();
+    root.add(elfPivot);
+
+    const tunicColor = seed % 2 === 0 ? mats.elfGreen : mats.festiveRed;
+    const hatColor = seed % 2 === 0 ? mats.elfHatRed : mats.elfGreen;
+
+    const legs: THREE.Group[] = [];
+    for (const lx of [-0.11, 0.11]) {
+      const leg = new THREE.Group();
+      leg.position.set(lx, 0.44, 0);
+      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.28, 4, 8), mats.whiteTuft);
+      thigh.position.y = -0.18;
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.10, 0.19), mats.darkDetail);
+      boot.position.set(0, -0.37, 0.03);
+      leg.add(thigh, boot);
+      elfPivot.add(leg);
+      legs.push(leg);
+    }
+
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.27, 0.68, 10), tunicColor);
+    body.position.y = 0.72;
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 6, 12), mats.whiteTuft);
+    collar.rotation.x = Math.PI * 0.5;
+    collar.position.y = 1.02;
+    const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.22, 0.07, 10), mats.darkDetail);
+    belt.position.y = 0.62;
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.05), mats.goldBell);
+    buckle.position.set(0, 0.62, 0.21);
+    elfPivot.add(body, collar, belt, buckle);
+
+    const headPivot = new THREE.Group();
+    headPivot.position.set(0, 1.18, 0);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10), mats.pinkNose);
+    for (const s of [-1, 1]) {
+      const eye = makePixarEye(mats, 0.038);
+      eye.position.set(s * 0.072, 0.03, 0.165);
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.15, 5), mats.pinkNose);
+      ear.position.set(s * 0.21, 0.02, 0);
+      ear.rotation.z = -s * 1.1;
+      headPivot.add(eye, ear);
+    }
+    const hatCone = new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.44, 10), hatColor);
+    hatCone.position.set(0, 0.30, -0.02);
+    hatCone.rotation.x = -0.18;
+    const pom = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), mats.whiteTuft);
+    pom.position.set(0, 0.50, -0.06);
+    const hatTrim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.042, 6, 12), mats.whiteTuft);
+    hatTrim.rotation.x = Math.PI * 0.5;
+    hatTrim.position.y = 0.13;
+    headPivot.add(head, hatCone, pom, hatTrim);
+    elfPivot.add(headPivot);
+
+    const armL = new THREE.Group();
+    armL.position.set(-0.24, 0.92, 0);
+    const armMeshL = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.26, 4, 8), tunicColor);
+    armMeshL.position.y = -0.14;
+    const prop =
+      seed % 2 === 0
+        ? new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), mats.amberGold)
+        : new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.18, 0.20), mats.festiveRed);
+    prop.position.set(-0.04, -0.32, 0.10);
+    armL.add(armMeshL, prop);
+
+    const armR = new THREE.Group();
+    armR.position.set(0.24, 0.92, 0);
+    const armMeshR = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.26, 4, 8), tunicColor);
+    armMeshR.position.y = 0.12;
+    armR.rotation.z = -0.5;
+    armR.add(armMeshR);
+    elfPivot.add(armL, armR);
+
+    let joyTimer = 0;
+    return {
+      group: root,
+      kind,
+      triggerJoyJump(): void {
+        joyTimer = 1.6;
+      },
+      update(dt: number, time: number, sleighAlert: number): void {
+        if (joyTimer > 0) joyTimer = Math.max(0, joyTimer - dt);
+        const step = Math.sin(time * (5.2 + sleighAlert * 3.0) + seed);
+        legs[0].rotation.x = step * 0.42;
+        legs[1].rotation.x = -step * 0.42;
+        armL.rotation.x = -step * 0.4;
+        armR.rotation.z = -0.45 + Math.sin(time * 7 + seed) * (0.35 + sleighAlert * 0.35);
+        headPivot.rotation.y = Math.sin(time * 2.2 + seed) * 0.28;
+        elfPivot.position.y =
+          Math.abs(step) * 0.06 + (joyTimer > 0 ? Math.abs(Math.sin(joyTimer * 10)) * 0.9 : 0);
+      },
+    };
+  }
 
   if (kind === 'stag') {
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.74, 8, 12), mats.stagFur);

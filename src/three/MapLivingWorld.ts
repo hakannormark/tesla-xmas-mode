@@ -51,6 +51,16 @@ export class MapLivingWorld {
   // 2. Dynamic Forest Wildlife & Ornament Moose placed on real woodland clearings
   private readonly wildlifeGroup = new THREE.Group();
   private animals: PixarAnimalHandle[] = [];
+  private roamingCritters: Array<{
+    id: string;
+    handle: PixarAnimalHandle;
+    anchorX: number;
+    anchorZ: number;
+    radius: number;
+    speed: number;
+    phase: number;
+    isRoamer: boolean;
+  }> = [];
   private readonly mooseGroup = new THREE.Group();
   private readonly mooseHeadPivot = new THREE.Group();
   private builtVersion?: number;
@@ -308,12 +318,12 @@ export class MapLivingWorld {
 
     // --- 6. Authentic Road Signs ---
     this.swedishSign = createSwedishRoadSign();
-    this.swedishSign.group.scale.setScalar(0.82);
+    this.swedishSign.group.scale.setScalar(1.12);
     this.swedishSign.group.visible = false;
     this.group.add(this.swedishSign.group);
 
     this.holidaySign = createHolidayRoadSign();
-    this.holidaySign.group.scale.setScalar(0.84);
+    this.holidaySign.group.scale.setScalar(1.12);
     this.holidaySign.group.visible = false;
     this.group.add(this.holidaySign.group);
   }
@@ -331,6 +341,7 @@ export class MapLivingWorld {
     });
     this.wildlifeGroup.clear();
     this.animals = [];
+    this.roamingCritters = [];
   }
 
   private rebuildForSnapshot(mapData: ChristmasMapData, road: OsmRoadRibbon | undefined, center: THREE.Vector3, heading: number): void {
@@ -352,7 +363,72 @@ export class MapLivingWorld {
     const groundY = (x: number, z: number) => mapData.elevation?.(x, z) ?? 0;
     const clearance = mapData.clearance;
 
-    // Populate forest animals in real OSM woodland clearings
+    // 2A. Roaming Pixar Reindeer (incl. glowing-nose Rudolfs!) & Santa's Holiday Elves across yards, parks & verges
+    const holidaySpots: OsmPoint2D[] = [];
+    const tryAddHolidaySpot = (x: number, z: number, minGap = 11) => {
+      if (holidaySpots.length >= 24 || Math.hypot(x, z) > 260) return;
+      if (clearance && !clearance.clear({ x, z }, 1.25)) return;
+      if (holidaySpots.some(p => Math.hypot(p.x - x, p.z - z) < minGap)) return;
+      holidaySpots.push({ x, z });
+    };
+
+    for (const wp of mapData.woodlands) {
+      tryAddHolidaySpot(wp.x, wp.z, 9);
+    }
+    for (const r of snap.roads) {
+      let traveled = 0;
+      let nextSpawn = 12;
+      for (let i = 1; i < r.points.length && holidaySpots.length < 24; i++) {
+        const a = r.points[i - 1], b = r.points[i];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const segLen = Math.hypot(dx, dz);
+        if (segLen < 1) continue;
+        const nx = -dz / segLen, nz = dx / segLen;
+        while (traveled + segLen >= nextSpawn && holidaySpots.length < 24) {
+          const f = (nextSpawn - traveled) / segLen;
+          const bx = a.x + dx * f, bz = a.z + dz * f;
+          const side = holidaySpots.length % 2 === 0 ? 1 : -1;
+          const lateral = r.widthM * 0.5 + 3.2 + (holidaySpots.length % 3) * 1.4;
+          tryAddHolidaySpot(bx + nx * side * lateral, bz + nz * side * lateral, 12);
+          nextSpawn += 26;
+        }
+        traveled += segLen;
+      }
+    }
+
+    const holidayRoster: WildlifeKind[] = [
+      'rudolf',
+      'elf',
+      'reindeer',
+      'elf',
+      'reindeer',
+      'elf',
+      'rudolf',
+      'elf',
+      'reindeer',
+      'elf',
+    ];
+    holidaySpots.forEach((spot, idx) => {
+      const kind = holidayRoster[idx % holidayRoster.length];
+      const critter = createPixarForestAnimal(kind, idx + 11);
+      const scale = kind === 'elf' ? 1.18 : 1.16;
+      critter.group.scale.setScalar(scale);
+      critter.group.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
+      this.wildlifeGroup.add(critter.group);
+      this.animals.push(critter);
+      this.roamingCritters.push({
+        id: `${kind}-${idx}`,
+        handle: critter,
+        anchorX: spot.x,
+        anchorZ: spot.z,
+        radius: 0.75 + (idx % 3) * 0.25,
+        speed: kind === 'elf' ? 0.85 : 0.65,
+        phase: idx * 1.37,
+        isRoamer: true,
+      });
+    });
+
+    // 2B. Woodland Wildlife & Ornament Moose
     const spots: OsmPoint2D[] = [...mapData.woodlands];
     if (spots.length < 3 && (snap.biome === 'forest' || snap.biome === 'open') && road && clearance) {
       for (let i = 0; i < 6; i++) {
@@ -415,6 +491,50 @@ export class MapLivingWorld {
       }
     }
     return undefined;
+  }
+
+  getTappableCritters(center: THREE.Vector3): Array<{
+    id: string;
+    kind: 'rudolf' | 'reindeer' | 'elf';
+    x: number;
+    y: number;
+    z: number;
+    onTap: () => void;
+  }> {
+    const out: Array<{
+      id: string;
+      kind: 'rudolf' | 'reindeer' | 'elf';
+      x: number;
+      y: number;
+      z: number;
+      onTap: () => void;
+    }> = [];
+    for (const c of this.roamingCritters) {
+      const p = c.handle.group.position;
+      if (Math.hypot(p.x - center.x, p.z - center.z) > 95) continue;
+      if (c.handle.kind !== 'rudolf' && c.handle.kind !== 'reindeer' && c.handle.kind !== 'elf') continue;
+      out.push({
+        id: c.id,
+        kind: c.handle.kind,
+        x: p.x,
+        y: p.y + 1.1,
+        z: p.z,
+        onTap: () => c.handle.triggerJoyJump?.(),
+      });
+    }
+    return out;
+  }
+
+  celebrateCritterNear(x: number, z: number, radius = 14): boolean {
+    let hit = false;
+    for (const c of this.roamingCritters) {
+      const p = c.handle.group.position;
+      if (Math.hypot(p.x - x, p.z - z) <= radius) {
+        c.handle.triggerJoyJump?.();
+        hit = true;
+      }
+    }
+    return hit;
   }
 
   getInteractiveTargets(center: THREE.Vector3, heading: number): LivingGiftTarget[] {
@@ -501,7 +621,14 @@ export class MapLivingWorld {
       }
     }
 
-    // 2. Wildlife & Ornament Moose animations
+    // 2. Wildlife, Roaming Reindeer/Elves & Ornament Moose animations
+    for (const rc of this.roamingCritters) {
+      const a = time * rc.speed + rc.phase;
+      const nx = rc.anchorX + Math.cos(a) * rc.radius;
+      const nz = rc.anchorZ + Math.sin(a) * rc.radius;
+      rc.handle.group.position.set(nx, groundY(nx, nz), nz);
+      rc.handle.group.rotation.y = Math.atan2(-Math.sin(a), Math.cos(a));
+    }
     for (const anim of this.animals) {
       anim.update(dt, time, sleighAlert);
     }
@@ -596,10 +723,10 @@ export class MapLivingWorld {
       this.swedishSignPlaced = false;
     }
     if (!this.swedishSignPlaced && road) {
-      const spot = this.tryPlaceAlongStreet(road, center, heading, 44, -1, 2.5, 1.1, mapData);
+      const spot = this.tryPlaceAlongStreet(road, center, heading, 46, -1, 3.0, 1.1, mapData);
       if (spot) {
         this.swedishSign.group.position.set(spot.x, spot.y, spot.z);
-        this.swedishSign.group.rotation.y = -spot.heading + 0.24;
+        this.swedishSign.group.rotation.y = -spot.heading + 0.14;
         this.swedishSignPlaced = true;
       }
     }
@@ -609,10 +736,10 @@ export class MapLivingWorld {
       this.holidaySignPlaced = false;
     }
     if (!this.holidaySignPlaced && road) {
-      const spot = this.tryPlaceAlongStreet(road, center, heading, 72, 1, 2.4, 1.1, mapData);
-      if (spot) {
+      const spot = this.tryPlaceAlongStreet(road, center, heading, 84, 1, 2.9, 1.1, mapData);
+      if (spot && (!this.swedishSignPlaced || Math.hypot(spot.x - this.swedishSign.group.position.x, spot.z - this.swedishSign.group.position.z) > 22)) {
         this.holidaySign.group.position.set(spot.x, spot.y, spot.z);
-        this.holidaySign.group.rotation.y = -spot.heading - 0.34;
+        this.holidaySign.group.rotation.y = -spot.heading - 0.18;
         this.holidaySignPlaced = true;
       }
     }

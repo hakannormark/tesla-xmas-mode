@@ -1361,32 +1361,33 @@ export function createSwedishRoadSign(): SwedishRoadSignHandle {
   });
   const snowMat = createSparklingSnowMaterial('#b8cee8');
 
-  for (const px of [-1.45, 1.45]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.1, 8), poleMat);
-    pole.position.set(px, 2.05, 0);
+  for (const px of [-2.15, 2.15]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 5.1, 8), poleMat);
+    pole.position.set(px, 2.55, 0);
     group.add(pole);
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 224;
+  canvas.width = 1024;
+  canvas.height = 448;
   const ctx = canvas.getContext('2d')!;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
 
   const board = new THREE.Mesh(
-    new THREE.BoxGeometry(3.8, 1.68, 0.14),
+    new THREE.BoxGeometry(5.45, 2.42, 0.18),
     poleMat
   );
-  board.position.set(0, 3.2, 0);
-  const snowTop = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.16, 0.22), snowMat);
-  snowTop.position.set(0, 4.1, 0);
+  board.position.set(0, 3.85, 0);
+  const snowTop = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.2, 0.28), snowMat);
+  snowTop.position.set(0, 5.12, 0);
   group.add(board, snowTop);
 
   const faceMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
   for (const side of [-1, 1]) {
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(3.72, 1.6), faceMat);
-    face.position.set(0, 3.2, side * 0.08);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(5.32, 2.28), faceMat);
+    face.position.set(0, 3.85, side * 0.1);
     if (side < 0) face.rotation.y = Math.PI;
     group.add(face);
   }
@@ -1399,42 +1400,42 @@ export function createSwedishRoadSign(): SwedishRoadSignHandle {
     lastKey = key;
 
     // Trafikverket Motorway Blue + Crisp White Border
-    ctx.fillStyle = '#00529b';
+    ctx.fillStyle = '#004e98';
     ctx.beginPath();
-    ctx.roundRect(4, 4, 504, 216, 16);
+    ctx.roundRect(8, 8, 1008, 432, 28);
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 7;
-    ctx.strokeRect(10, 10, 492, 204);
+    ctx.lineWidth = 14;
+    ctx.strokeRect(18, 18, 988, 412);
 
-    // Yellow/Green European Route Badge top right (if road code like E4/255 found)
+    // Yellow/Green European Route Badge top right
     const routeMatch = roadName.match(/\b(E\d+|\d{2,3})\b/);
     const badgeText = routeMatch ? routeMatch[1] : 'N';
     ctx.fillStyle = badgeText.startsWith('E') ? '#0b8a3a' : '#f2c12e';
     ctx.beginPath();
-    ctx.roundRect(418, 22, 68, 34, 6);
+    ctx.roundRect(840, 38, 136, 68, 12);
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 5;
     ctx.stroke();
     ctx.fillStyle = badgeText.startsWith('E') ? '#ffffff' : '#111827';
-    ctx.font = '800 20px Inter, sans-serif';
+    ctx.font = '800 40px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(badgeText, 452, 40);
+    ctx.fillText(badgeText, 908, 74);
 
-    // 3 Directional Lines
+    // 3 High-Contrast Oversized Directional Lines
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffffff';
-    ctx.font = '800 38px Inter, sans-serif';
-    ctx.fillText(`↑  Nordpolen  ${npRounded.toLocaleString()} km`, 26, 56, 382);
+    ctx.font = '800 84px Inter, sans-serif';
+    ctx.fillText(`↑ Nordpolen ${npRounded.toLocaleString('sv-SE')} km`, 46, 108, 770);
 
-    ctx.font = '800 36px Inter, sans-serif';
-    ctx.fillText(`→  ${placeName}`, 26, 112, 456);
+    ctx.font = '800 82px Inter, sans-serif';
+    ctx.fillText(`→ ${placeName}`, 46, 224, 920);
 
-    ctx.fillStyle = '#ffe588';
-    ctx.font = '750 32px Inter, sans-serif';
-    ctx.fillText(roadName, 26, 168, 456);
+    ctx.fillStyle = '#ffeb85';
+    ctx.font = '800 72px Inter, sans-serif';
+    ctx.fillText(roadName, 46, 342, 920);
 
     tex.needsUpdate = true;
   };
@@ -1457,43 +1458,44 @@ export function createHolidayRoadSign(): HolidayRoadSignHandle {
   const woodMat = new THREE.MeshStandardMaterial({ color: '#4d281a', roughness: 0.85 });
   const snowMat = createSparklingSnowMaterial('#b8cee8');
 
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 3.6, 8), woodMat);
-  post.position.y = 1.8;
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.21, 4.6, 8), woodMat);
+  post.position.y = 2.3;
   group.add(post);
 
-  const board = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.25, 0.18), woodMat);
-  board.position.set(0, 2.75, 0);
+  const board = new THREE.Mesh(new THREE.BoxGeometry(5.05, 1.92, 0.2), woodMat);
+  board.position.set(0, 3.45, 0);
   group.add(board);
 
   // Snow cap & mini glowing brass lantern on signpost top
-  const snowCap = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.16, 0.26), snowMat);
-  snowCap.position.set(0, 3.44, 0);
+  const snowCap = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.22, 0.32), snowMat);
+  snowCap.position.set(0, 4.5, 0);
   group.add(snowCap);
 
   const lantern = new THREE.Mesh(
-    new THREE.SphereGeometry(0.14, 8, 8),
+    new THREE.SphereGeometry(0.18, 8, 8),
     new THREE.MeshBasicMaterial({ color: '#ffe59c', toneMapped: false })
   );
-  lantern.position.set(-1.5, 3.62, 0.15);
+  lantern.position.set(-2.25, 4.72, 0.2);
   group.add(lantern);
 
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 192;
+  canvas.width = 1024;
+  canvas.height = 384;
   const ctx = canvas.getContext('2d')!;
   const signTex = new THREE.CanvasTexture(canvas);
   signTex.colorSpace = THREE.SRGBColorSpace;
+  signTex.anisotropy = 8;
 
   const signFaceMat = new THREE.MeshStandardMaterial({
     map: signTex,
     emissiveMap: signTex,
-    emissive: new THREE.Color('#ffd990'),
-    emissiveIntensity: 0.65,
-    roughness: 0.4,
+    emissive: new THREE.Color('#ffe09e'),
+    emissiveIntensity: 0.9,
+    roughness: 0.35,
   });
   for (const side of [-1, 1]) {
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.12), signFaceMat);
-    face.position.set(0, 2.75, side * 0.1);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(4.85, 1.78), signFaceMat);
+    face.position.set(0, 3.45, side * 0.12);
     if (side < 0) face.rotation.y = Math.PI;
     group.add(face);
   }
@@ -1504,24 +1506,24 @@ export function createHolidayRoadSign(): HolidayRoadSignHandle {
     if (key === lastKey) return;
     lastKey = key;
 
-    const grad = ctx.createLinearGradient(0, 0, 512, 192);
+    const grad = ctx.createLinearGradient(0, 0, 1024, 384);
     grad.addColorStop(0, '#5e1020');
     grad.addColorStop(1, '#360914');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 192);
+    ctx.fillRect(0, 0, 1024, 384);
     ctx.strokeStyle = '#f6cf78';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(10, 10, 492, 172);
+    ctx.lineWidth = 14;
+    ctx.strokeRect(18, 18, 988, 348);
 
     ctx.fillStyle = '#fff6df';
-    ctx.font = '800 47px "Cinzel", Georgia, serif';
+    ctx.font = '800 94px "Cinzel", Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(title.slice(0, 22), 256, 72, 468);
+    ctx.fillText(title.slice(0, 22), 512, 138, 920);
 
-    ctx.fillStyle = '#ffcf76';
-    ctx.font = '750 35px Inter, sans-serif';
-    ctx.fillText(subtitle.slice(0, 32), 256, 130, 468);
+    ctx.fillStyle = '#ffd982';
+    ctx.font = '800 72px Inter, sans-serif';
+    ctx.fillText(subtitle.slice(0, 30), 512, 266, 920);
     signTex.needsUpdate = true;
   };
 

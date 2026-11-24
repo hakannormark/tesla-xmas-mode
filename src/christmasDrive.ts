@@ -367,13 +367,66 @@ if (!stage) {
   const flightsRoot = new THREE.Group();
   scene.add(flightsRoot);
   const projection = new THREE.Vector3();
-  const flightTemplate = createAccurateStarmanRoadster();
+
+  function createChristmasAirliner(): THREE.Group {
+    const g = new THREE.Group();
+    const silverMat = new THREE.MeshStandardMaterial({ color: '#eef4fc', metalness: 0.55, roughness: 0.28, fog: false });
+    const crimsonMat = new THREE.MeshStandardMaterial({ color: '#c81632', metalness: 0.35, roughness: 0.3, fog: false });
+    const wingMat = new THREE.MeshStandardMaterial({ color: '#c4d2e6', metalness: 0.45, roughness: 0.35, fog: false });
+    const winMat = new THREE.MeshBasicMaterial({ color: '#ffe588', toneMapped: false, fog: false });
+    const greenNav = new THREE.MeshBasicMaterial({ color: '#38f28c', toneMapped: false, fog: false });
+    const redNav = new THREE.MeshBasicMaterial({ color: '#ff3048', toneMapped: false, fog: false });
+
+    // Forward points along +X (to match rotation.y = Math.PI / 2 - headingDeg)
+    const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 2.5, 6, 10), silverMat);
+    fuselage.rotation.z = Math.PI * 0.5;
+    const livery = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.24, 0.92), crimsonMat);
+    livery.position.y = -0.14;
+    const wings = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 3.8), wingMat);
+    wings.position.set(0.1, -0.08, 0);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.95, 0.1), crimsonMat);
+    tail.position.set(-1.35, 0.62, 0);
+    const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.06, 1.45), wingMat);
+    tailPlane.position.set(-1.35, 0.14, 0);
+    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.22, 0.48), winMat);
+    cockpit.position.set(1.32, 0.15, 0);
+    const beaconR = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 6), greenNav);
+    beaconR.position.set(0.05, -0.05, 1.92);
+    const beaconL = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 6), redNav);
+    beaconL.position.set(0.05, -0.05, -1.92);
+    const santaHat = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.48, 8), crimsonMat);
+    santaHat.position.set(-1.35, 1.24, 0);
+    santaHat.rotation.z = 0.28;
+    const hatPom = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), winMat);
+    hatPom.position.set(-1.46, 1.44, 0);
+
+    g.add(fuselage, livery, wings, tail, tailPlane, cockpit, beaconR, beaconL, santaHat, hatPom);
+    for (let w = -3; w <= 3; w++) {
+      for (const side of [-0.45, 0.45]) {
+        const win = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.11, 0.06), winMat);
+        win.position.set(w * 0.28, 0.14, side);
+        g.add(win);
+      }
+    }
+    return g;
+  }
+
+  const flightTemplate = createChristmasAirliner();
   const flightBounds = new THREE.Box3().setFromObject(flightTemplate);
   const corners: THREE.Vector3[] = [];
   for (const x of [flightBounds.min.x, flightBounds.max.x]) {
     for (const y of [flightBounds.min.y, flightBounds.max.y]) {
       for (const z of [flightBounds.min.z, flightBounds.max.z]) corners.push(new THREE.Vector3(x, y, z));
     }
+  }
+  function projectToPx(wx: number, wy: number, wz: number): { sx: number; sy: number; visible: boolean } {
+    projection.set(wx, wy, wz).project(camera);
+    const visible = projection.z > -1 && projection.z < 1 && Math.abs(projection.x) <= 1.08 && Math.abs(projection.y) <= 1.08;
+    return {
+      sx: (1 + projection.x) * 0.5 * window.innerWidth,
+      sy: (1 - projection.y) * 0.5 * window.innerHeight,
+      visible,
+    };
   }
   function projectFlight(flight: LiveFlight) {
     const model = aircraftModels.get(flight.hex || flight.callsign)!;
@@ -394,8 +447,8 @@ if (!stage) {
     return {
       x: (left + right) / 2,
       y: (top + bottom) / 2,
-      width: Math.min(35, right - left + 1.4),
-      height: Math.min(40, bottom - top + 2),
+      width: Math.min(35, Math.max(7.5, right - left + 2.2)),
+      height: Math.min(40, Math.max(6.2, bottom - top + 2.6)),
       visible: model.visible,
     };
   }
@@ -405,7 +458,7 @@ if (!stage) {
     hud.setFollowActive(false);
   });
 
-  // Tap-to-Interact vs Drag-to-Orbit on the 3D canvas
+  // Tap-to-Interact vs Tap Plane / Wish Star / Reindeer vs Drag-to-Orbit on the 3D canvas
   let tapDown: { id: number; x: number; y: number; time: number } | undefined;
   renderer.domElement.addEventListener('pointerdown', e => {
     if (e.isPrimary && e.button === 0) {
@@ -417,7 +470,32 @@ if (!stage) {
     const dist = Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y);
     const elapsed = e.timeStamp - tapDown.time;
     tapDown = undefined;
-    if (dist < 10 && elapsed < 340) {
+    if (dist < 10 && elapsed < 360) {
+      for (const f of activeFlights) {
+        const id = f.hex || f.callsign;
+        const model = aircraftModels.get(id);
+        if (!model || !model.visible) continue;
+        const p = projectToPx(model.position.x, model.position.y, model.position.z);
+        if (p.visible && Math.hypot(p.sx - e.clientX, p.sy - e.clientY) < 54) {
+          flightStars.openFlight(id);
+          return;
+        }
+      }
+      for (const star of festivities.getTappableWishStars()) {
+        const p = projectToPx(star.x, star.y, star.z);
+        if (p.visible && Math.hypot(p.sx - e.clientX, p.sy - e.clientY) < 58) {
+          star.onTap();
+          return;
+        }
+      }
+      for (const c of festivities.livingWorld.getTappableCritters(avatar.position)) {
+        const p = projectToPx(c.x, c.y, c.z);
+        if (p.visible && Math.hypot(p.sx - e.clientX, p.sy - e.clientY) < 56) {
+          c.onTap();
+          festivities.recordCritterTap(c.kind, c.x, c.y, c.z);
+          return;
+        }
+      }
       festivities.interact(
         e.clientX / Math.max(1, window.innerWidth),
         e.clientY / Math.max(1, window.innerHeight)
@@ -607,7 +685,7 @@ if (!stage) {
     );
     vehicleLighting.update(time, frame, env, hasActiveWorld, flying ? sleigh.group.position.y : 0);
     if (snapshot) {
-      ambientTraffic.update(dt, time, snapshot, map.mapData, avatar.position, activeElevation, elevVersion);
+      ambientTraffic.update(dt, time, snapshot, map.mapData, avatar.position, heading, activeElevation, elevVersion);
     }
     ambientTraffic.group.visible = !!snapshot && ambientTraffic.isEnabled() && !trial;
 
@@ -685,7 +763,7 @@ if (!stage) {
     sky.material.uniforms.uTime.value = time;
     applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor);
 
-    horizon.group.position.set(camera.position.x, activeElevation ? avatar.position.y : 0, camera.position.z);
+    horizon.group.position.set(camera.position.x, trial ? terrainFloor : 0, camera.position.z);
     horizon.update(time, env);
 
     snowfall.group.position.copy(avatar.position);
@@ -726,6 +804,13 @@ if (!stage) {
       const streetLabel = matchedRoad?.name || (snapshot ? 'Din position' : gpsFix ? 'Hämtar omgivningen' : 'Väntar på GPS');
       const viewHeading = Math.atan2(orbit.target.x - camera.position.x, camera.position.z - orbit.target.z);
 
+      const elevationM = trial
+        ? Math.round(avatar.position.y + terrainDatum)
+        : liveElevationEnabled
+          ? liveElevation.getAbsoluteElevationM(frame.latitude, frame.longitude)
+          : undefined;
+      const gradePct = activeElevation ? Math.round(100 * Math.tan(avatar.rotation.x)) : undefined;
+
       hud.updateReadout({
         frame,
         env,
@@ -734,23 +819,28 @@ if (!stage) {
         aheadJunction: ahead,
         maxspeedKmh: matchedRoad?.maxspeed,
         fsdActive: fsdPath.isEnabled(),
+        elevationM,
+        gradePct,
         hasWorld: hasActiveWorld,
         viewHeading,
       });
     }
 
-    for (const flight of activeFlights) {
+    for (const [fIdx, flight] of activeFlights.entries()) {
       const model = aircraftModels.get(flight.hex || flight.callsign)!;
-      const azimuth = (flight.bearingDeg * Math.PI) / 180;
-      const radius = THREE.MathUtils.clamp(flight.distanceKm * 3.2, 48, 280);
-      const elevation = THREE.MathUtils.clamp(Math.atan2(flight.altitudeM, flight.distanceKm * 1000), 0.12, 1.02);
+      // Spread regional scheduled airliners across the forward/diagonal sky arc so routes are visible & clickable in FSD view,
+      // while live ADS-B aircraft keep exact compass azimuth
+      const regionalYaw = heading + ((fIdx - (activeFlights.length - 1) * 0.5) * 0.44) + Math.sin(time * 0.08 + fIdx * 1.7) * 0.22;
+      const azimuth = flight.isLive && !flight.originLabel ? (flight.bearingDeg * Math.PI) / 180 : regionalYaw;
+      const radius = THREE.MathUtils.clamp(flight.distanceKm * 5.2, 85, 165);
+      const elevation = THREE.MathUtils.clamp(Math.atan2(flight.altitudeM, flight.distanceKm * 1000) * 0.36, 0.13, 0.22);
       model.position.set(
         avatar.position.x + Math.sin(azimuth) * radius,
-        Math.tan(elevation) * radius,
+        avatar.position.y + Math.tan(elevation) * radius,
         avatar.position.z - Math.cos(azimuth) * radius
       );
       model.rotation.y = Math.PI / 2 - (flight.headingDeg * Math.PI) / 180;
-      model.scale.setScalar(1.6 + radius / 65);
+      model.scale.setScalar(2.1 + radius / 52);
     }
 
     flightStars.update(activeFlights, frame, projectFlight);

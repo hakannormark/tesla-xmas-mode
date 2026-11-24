@@ -922,43 +922,96 @@ export class HolidayAudioEngine {
   playHoHoHo(): void {
     this.unlock();
     if (!this.ctx || this.mixMode === 'muted') return;
-    // Cheerful warm festive 3-pulse sleigh & brass-bell "Ho-Ho-Ho!" fanfare
-    const rootNotes = [196.0, 246.94, 293.66];
-    rootNotes.forEach((f, idx) => {
+    // Showstopping theatrical 3-beat booming Santa "HO! HO! HO!" + sleigh bells + brass chord
+    const vocalNotes = [146.83, 130.81, 110.0]; // D3 -> C3 -> A2 jolly baritone contour
+    vocalNotes.forEach((f, idx) => {
       setTimeout(() => {
         if (!this.ctx || this.ctx.state !== 'running') return;
         const now = this.ctx.currentTime;
-        const osc = this.ctx.createOscillator();
-        const sub = this.ctx.createOscillator();
-        osc.type = 'triangle';
-        sub.type = 'sine';
-        osc.frequency.setValueAtTime(f * 0.92, now);
-        osc.frequency.exponentialRampToValueAtTime(f, now + 0.08);
-        sub.frequency.value = f * 0.5;
 
-        const lp = this.ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 950;
+        // 1. Aspirated "H" breath burst before vowel
+        if (this.whiteNoiseBuf) {
+          const hSrc = this.ctx.createBufferSource();
+          hSrc.buffer = this.whiteNoiseBuf;
+          const hp = this.ctx.createBiquadFilter();
+          hp.type = 'bandpass';
+          hp.frequency.value = 1150;
+          hp.Q.value = 1.4;
+          const hg = this.ctx.createGain();
+          hg.gain.setValueAtTime(0.0001, now);
+          hg.gain.linearRampToValueAtTime(0.16, now + 0.02);
+          hg.gain.exponentialRampToValueAtTime(0.0001, now + 0.085);
+          hSrc.connect(hp);
+          hp.connect(hg);
+          if (this.dryBus) hg.connect(this.dryBus);
+          hSrc.start(now);
+          hSrc.stop(now + 0.095);
+        }
 
-        const g = this.ctx.createGain();
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(0.18, now + 0.03);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        // 2. Warm "OH" formant baritone voice + fifth harmony
+        const saw = this.ctx.createOscillator();
+        const fifth = this.ctx.createOscillator();
+        saw.type = 'sawtooth';
+        fifth.type = 'triangle';
+        const vStart = now + 0.035;
+        saw.frequency.setValueAtTime(f * 1.12, vStart);
+        saw.frequency.exponentialRampToValueAtTime(f * 0.94, vStart + 0.28);
+        fifth.frequency.setValueAtTime(f * 1.5, vStart);
 
-        osc.connect(lp);
-        sub.connect(lp);
-        lp.connect(g);
-        if (this.dryBus) g.connect(this.dryBus);
-        if (this.reverbBus) g.connect(this.reverbBus);
+        const formant1 = this.ctx.createBiquadFilter();
+        formant1.type = 'bandpass';
+        formant1.frequency.value = 470;
+        formant1.Q.value = 3.2;
 
-        osc.start(now);
-        sub.start(now);
-        osc.stop(now + 0.35);
-        sub.stop(now + 0.35);
-        this.triggerSleighBell(0.75, (idx - 1) * 0.3);
-      }, idx * 230);
+        const formant2 = this.ctx.createBiquadFilter();
+        formant2.type = 'bandpass';
+        formant2.frequency.value = 860;
+        formant2.Q.value = 4.0;
+
+        const vg = this.ctx.createGain();
+        vg.gain.setValueAtTime(0.0001, vStart);
+        vg.gain.linearRampToValueAtTime(0.28, vStart + 0.045);
+        vg.gain.exponentialRampToValueAtTime(0.0001, vStart + 0.36);
+
+        saw.connect(formant1);
+        saw.connect(formant2);
+        fifth.connect(formant2);
+        formant1.connect(vg);
+        formant2.connect(vg);
+        if (this.dryBus) vg.connect(this.dryBus);
+        if (this.reverbBus) vg.connect(this.reverbBus);
+
+        saw.start(vStart);
+        fifth.start(vStart);
+        saw.stop(vStart + 0.38);
+        fifth.stop(vStart + 0.38);
+        this.triggerSleighBell(0.95, (idx - 1) * 0.32);
+      }, idx * 255);
     });
-    setTimeout(() => this.playSparkleChime(), 580);
+    setTimeout(() => this.playSparkleChime(), 560);
+    setTimeout(() => this.playComboFanfare(3), 760);
+  }
+
+  playSnowballSplat(): void {
+    this.unlock();
+    if (!this.ctx || !this.whiteNoiseBuf || this.mixMode === 'muted') return;
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.whiteNoiseBuf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1400, now);
+    bp.frequency.exponentialRampToValueAtTime(340, now + 0.14);
+    bp.Q.value = 1.6;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.24, now + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    src.connect(bp);
+    bp.connect(g);
+    if (this.dryBus) g.connect(this.dryBus);
+    src.start(now);
+    src.stop(now + 0.18);
   }
 
   playRocketRumble(): void {
