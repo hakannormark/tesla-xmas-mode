@@ -2,18 +2,95 @@ import * as THREE from 'three';
 import { geoDeltaMeters, OsmMapSnapshot, OsmRoadRibbon } from '../core/osmWorld';
 import type { TelemetryFrame } from '../core/telemetry';
 
+type Point = {x:number; z:number};
+type Arm = {angle:number; half:number; length:number};
+type Junction = {point:Point; arms:Arm[]; radius:number};
+const pointKey = (p:Point) => p.x.toFixed(3)+','+p.z.toFixed(3);
+
+export function roadJunctions(roads: OsmRoadRibbon[]) {
+  const nodes = new Map<string,Junction>();
+  for (const road of roads) {
+    for (const [i,p] of road.points.entries()) {
+      const key = pointKey(p);
+      const node = nodes.get(key) ?? {point:p,arms:[],radius:0};
+      for (const next of [road.points[i-1],road.points[i+1]]) {
+        if (!next) continue;
+        const dx = next.x-p.x, dz = next.z-p.z;
+        const length = Math.hypot(dx,dz);
+        if (length < 0.01) continue;
+        const angle = Math.atan2(dz,dx);
+        const same = node.arms.find(a => Math.cos(a.angle-angle)>0.99999);
+        if (same) same.half = Math.max(same.half,road.widthM/2);
+        else node.arms.push({angle,half:road.widthM/2,length});
+      }
+      nodes.set(key,node);
+    }
+  }
+  for (const [key,node] of nodes) {
+    if (node.arms.length < 3) nodes.delete(key);
+    else {
+      node.arms.sort((a,b) => a.angle-b.angle);
+      node.radius = Math.max(...node.arms.map(a => a.half))*2.4;
+    }
+  }
+  return nodes;
+}
+
+// Fill each corner between adjacent approach edges with a rounded ploughed apron.
+export function junctionGeometry(nodes: Map<string,Junction>, elevation?: (x:number,z:number)=>number, shoulder = 0) {
+  const positions:number[] = [], indices:number[] = [];
+  for (const {point,arms,radius} of nodes.values()) {
+    const vertex = (x:number,z:number) => {
+      positions.push(x,(elevation?.(x,z) ?? 0)+0.064,z);
+      return positions.length/3-1;
+    };
+    const center = vertex(point.x,point.z);
+    for (let i=0;i<arms.length;i++) {
+      const a=arms[i], b=arms[(i+1)%arms.length];
+      const gap=(b.angle-a.angle+Math.PI*2)%(Math.PI*2);
+      if (gap >= Math.PI-0.03 || gap < 0.12) continue;
+      const ax=Math.cos(a.angle), az=Math.sin(a.angle), bx=Math.cos(b.angle), bz=Math.sin(b.angle);
+      const halfA=a.half+shoulder, halfB=b.half+shoulder;
+      const runA=(halfB+halfA*Math.cos(gap))/Math.sin(gap);
+      const runB=(halfA+halfB*Math.cos(gap))/Math.sin(gap);
+      if (Math.max(runA,runB)>radius || Math.min(runA,runB)<0) continue;
+      const fillet=Math.min(2.2,a.length-runA,b.length-runB,radius-Math.max(runA,runB));
+      if (fillet <= 0) continue;
+      const x=point.x-az*halfA+ax*runA, z=point.z+ax*halfA+az*runA;
+      let last=vertex(x+ax*fillet,z+az*fillet);
+      for (let j=1;j<=8;j++) {
+        const t=j/8;
+        const next=vertex(x+fillet*(ax*(1-t)**2+bx*t*t),z+fillet*(az*(1-t)**2+bz*t*t));
+        indices.push(center,next,last);
+        last=next;
+      }
+    }
+  }
+  const geometry=new THREE.BufferGeometry();
+  const count=positions.length/3;
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(new Float32Array(count*2),2));
+  geometry.setAttribute('junctionBlend',new THREE.Float32BufferAttribute(new Float32Array(count).fill(1),1));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 // Preserve each OSM vertex, including the common node where two streets meet.
-export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z: number) => number): THREE.BufferGeometry {
+export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z: number) => number, junctions?: Map<string,Junction>): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
   const uvs: number[] = [];
+  const blends: number[] = [];
   for (const road of roads) {
     const vertices = road.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.z !== all[i - 1].z);
     if (vertices.length < 2) continue;
-    const points = elevation ? vertices.flatMap((b,i) => {
+    const localNodes = junctions ? vertices.flatMap(p => junctions.get(pointKey(p)) ?? []) : [];
+    const points = elevation || localNodes.length ? vertices.flatMap((b,i) => {
       if (!i) return [b];
       const a = vertices[i-1];
-      const steps = Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/2.5);
+      const near = elevation || junctions?.has(pointKey(a)) || junctions?.has(pointKey(b));
+      const steps = !near ? 1 : Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/2.5);
       return Array.from({length:steps},(_,j) => {
         const t = (j+1)/steps;
         return {x:THREE.MathUtils.lerp(a.x,b.x,t),z:THREE.MathUtils.lerp(a.z,b.z,t)};
@@ -26,14 +103,23 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
       const p = points[i];
       const prev = points[Math.max(0, i - 1)];
       const next = points[Math.min(points.length - 1, i + 1)];
-      const length = Math.hypot(next.x - prev.x, next.z - prev.z) || 1;
-      const dx = (next.z - prev.z) * road.widthM / (2 * length);
-      const dz = (prev.x - next.x) * road.widthM / (2 * length);
+      const incoming = Math.hypot(p.x-prev.x,p.z-prev.z) || 1;
+      const outgoing = Math.hypot(next.x-p.x,next.z-p.z) || 1;
+      const inX=(p.z-prev.z)/incoming, inZ=(prev.x-p.x)/incoming;
+      const outX=(next.z-p.z)/outgoing, outZ=(p.x-next.x)/outgoing;
+      const sumX=inX+outX, sumZ=inZ+outZ;
+      const span=Math.hypot(sumX,sumZ);
+      const nx=span>0.001 ? sumX/span : outX, nz=span>0.001 ? sumZ/span : outZ;
+      const alignment=i===0 || i===points.length-1 ? 1 : Math.max(0.5,nx*outX+nz*outZ);
+      const dx=nx*road.widthM/(2*alignment), dz=nz*road.widthM/(2*alignment);
       if (i) traveled += Math.hypot(p.x-prev.x,p.z-prev.z);
+      const blend = localNodes.reduce((value,node) => Math.max(value,1-THREE.MathUtils.smoothstep(
+        Math.hypot(p.x-node.point.x,p.z-node.point.z),node.radius*1.2,node.radius*2.2)),0);
       const start = positions.length/3;
       for (let lane = 0; lane <= across; lane++) {
         const side = 1-2*lane/across;
         const x = p.x+dx*side,z = p.z+dz*side;
+        blends.push(blend);
         uvs.push(lane/across,traveled);
         positions.push(x,(elevation?.(x,z) ?? 0)+0.047,z);
         if (i && lane > 0) {
@@ -46,6 +132,7 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
+  geometry.setAttribute('junctionBlend',new THREE.Float32BufferAttribute(blends,1));
   geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
   geometry.computeVertexNormals();
   return geometry;

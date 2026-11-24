@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld';
 import { createSnowTextures, createTimberWallTexture, getSoftGlowTexture } from './pixarMaterials';
-import { streetGeometry } from './mappedRoads';
+import { streetGeometry, roadJunctions, junctionGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
 import { createWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
@@ -311,7 +311,12 @@ export class ChristmasMap {
       }));
     }
     this.surface(streetGeometry(snapshot.roads.map(r => ({...r,widthM:r.widthM+1.6})),elevation),verge,-0.012);
-    this.surface(streetGeometry(snapshot.roads,elevation),asphalt);
+    const junctions = roadJunctions(snapshot.roads);
+    this.surface(streetGeometry(snapshot.roads,elevation,junctions),asphalt);
+    if (junctions.size) {
+      this.surface(junctionGeometry(junctions,elevation,0.8),verge,-0.038);
+      this.surface(junctionGeometry(junctions,elevation),asphalt);
+    }
     const groundY = (x: number,z: number) => elevation?.(x,z) ?? 0;
     for (const water of snapshot.waters) {
       const geometry = water.isPolygon ? new THREE.ShapeGeometry(outline(water.points)).rotateX(-Math.PI / 2)
