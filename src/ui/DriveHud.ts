@@ -25,10 +25,14 @@ export interface DriveHudCallbacks {
   onToggleDemo(): void;
   onDemoSpeedChange(kmh: number): void;
   onExitDemo(): void;
+  onToggleFsdPath(): boolean;
+  onToggleTraffic(): boolean;
+  onToggleLiveElevation(): boolean;
+  getFsdOptions(): { fsdPath: boolean; traffic: boolean; elevation: boolean };
 }
 
 const CAMERA_LABELS: Record<CameraMode, string> = {
-  chase: '🎥 Jaktvy',
+  chase: '✦ FSD Vy',
   map: '🗺 Kartvy',
   cinematic: '🎬 Filmisk',
 };
@@ -55,6 +59,8 @@ export class DriveHud {
   private readonly followBtn: HTMLButtonElement;
   private readonly soundQuickBtn: HTMLButtonElement;
   private readonly speedEl: HTMLElement;
+  private readonly maxspeedEl: HTMLElement;
+  private readonly fsdBadgeEl: HTMLElement;
   private readonly gearEl: HTMLElement;
   private readonly northEl: HTMLElement;
   private readonly northArrowEl: HTMLElement;
@@ -84,7 +90,7 @@ export class DriveHud {
       <header class="drive-header">
         <div class="drive-brand"><span aria-hidden="true">✦</span> Vintervärlden</div>
         <div class="drive-actions">
-          <button type="button" class="glass-pill" data-camera-btn title="Växla kamera (C)">🎥 Jaktvy</button>
+          <button type="button" class="glass-pill" data-camera-btn title="Växla kamera (C)">✦ FSD Vy</button>
           <button type="button" class="glass-pill" data-follow aria-pressed="true">◎ Följ</button>
           <button type="button" class="glass-pill" data-sound-quick aria-pressed="false" title="Ljud på/av">🔇</button>
           <button type="button" class="glass-pill" data-drawer-toggle aria-expanded="false" aria-label="Inställningar">⚙</button>
@@ -129,8 +135,15 @@ export class DriveHud {
       <footer class="drive-footer">
         <div class="drive-instruments">
           <div class="speed-row">
+            <span class="fsd-wheel-badge" data-fsd-badge aria-hidden="true" title="FSD Reality View">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M4.2 10.2h15.6M12 12v8.8M9 12l-3.8 6.4M15 12l3.8 6.4"/>
+              </svg>
+            </span>
             <strong data-speed>0</strong>
             <span class="speed-unit">km/h</span>
+            <span class="speed-limit-sign" data-maxspeed hidden>50</span>
             <span class="gear-pill" data-gear>PARK</span>
           </div>
           <div class="meta-row">
@@ -168,7 +181,7 @@ export class DriveHud {
           <section class="drawer-section">
             <div class="drawer-label">Kamera</div>
             <div class="segmented cols-3">
-              <button type="button" class="active" data-cam="chase">Jaktvy</button>
+              <button type="button" class="active" data-cam="chase">✦ FSD Vy</button>
               <button type="button" data-cam="map">Kartvy</button>
               <button type="button" data-cam="cinematic">Filmisk</button>
             </div>
@@ -203,7 +216,14 @@ export class DriveHud {
                 <option value="xmas_eve">24 dec · Julafton</option>
               </select>
             </label>
-            <button type="button" class="toggle-chip" data-frost aria-pressed="true">❄ Frost på skärmen</button>
+            <div class="drawer-row-2">
+              <button type="button" class="toggle-chip" data-fsd-path aria-pressed="true">❄ FSD Julbana</button>
+              <button type="button" class="toggle-chip" data-traffic aria-pressed="true">🚛 Jul- & Teslatrafik</button>
+            </div>
+            <div class="drawer-row-2">
+              <button type="button" class="toggle-chip" data-frost aria-pressed="true">🌨 Frost på skärmen</button>
+              <button type="button" class="toggle-chip" data-live-elevation aria-pressed="true">⛰ Riktig höjddata</button>
+            </div>
           </section>
 
           <section class="drawer-section">
@@ -271,6 +291,8 @@ export class DriveHud {
     this.followBtn = q('[data-follow]');
     this.soundQuickBtn = q('[data-sound-quick]');
     this.speedEl = q('[data-speed]');
+    this.maxspeedEl = q('[data-maxspeed]');
+    this.fsdBadgeEl = q('[data-fsd-badge]');
     this.gearEl = q('[data-gear]');
     this.northEl = q('[data-north]');
     this.northArrowEl = q('[data-north-arrow]');
@@ -376,6 +398,18 @@ export class DriveHud {
 
     q('[data-frost]').onclick = () => {
       this.festivities.environment.setFrostEnabled(!this.festivities.environment.isFrostEnabled());
+      this.syncSettings();
+    };
+    q('[data-fsd-path]').onclick = () => {
+      this.callbacks.onToggleFsdPath();
+      this.syncSettings();
+    };
+    q('[data-traffic]').onclick = () => {
+      this.callbacks.onToggleTraffic();
+      this.syncSettings();
+    };
+    q('[data-live-elevation]').onclick = () => {
+      this.callbacks.onToggleLiveElevation();
       this.syncSettings();
     };
 
@@ -511,6 +545,10 @@ export class DriveHud {
     );
     this.root.querySelector<HTMLSelectElement>('[data-calendar]')!.value = env.getCalendarMode();
     this.root.querySelector('[data-frost]')?.setAttribute('aria-pressed', String(env.isFrostEnabled()));
+    const fsd = this.callbacks.getFsdOptions();
+    this.root.querySelector('[data-fsd-path]')?.setAttribute('aria-pressed', String(fsd.fsdPath));
+    this.root.querySelector('[data-traffic]')?.setAttribute('aria-pressed', String(fsd.traffic));
+    this.root.querySelector('[data-live-elevation]')?.setAttribute('aria-pressed', String(fsd.elevation));
 
     const mix = audio.getMixMode();
     this.root.querySelectorAll<HTMLButtonElement>('[data-mix]').forEach(b =>
@@ -541,11 +579,13 @@ export class DriveHud {
     env: EnvironmentState;
     placeName: string;
     streetLabel: string;
-    aheadJunction?: { name: string; meters: number };
+    aheadJunction?: { name: string; meters: number; turn?: 'left' | 'right' | 'straight' };
+    maxspeedKmh?: number;
+    fsdActive?: boolean;
     hasWorld: boolean;
     viewHeading: number;
   }): void {
-    const { frame, env, placeName, streetLabel, aheadJunction, hasWorld, viewHeading } = opts;
+    const { frame, env, placeName, streetLabel, aheadJunction, maxspeedKmh, fsdActive, hasWorld, viewHeading } = opts;
 
     const metaParts: string[] = [];
     if (placeName) metaParts.push(placeName);
@@ -557,11 +597,18 @@ export class DriveHud {
     if (this.streetEl.textContent !== streetLabel) this.streetEl.textContent = streetLabel;
     this.junctionEl.hidden = !aheadJunction;
     if (aheadJunction) {
-      this.junctionEl.textContent = `${aheadJunction.name} · ${aheadJunction.meters} m framåt`;
+      const glyph = aheadJunction.turn === 'left' ? '↰ ' : aheadJunction.turn === 'right' ? '↱ ' : '↑ ';
+      this.junctionEl.textContent = `${glyph}${aheadJunction.name} · ${aheadJunction.meters} m`;
     }
     this.gpsBtn.hidden = frame.gpsStatus !== 'error';
 
     this.speedEl.textContent = String(Math.round(frame.speedKmh));
+    this.maxspeedEl.hidden = !maxspeedKmh;
+    if (maxspeedKmh) {
+      this.maxspeedEl.textContent = String(maxspeedKmh);
+      this.maxspeedEl.classList.toggle('is-exceeded', Math.round(frame.speedKmh) > maxspeedKmh + 5);
+    }
+    this.fsdBadgeEl.classList.toggle('is-active', hasWorld && fsdActive !== false);
     this.gearEl.textContent = GEAR_LABELS[frame.reindeerGearKey];
     this.gearEl.classList.toggle('is-plaid', frame.isPlaidSpeed);
 

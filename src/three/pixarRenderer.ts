@@ -18,6 +18,7 @@ export interface PixarStageOptions {
   bloomThreshold?: number;
   exposure?: number;
   initialQuality?: GraphicsQuality;
+  fsdContrast?: boolean;
 }
 
 /**
@@ -40,6 +41,8 @@ export class PixarStage {
   private fogTargetColor = new THREE.Color('#0c1b42');
   private envRenderTarget: THREE.WebGLRenderTarget;
   private quality: GraphicsQuality = 'ultra';
+  private fsdContrast: boolean;
+  private baseFogDensity: number;
   private curWidth: number;
   private curHeight: number;
 
@@ -47,6 +50,8 @@ export class PixarStage {
     this.curWidth = Math.max(1, container.clientWidth || window.innerWidth);
     this.curHeight = Math.max(1, container.clientHeight || window.innerHeight);
     this.quality = opts.initialQuality ?? 'ultra';
+    this.fsdContrast = !!opts.fsdContrast;
+    this.baseFogDensity = opts.fogDensity ?? 0;
 
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -124,16 +129,25 @@ export class PixarStage {
     const d = THREE.MathUtils.clamp(daylightFactor, 0, 1);
     const b = THREE.MathUtils.clamp(blueHourFactor, 0, 1);
 
-    this.hemiLight.intensity = 0.56 + d * 0.72 + b * 0.16;
-    this.moonKeyLight.intensity = 0.88 + d * 0.95 + b * 0.25;
+    if (this.fsdContrast) {
+      this.hemiLight.intensity = 0.28 + d * 0.86 + b * 0.2;
+      this.moonKeyLight.intensity = 0.44 + d * 1.15 + b * 0.24;
+      this.scene.environmentIntensity = 0.16 + d * 0.28;
+      if (this.scene.fog instanceof THREE.FogExp2 && this.baseFogDensity > 0) {
+        this.scene.fog.density = this.baseFogDensity * (1.06 - d * 0.42);
+      }
+    } else {
+      this.hemiLight.intensity = 0.56 + d * 0.72 + b * 0.16;
+      this.moonKeyLight.intensity = 0.88 + d * 0.95 + b * 0.25;
+    }
     if (d > 0.65) {
       this.moonKeyLight.color.set('#fff3db');
     } else if (b > 0.4) {
       this.moonKeyLight.color.set('#ffb88c');
     } else {
-      this.moonKeyLight.color.set('#ffdfae');
+      this.moonKeyLight.color.set(this.fsdContrast ? '#b4d0ff' : '#ffdfae');
     }
-    this.rimLight.intensity = 0.42 + b * 0.24 - d * 0.15;
+    this.rimLight.intensity = (this.fsdContrast ? 0.3 : 0.42) + b * 0.24 - d * 0.15;
 
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.fogTargetColor.set(fogHex);

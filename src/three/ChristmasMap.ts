@@ -5,7 +5,7 @@ import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld
 import { createSnowTextures, createTimberWallTexture, getSoftGlowTexture } from './pixarMaterials';
 import { streetGeometry, roadJunctions, junctionGeometry, snowbankGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
-import { createWinterRoad } from './winterSurfaces';
+import { createWinterRoad, updateWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
 import { buildCottageBay } from './cottageBay';
 import { VillageLights } from './VillageLights';
@@ -68,6 +68,17 @@ const lightPool = new THREE.MeshBasicMaterial({
   depthWrite:false,
 });
 const floorPlane = new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2);
+const aoShadowMat = new THREE.MeshBasicMaterial({
+  map: getSoftGlowTexture(), color: '#050b1c', transparent: true, opacity: 0.44, depthWrite: false,
+});
+const zebraMat = new THREE.MeshBasicMaterial({
+  color: '#dce7f5', transparent: true, opacity: 0.72, depthWrite: false,
+});
+const curbMat = new THREE.MeshStandardMaterial({ color: '#3b4d68', roughness: 0.82 });
+const lampIronMat = new THREE.MeshStandardMaterial({ color: '#1b2638', metalness: 0.65, roughness: 0.42 });
+const lampOrbMat = new THREE.MeshBasicMaterial({ color: '#ffd98a', toneMapped: false });
+const signalHousingMat = new THREE.MeshStandardMaterial({ color: '#17202d', metalness: 0.5, roughness: 0.45 });
+const signalLensGeo = new THREE.SphereGeometry(0.11, 8, 8);
 const starShape = new THREE.Shape();
 for (let i = 0; i < 10; i++) {
   const angle = Math.PI/2 + i*Math.PI/5;
@@ -335,19 +346,13 @@ export function updateChristmasMapAtmosphere(
   time: number,
   daylight: number,
   vehiclePos: THREE.Vector3,
+  heading: number,
+  braking: number,
+  headlight: number,
   theme: HolidayThemeId,
   beat: number
 ): void {
-  const u = asphalt.userData.winterUniforms;
-  if (u) {
-    u.uTime.value = time;
-    u.uDaylight.value = daylight;
-    u.uVehiclePos.value.copy(vehiclePos);
-    u.uBeat.value = beat;
-    u.uAuroraTint.value.set(
-      theme === 'cyber2099' ? '#3eeeff' : theme === 'nordic' ? '#7fd6ff' : '#3ce8b4'
-    );
-  }
+  updateWinterRoad(asphalt, time, daylight, vehiclePos, heading, braking, headlight, theme, beat);
   const palette = theme === 'cyber2099' ? cyberStringPalette : lightStringPalette;
   const pulse = 1 + beat * 0.28;
   for (let i = 0; i < lightStrings.length; i++) {
@@ -397,10 +402,19 @@ export class ChristmasMap {
   private celebrationNodes: Array<{ star: THREE.Mesh; halo: THREE.Sprite; baseY: number; phase: number }> = [];
   private celebrated = new Set<string>();
   private buildingTargets: ChristmasBuildingTarget[] = [];
-  private version?: number;
+  private buildKey?: string;
   private vents: THREE.Vector3[] = [];
   private smoke?: THREE.Points;
-  private crossings = new Map<OsmRoadRibbon, { name: string; distance: number }[]>();
+  private crossings = new Map<OsmRoadRibbon, {
+    name: string;
+    distance: number;
+    roadDx: number;
+    roadDz: number;
+    branchDx: number;
+    branchDz: number;
+    isCross: boolean;
+  }[]>();
+  private signalNodes: Array<{ red: THREE.MeshBasicMaterial; amber: THREE.MeshBasicMaterial; green: THREE.MeshBasicMaterial; phase: number }> = [];
 
   animate(time: number, center: THREE.Vector3): void {
     this.villageLights.update(time,center);
@@ -408,6 +422,15 @@ export class ChristmasMap {
       node.star.rotation.y = time * 2.2 + node.phase;
       node.star.position.y = node.baseY + Math.sin(time * 3.4 + node.phase) * 0.16;
       node.halo.material.opacity = 0.62 + 0.18 * Math.sin(time * 4.0 + node.phase);
+    }
+    for (const sig of this.signalNodes) {
+      const cyc = (time + sig.phase) % 12;
+      const isGreen = cyc < 5.5;
+      const isAmber = cyc >= 5.5 && cyc < 7.0;
+      const isRed = cyc >= 7.0;
+      sig.green.color.setHex(isGreen ? 0x38f28c : 0x0a2e1a);
+      sig.amber.color.setHex(isAmber ? 0xffb838 : 0x332008);
+      sig.red.color.setHex(isRed ? 0xff3b52 : 0x320c13);
     }
     if (!this.smoke) return;
     const position = this.smoke.geometry.attributes.position;
@@ -495,6 +518,7 @@ export class ChristmasMap {
     }
     this.dynamicAssets = [];
     this.celebrationNodes = [];
+    this.signalNodes = [];
     this.celebrationGroup.clear();
     this.group.clear();
   }
@@ -503,9 +527,10 @@ export class ChristmasMap {
     this.clearResources();
   }
 
-  update(snapshot: OsmMapSnapshot, elevation?: (x: number,z: number) => number): void {
-    if (this.version === snapshot.version) return;
-    this.version = snapshot.version;
+  update(snapshot: OsmMapSnapshot, elevation?: (x: number,z: number) => number, elevationVersion = 0): void {
+    const nextKey = `${snapshot.version}:${elevation ? elevationVersion : 'flat'}`;
+    if (this.buildKey === nextKey) return;
+    this.buildKey = nextKey;
     this.clearResources();
     this.group.add(this.villageLights.group, this.celebrationGroup);
     this.crossings.clear();
@@ -530,16 +555,39 @@ export class ChristmasMap {
       let distance = 0;
       this.crossings.set(road, road.points.flatMap((point, i) => {
         const prev = road.points[i - 1];
+        const next = road.points[i + 1];
         if (prev) distance += Math.hypot(point.x - prev.x, point.z - prev.z);
         const other = [...(nodes.get(key(point)) ?? [])].find(r => r !== road && r.name && r.name !== road.name);
-        return other?.name ? [{ name: other.name, distance }] : [];
+        if (!other?.name) return [];
+        const rA = prev ?? point;
+        const rB = next ?? point;
+        const rLen = Math.hypot(rB.x - rA.x, rB.z - rA.z) || 1;
+        const roadDx = (rB.x - rA.x) / rLen;
+        const roadDz = (rB.z - rA.z) / rLen;
+        const oi = other.points.findIndex(op => key(op) === key(point));
+        const hasPrev = oi > 0;
+        const hasNext = oi >= 0 && oi < other.points.length - 1;
+        const isCross = hasPrev && hasNext;
+        const targetPt = hasNext ? other.points[oi + 1] : hasPrev ? other.points[oi - 1] : point;
+        const bLen = Math.hypot(targetPt.x - point.x, targetPt.z - point.z) || 1;
+        return [{
+          name: other.name,
+          distance,
+          roadDx,
+          roadDz,
+          branchDx: (targetPt.x - point.x) / bLen,
+          branchDz: (targetPt.z - point.z) / bLen,
+          isCross,
+        }];
       }));
     }
     this.surface(streetGeometry(snapshot.roads.map(r => ({...r,widthM:r.widthM+1.6})),elevation),verge,-0.012);
     const junctions = roadJunctions(snapshot.roads);
+    this.surface(streetGeometry(snapshot.roads.map(r => ({...r,widthM:r.widthM+0.36})),elevation,junctions),curbMat,-0.006);
     this.surface(streetGeometry(snapshot.roads,elevation,junctions),asphalt);
     if (junctions.size) {
       this.surface(junctionGeometry(junctions,elevation,0.8),verge,-0.038);
+      this.surface(junctionGeometry(junctions,elevation,0.18),curbMat,-0.019);
       this.surface(junctionGeometry(junctions,elevation),asphalt);
     }
     this.surface(snowbankGeometry(snapshot.roads, elevation, junctions), powder);
@@ -574,7 +622,7 @@ export class ChristmasMap {
       yaw: number, width: number, height: number, depth = 1, tilt = 0, base?: number) {
       transform.position.set(x,y+(base ?? groundY(x,z)),z);
       transform.rotation.set(0,yaw,tilt,'YXZ');
-      if (material === lightPool) transform.scale.set(width,1,height);
+      if (material === lightPool || material === aoShadowMat || material === zebraMat) transform.scale.set(width,1,height);
       else transform.scale.set(width,height,depth);
       transform.updateMatrix();
       const matrices = details.get(material) ?? [];
@@ -694,6 +742,7 @@ export class ChristmasMap {
         }
       }
 
+      addDetail(aoShadowMat, b.centerX, 0.022, b.centerZ, 0, Math.max(4, b.widthM * 1.24), Math.max(4, b.depthM * 1.24));
       this.buildingTargets.push({ id: b.id, x: b.centerX, roofY: buildingTopY, z: b.centerZ, isChurch: church });
       if (this.celebrated.has(b.id)) {
         this.spawnCelebrationStar(b.centerX, buildingTopY, b.centerZ);
@@ -936,6 +985,174 @@ export class ChristmasMap {
         }
       }
     }
+    const roadSegs = snapshot.roads.flatMap(road =>
+      road.points.slice(1).flatMap((b, i) => {
+        const a = road.points[i];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.5) return [];
+        const tx = dx / len, tz = dz / len;
+        return [{ road, ax: a.x, az: a.z, bx: b.x, bz: b.z, dx, dz, len, tx, tz, nx: -tz, nz: tx, widthM: road.widthM }];
+      }),
+    );
+    const nearestRoadSeg = (x: number, z: number, maxDist = 20) => {
+      let best: { seg: (typeof roadSegs)[number]; cx: number; cz: number; dist: number } | undefined;
+      let bestDist = maxDist;
+      for (const seg of roadSegs) {
+        const t = THREE.MathUtils.clamp(((x - seg.ax) * seg.dx + (z - seg.az) * seg.dz) / (seg.len * seg.len), 0, 1);
+        const cx = seg.ax + seg.dx * t;
+        const cz = seg.az + seg.dz * t;
+        const dist = Math.hypot(x - cx, z - cz);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = { seg, cx, cz, dist };
+        }
+      }
+      return best;
+    };
+
+    const lampSpots: OsmPoint2D[] = [];
+    const placeLamp = (px: number, pz: number, toRoadX: number, toRoadZ: number, minDistSq = 0.22) => {
+      if (lampSpots.length >= 88 || Math.hypot(px, pz) > 280) return;
+      if (lampSpots.some(q => Math.hypot(q.x - px, q.z - pz) < 16)) return;
+      if (!clearance.clear({ x: px, z: pz }, minDistSq)) return;
+      lampSpots.push({ x: px, z: pz });
+      const rLen = Math.hypot(toRoadX, toRoadZ) || 1;
+      const ax = toRoadX / rLen, az = toRoadZ / rLen;
+      const yaw = Math.atan2(ax, az);
+      addDetail(aoShadowMat, px, 0.021, pz, 0, 1.35, 1.35);
+      addDetail(lampIronMat, px, 0.25, pz, 0, 0.24, 0.50, 0.24);
+      addDetail(lampIronMat, px, 2.35, pz, 0, 0.11, 4.7, 0.11);
+      addDetail(lampIronMat, px + ax * 0.34, 4.62, pz + az * 0.34, yaw, 0.09, 0.09, 0.76);
+      addDetail(lampIronMat, px + ax * 0.68, 4.54, pz + az * 0.68, 0, 0.28, 0.11, 0.28);
+      addDetail(lampOrbMat, px + ax * 0.68, 4.35, pz + az * 0.68, 0, 0.14, 0.19, 0.14);
+      addDetail(firWreath, px + ax * 0.11, 3.72, pz + az * 0.11, yaw, 0.22, 0.22, 0.22);
+      addDetail(berries, px + ax * 0.18, 3.92, pz + az * 0.18, 0, 0.06, 0.06, 0.06);
+      addDetail(lightPool, px + ax * 0.65, 0.062, pz + az * 0.65, 0, 5.2, 5.2);
+      lanterns.push(new THREE.Vector3(px + ax * 0.68, groundY(px, pz) + 4.35, pz + az * 0.68));
+    };
+    for (const lamp of snapshot.streetLamps ?? []) {
+      const hit = nearestRoadSeg(lamp.x, lamp.z, 12);
+      placeLamp(lamp.x, lamp.z, hit ? hit.cx - lamp.x : 0, hit ? hit.cz - lamp.z : 1, 0.08);
+    }
+    let lampSideIdx = 0;
+    for (const road of snapshot.roads) {
+      let nextMark = 14;
+      let traveled = 0;
+      for (let i = 1; i < road.points.length; i++) {
+        const a = road.points[i - 1], b = road.points[i];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz);
+        if (len < 1) continue;
+        const nx = -dz / len, nz = dx / len;
+        while (traveled + len >= nextMark && lampSpots.length < 88) {
+          const f = (nextMark - traveled) / len;
+          const cx = a.x + dx * f, cz = a.z + dz * f;
+          const side = lampSideIdx++ % 2 === 0 ? 1 : -1;
+          const shoulder = road.widthM * 0.5 + 0.94;
+          placeLamp(cx + nx * side * shoulder, cz + nz * side * shoulder, -nx * side, -nz * side);
+          nextMark += 34;
+        }
+        traveled += len;
+      }
+    }
+
+    const zebraSpots: OsmPoint2D[] = [];
+    const zebraCandidates: OsmPoint2D[] = [...(snapshot.crossings ?? [])];
+    for (const j of junctions.values()) {
+      for (const seg of roadSegs) {
+        if (seg.len < j.radius + 4.5) continue;
+        const dA = Math.hypot(seg.ax - j.point.x, seg.az - j.point.z);
+        const dB = Math.hypot(seg.bx - j.point.x, seg.bz - j.point.z);
+        if (dA < 1.2) {
+          zebraCandidates.push({ x: seg.ax + seg.tx * (j.radius + 2.4), z: seg.az + seg.tz * (j.radius + 2.4) });
+        } else if (dB < 1.2) {
+          zebraCandidates.push({ x: seg.bx - seg.tx * (j.radius + 2.4), z: seg.bz - seg.tz * (j.radius + 2.4) });
+        }
+      }
+    }
+    for (const cand of zebraCandidates) {
+      if (zebraSpots.length >= 36 || Math.hypot(cand.x, cand.z) > 265) continue;
+      const hit = nearestRoadSeg(cand.x, cand.z, 6.5);
+      if (!hit) continue;
+      if (zebraSpots.some(q => Math.hypot(q.x - hit.cx, q.z - hit.cz) < 16)) continue;
+      zebraSpots.push({ x: hit.cx, z: hit.cz });
+      const { seg, cx, cz } = hit;
+      const yaw = Math.atan2(seg.tx, seg.tz);
+      const halfSpan = Math.max(1.6, seg.widthM * 0.5 - 0.72);
+      const stripes = Math.max(4, Math.min(7, Math.floor((halfSpan * 2) / 0.85)));
+      for (let s = 0; s < stripes; s++) {
+        const lat = THREE.MathUtils.lerp(-halfSpan, halfSpan, (s + 0.5) / stripes);
+        addDetail(zebraMat, cx + seg.nx * lat, 0.060, cz + seg.nz * lat, yaw, 0.42, 2.45);
+      }
+    }
+
+    const signalSpots: OsmPoint2D[] = [];
+    const signalCandidates: OsmPoint2D[] = [
+      ...(snapshot.trafficSignals ?? []),
+      ...[...junctions.values()].sort((a, b) => b.radius - a.radius).map(j => j.point),
+    ];
+    for (const sc of signalCandidates) {
+      if (signalSpots.length >= 6 || Math.hypot(sc.x, sc.z) > 255) continue;
+      if (signalSpots.some(q => Math.hypot(q.x - sc.x, q.z - sc.z) < 48)) continue;
+      const hit = nearestRoadSeg(sc.x, sc.z, 14);
+      if (!hit) continue;
+      const { seg } = hit;
+      let px = sc.x, pz = sc.z;
+      let valid = clearance.clear({ x: px, z: pz }, 0.25);
+      if (!valid) {
+        for (const side of [1, -1]) {
+          const tx = hit.cx + seg.nx * side * (seg.widthM * 0.5 + 1.05);
+          const tz = hit.cz + seg.nz * side * (seg.widthM * 0.5 + 1.05);
+          if (clearance.clear({ x: tx, z: tz }, 0.22)) {
+            px = tx;
+            pz = tz;
+            valid = true;
+            break;
+          }
+        }
+      }
+      if (!valid) continue;
+      signalSpots.push({ x: px, z: pz });
+      const inX = hit.cx - px, inZ = hit.cz - pz;
+      const inLen = Math.hypot(inX, inZ) || 1;
+      const yaw = Math.atan2(inX / inLen, inZ / inLen);
+      const sigGroup = new THREE.Group();
+      sigGroup.position.set(px, groundY(px, pz), pz);
+      sigGroup.rotation.y = yaw;
+      const mast = new THREE.Mesh(boxUnit, lampIronMat);
+      mast.scale.set(0.14, 4.7, 0.14);
+      mast.position.y = 2.35;
+      mast.castShadow = true;
+      const arm = new THREE.Mesh(boxUnit, lampIronMat);
+      arm.scale.set(0.10, 0.10, 1.35);
+      arm.position.set(0, 4.58, 0.62);
+      const housing = new THREE.Mesh(boxUnit, signalHousingMat);
+      housing.scale.set(0.32, 0.94, 0.28);
+      housing.position.set(0, 4.35, 1.24);
+      const wreath = new THREE.Mesh(fir, firWreath);
+      wreath.scale.setScalar(0.24);
+      wreath.position.set(0, 3.25, 0.08);
+      const bow = new THREE.Mesh(starGeometry, starGold);
+      bow.scale.setScalar(0.14);
+      bow.position.set(0, 3.49, 0.12);
+      const redMat = new THREE.MeshBasicMaterial({ color: 0x320c13, toneMapped: false });
+      const amberMat = new THREE.MeshBasicMaterial({ color: 0x332008, toneMapped: false });
+      const greenMat = new THREE.MeshBasicMaterial({ color: 0x38f28c, toneMapped: false });
+      this.dynamicAssets.push({ material: redMat }, { material: amberMat }, { material: greenMat });
+      this.signalNodes.push({ red: redMat, amber: amberMat, green: greenMat, phase: (signalSpots.length - 1) * 6.0 });
+      const lensDefs: Array<[THREE.MeshBasicMaterial, number]> = [[redMat, 4.63], [amberMat, 4.35], [greenMat, 4.07]];
+      for (const [lMat, ly] of lensDefs) {
+        for (const sideZ of [-0.145, 0.145]) {
+          const lens = new THREE.Mesh(signalLensGeo, lMat);
+          lens.position.set(0, ly, 1.24 + sideZ);
+          sigGroup.add(lens);
+        }
+      }
+      sigGroup.add(mast, arm, housing, wreath, bow);
+      this.group.add(sigGroup);
+    }
+
     this.villageLights.setLanterns(lanterns);
     for (const [material, parts] of batches) {
       const geometry = mergeGeometries(parts);
@@ -980,6 +1197,7 @@ export class ChristmasMap {
       ornaments.push({x,z,radius:0.83});
       const scale = 0.73+(index%4)*0.09;
       const frontX = Math.sin(yaw), frontZ = Math.cos(yaw);
+      addDetail(aoShadowMat, x, 0.022, z, 0, 1.45 * scale, 1.45 * scale);
       addDetail(snowmanSnow,x,0.42*scale,z,yaw,0.46*scale,0.44*scale,0.46*scale);
       addDetail(snowmanSnow,x,0.99*scale,z,yaw,0.34*scale,0.36*scale,0.34*scale);
       addDetail(snowmanSnow,x,1.46*scale,z,yaw,0.28*scale,0.27*scale,0.28*scale);
@@ -1015,6 +1233,7 @@ export class ChristmasMap {
     planted.forEach((p,i) => {
       const scale = treeScale(p);
       const yaw = (p.x+p.z)*0.7;
+      addDetail(aoShadowMat, p.x, 0.021, p.z, 0, 3.8 * scale, 3.8 * scale);
       transform.position.set(p.x,groundY(p.x,p.z)+0.65*scale,p.z);
       transform.rotation.set(0,yaw,0);
       transform.scale.set(0.15*scale,1.3*scale,0.15*scale);
@@ -1058,15 +1277,15 @@ export class ChristmasMap {
     }
     for (const [material, matrices] of details) {
       const geometry = material === logWood ? logBeam : material === bayWood ? bayGeometry : material === powder ? drift : material === hat ? topHat : material === snowmanSnow || material === coal ? snowBall :
-        material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : material === lightPool ? floorPlane :
+        material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : [lightPool, aoShadowMat, zebraMat].includes(material as THREE.MeshBasicMaterial) ? floorPlane :
         material === canopyWood || material === canopySnow ? canopyGeometry : material === firWreath ? fir :
         material === spireMat ? spireCone :
-        material === icicleMaterial ? icicle : material === berries || lightStrings.includes(material as THREE.MeshBasicMaterial) ? bulb :
+        material === icicleMaterial ? icicle : [lampOrbMat, berries, ...lightStrings].includes(material as THREE.MeshBasicMaterial) ? bulb :
         [glass,glassStar,glassCandles,crest,windowRound,windowArch,...cottageDoors].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix,index) => mesh.setMatrixAt(index,matrix));
-      mesh.castShadow = [powder,snowmanSnow,hat,churchWall,spireMat].includes(material as THREE.MeshStandardMaterial);
-      mesh.receiveShadow = mesh.castShadow;
+      mesh.castShadow = [powder,snowmanSnow,hat,churchWall,spireMat,lampIronMat].includes(material as THREE.MeshStandardMaterial);
+      mesh.receiveShadow = material !== aoShadowMat && mesh.castShadow;
       this.instances.push(mesh);
       this.group.add(mesh);
     }
@@ -1083,7 +1302,7 @@ export class ChristmasMap {
     }
   }
 
-  nextStreet(road: OsmRoadRibbon, car: OsmPoint2D, heading: number): {name: string; meters: number} | undefined {
+  nextStreet(road: OsmRoadRibbon, car: OsmPoint2D, heading: number): {name: string; meters: number; turn?: 'left' | 'right' | 'straight'} | undefined {
     let nearest = Infinity, along = 0, direction = 1, total = 0;
     for (let i = 1; i < road.points.length; i++) {
       const a = road.points[i-1], b = road.points[i];
@@ -1098,8 +1317,19 @@ export class ChristmasMap {
       }
       total += length;
     }
-    const closest = this.crossings.get(road)?.map(c => ({name:c.name, meters:(c.distance-along)*direction}))
-      .filter(c => c.meters >= 4 && c.meters <= 250).sort((a,b) => a.meters-b.meters)[0];
+    const closest = this.crossings.get(road)?.map(c => {
+      let turn: 'left' | 'right' | 'straight' = 'straight';
+      if (!c.isCross) {
+        const fwdX = c.roadDx * direction;
+        const fwdZ = c.roadDz * direction;
+        const rightX = -fwdZ;
+        const rightZ = fwdX;
+        const dot = c.branchDx * rightX + c.branchDz * rightZ;
+        if (dot > 0.35) turn = 'right';
+        else if (dot < -0.35) turn = 'left';
+      }
+      return { name: c.name, meters: (c.distance - along) * direction, turn };
+    }).filter(c => c.meters >= 4 && c.meters <= 250).sort((a,b) => a.meters-b.meters)[0];
     return closest && {...closest, meters: Math.round(closest.meters / 5)*5};
   }
 }

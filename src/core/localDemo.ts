@@ -27,9 +27,26 @@ const map: OsmWorldState = {
   snapshot: {
     version: -1, biome: 'village', originLat: district.origin[0], originLon: district.origin[1],
     roads: district.roads.map(road => ({
-      name: road.name, points: points(road.points), widthM: road.width, isMajor: road.width >= 7,
+      name: road.name,
+      points: points(road.points),
+      widthM: road.width,
+      isMajor: road.width >= 7,
+      highway: road.width >= 7 ? 'secondary' : 'residential',
+      maxspeed: road.width >= 7 ? 50 : 30,
     })),
-    buildings, waters: [], forests: [], pois: [],
+    buildings,
+    waters: [],
+    forests: [],
+    pois: [],
+    trafficSignals: [
+      { x: 82.7, z: 116.4 },
+      { x: 264.5, z: 366.3 },
+    ],
+    crossings: [
+      { x: 36.2, z: 40.6 },
+      { x: 82.7, z: 116.4 },
+      { x: 264.5, z: 366.3 },
+    ],
   },
 };
 

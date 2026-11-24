@@ -1,20 +1,24 @@
 import './styles/christmasDrive.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { LiveElevationManager } from './core/liveElevation';
 import { LiveWorldDataManager, type LiveFlight } from './core/liveWorldData';
 import { LocalDemoDrive } from './core/localDemo';
-import { geoDeltaMeters, OsmWorldDirector } from './core/osmWorld';
+import { geoDeltaMeters, OsmWorldDirector, type OsmRoadRibbon } from './core/osmWorld';
 import { TelemetryEngine, type TelemetryFrame } from './core/telemetry';
 import { TerrainTrial, terrainBounds, terrainDatum, terrainFloor, terrainMap, trialHeight } from './core/terrainTrial';
 import { createAlpineHorizon } from './three/alpineHorizon';
+import { AmbientTraffic } from './three/AmbientTraffic';
 import { ChristmasMap, updateChristmasMapAtmosphere } from './three/ChristmasMap';
 import { DriveFestivities } from './three/DriveFestivities';
+import { FsdHolidayPath } from './three/FsdHolidayPath';
 import { streetAtCar } from './three/mappedRoads';
 import { createBokehSnowField, createPixarSkyDome, getSoftGlowTexture } from './three/pixarMaterials';
 import { createPixarSantaSleigh } from './three/pixarModels';
 import { createPixarStageOrFallback } from './three/pixarRenderer';
 import { SleighMagic } from './three/SleighMagic';
 import { createAccurateCybertruck, createAccurateStarmanRoadster, createAccurateTeslaSemi } from './three/teslaModels';
+import { VehicleLighting } from './three/VehicleLighting';
 import { applyChristmasSkyEnv, createWinterGround, shapeChristmasSky, updateWinterGround } from './three/winterSurfaces';
 import { DriveHud, type CameraMode, type VehicleKind } from './ui/DriveHud';
 import { FlightStars } from './ui/FlightStars';
@@ -25,15 +29,16 @@ stageHost.style.position = 'fixed';
 stageHost.style.inset = '0';
 
 const { stage, fallbackEl } = createPixarStageOrFallback(stageHost, {
-  fov: 52,
+  fov: 45,
   far: 850,
-  fogColor: '#102042',
-  fogDensity: 0.0022,
-  bloomStrength: 0.38,
-  bloomRadius: 0.54,
-  bloomThreshold: 0.81,
+  fogColor: '#0b1630',
+  fogDensity: 0.0036,
+  bloomStrength: 0.44,
+  bloomRadius: 0.55,
+  bloomThreshold: 0.78,
   initialQuality: 'ultra',
   exposure: 1.04,
+  fsdContrast: true,
 });
 
 if (!stage) {
@@ -50,6 +55,10 @@ if (!stage) {
   const sleigh = createPixarSantaSleigh();
   const festivities = new DriveFestivities(root, hud.worldEl, scene, sleigh, map);
   const magic = new SleighMagic();
+  const fsdPath = new FsdHolidayPath();
+  const vehicleLighting = new VehicleLighting();
+  const ambientTraffic = new AmbientTraffic();
+  const liveElevation = new LiveElevationManager();
   const director = new OsmWorldDirector(true);
   const live = new LiveWorldDataManager();
 
@@ -60,8 +69,16 @@ if (!stage) {
   let priorMapOrigin: { lat: number; lon: number } | undefined;
   let demo: LocalDemoDrive | undefined;
   let demoSpeedKmh = 34;
+  let demoPrevSpeedKmh = demoSpeedKmh;
+  let demoBrakeHold = 0;
   let trial: TerrainTrial | undefined;
   let relief: THREE.Mesh | undefined;
+  let liveElevationEnabled = true;
+  let lastTerrainKey = '';
+  let lastBrakeJingleAt = -10;
+  let wasBraking = false;
+  let cameraRoll = 0;
+  let matchedRoad: OsmRoadRibbon | undefined;
   let previous = performance.now();
   let lastUi = -1000;
   let wheelPhase = 0;
@@ -84,7 +101,7 @@ if (!stage) {
     cybertruck: truck.group,
     starman: roadster,
   };
-  avatar.add(...Object.values(vehicles));
+  avatar.add(...Object.values(vehicles), vehicleLighting.group);
 
   function selectVehicle(selected: VehicleKind): void {
     for (const [id, model] of Object.entries(vehicles)) {
@@ -111,6 +128,26 @@ if (!stage) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), groundMaterial);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
+
+  const liveReliefGeo = new THREE.PlaneGeometry(760, 760, 76, 76).rotateX(-Math.PI / 2);
+  const liveRelief = new THREE.Mesh(liveReliefGeo, groundMaterial);
+  liveRelief.receiveShadow = true;
+  liveRelief.visible = false;
+  const outerSkirt = new THREE.Mesh(new THREE.RingGeometry(360, 960, 48).rotateX(-Math.PI / 2), groundMaterial);
+  outerSkirt.position.y = -0.06;
+  outerSkirt.receiveShadow = true;
+  outerSkirt.visible = false;
+
+  function updateLiveTerrainMesh(sampler: (x: number, z: number) => number, key: string): void {
+    if (key === lastTerrainKey) return;
+    lastTerrainKey = key;
+    const attr = liveReliefGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < attr.count; i++) {
+      attr.setY(i, sampler(attr.getX(i), attr.getZ(i)) - 0.06);
+    }
+    attr.needsUpdate = true;
+    liveReliefGeo.computeVertexNormals();
+  }
 
   function createTrialTerrain(): THREE.Mesh {
     const { minX, minZ, maxX, maxZ } = terrainBounds;
@@ -140,7 +177,19 @@ if (!stage) {
 
   const snowfall = createBokehSnowField(340, { minX: -45, maxX: 45, minY: 1, maxY: 38, minZ: -55, maxZ: 55 });
   const horizon = createAlpineHorizon();
-  scene.add(ground, sky.mesh, horizon.group, map.group, magic.group, avatar, snowfall.group);
+  scene.add(
+    ground,
+    liveRelief,
+    outerSkirt,
+    sky.mesh,
+    horizon.group,
+    map.group,
+    fsdPath.mesh,
+    ambientTraffic.group,
+    magic.group,
+    avatar,
+    snowfall.group
+  );
 
   const warm = new THREE.DirectionalLight('#ffd4ba', 1.18);
   warm.castShadow = true;
@@ -168,12 +217,17 @@ if (!stage) {
   const movement = new THREE.Vector3();
   const shadowOffset = new THREE.Vector3(-53, 40, 32);
 
-  function drivingView(time: number, speedNorm: number, flightFactor: number): void {
+  function drivingView(
+    time: number,
+    speedNorm: number,
+    flightFactor: number,
+    groundAt?: (x: number, z: number) => number
+  ): void {
     const east = Math.sin(heading);
     const north = Math.cos(heading);
     const rightX = north;
     const rightZ = east;
-    const aheadSlope = trial ? trialHeight(avatar.position.x + 12 * east, avatar.position.z - 12 * north) - avatar.position.y : 0;
+    const aheadSlope = groundAt ? groundAt(avatar.position.x + 12 * east, avatar.position.z - 12 * north) - avatar.position.y : 0;
 
     if (cameraMode === 'map') {
       desiredTarget.set(avatar.position.x + 10 * east, avatar.position.y + 8 + aheadSlope * 0.38, avatar.position.z - 10 * north);
@@ -200,18 +254,18 @@ if (!stage) {
       }
     }
 
-    // Default Flight Deck Hero Chase View
-    const camBack = 16.5 + speedNorm * 2.2;
-    const targetAhead = 14.0;
+    // Tesla FSD Reality View Tele-Chase Framing
+    const camBack = 14.5 + speedNorm * 2.0;
+    const targetAhead = 18.0;
     const totalSpan = targetAhead + camBack;
     desiredTarget.set(
       avatar.position.x + targetAhead * east,
-      avatar.position.y + 2.4 + aheadSlope * 0.42,
+      avatar.position.y + 2.1 + aheadSlope * 0.45,
       avatar.position.z - targetAhead * north
     );
     cameraOffset.set(
       -totalSpan * east,
-      3.4 - flightFactor * 0.35 + aheadSlope * 0.2,
+      2.6 - flightFactor * 0.25 + aheadSlope * 0.25,
       totalSpan * north
     );
   }
@@ -219,6 +273,7 @@ if (!stage) {
   function resetTrackState(): void {
     hasPosition = false;
     priorMapOrigin = undefined;
+    lastTerrainKey = '';
     demoHasInit = false;
     avatar.position.set(0, 0, 0);
     avatar.rotation.set(0, 0, 0);
@@ -227,7 +282,7 @@ if (!stage) {
 
   function follow(): void {
     alignWithHeading = true;
-    drivingView(performance.now() / 1000, 0, magic.getFlightFactor());
+    drivingView(performance.now() / 1000, 0, magic.getFlightFactor(), trial ? trialHeight : undefined);
     orbit.target.copy(desiredTarget);
     camera.position.copy(orbit.target).add(cameraOffset);
     orbit.update();
@@ -285,6 +340,26 @@ if (!stage) {
       demoSpeedKmh = kmh;
     },
     onExitDemo: () => setDemo(false),
+    onToggleFsdPath: () => {
+      const next = !fsdPath.isEnabled();
+      fsdPath.setEnabled(next);
+      return next;
+    },
+    onToggleTraffic: () => {
+      const next = !ambientTraffic.isEnabled();
+      ambientTraffic.setEnabled(next);
+      return next;
+    },
+    onToggleLiveElevation: () => {
+      liveElevationEnabled = !liveElevationEnabled;
+      lastTerrainKey = '';
+      return liveElevationEnabled;
+    },
+    getFsdOptions: () => ({
+      fsdPath: fsdPath.isEnabled(),
+      traffic: ambientTraffic.isEnabled(),
+      elevation: liveElevationEnabled,
+    }),
   });
 
   const flightStars = new FlightStars(hud.worldEl);
@@ -381,7 +456,13 @@ if (!stage) {
 
   function stepDemoFrame(base: TelemetryFrame, dt: number): TelemetryFrame {
     if (!demo) return base;
+    if (demoSpeedKmh < demoPrevSpeedKmh - 0.4) {
+      demoBrakeHold = 1.6;
+    }
+    demoPrevSpeedKmh = demoSpeedKmh;
+    demoBrakeHold = Math.max(0, demoBrakeHold - dt);
     const isMoving = demoSpeedKmh > 1.8;
+    const isBraking = demoBrakeHold > 0 || demoSpeedKmh < 1.8;
     const synth: TelemetryFrame = {
       ...base,
       source: 'demo',
@@ -391,7 +472,7 @@ if (!stage) {
       headingDeg: demoHasInit ? demoPrevHeading : base.headingDeg,
       isMoving,
       isAccelerating: false,
-      isBraking: false,
+      isBraking,
       isPlaidSpeed: demoSpeedKmh >= 85,
       reindeerGearKey: demoSpeedKmh < 2 ? 'park' : demoSpeedKmh < 22 ? 'trot' : demoSpeedKmh < 45 ? 'dash' : demoSpeedKmh < 68 ? 'prance' : demoSpeedKmh < 88 ? 'comet' : 'plaid',
     };
@@ -421,7 +502,15 @@ if (!stage) {
         : director.update(dt, 'gps', gpsFrame.latitude, gpsFrame.longitude, gpsFrame.isMoving, gpsFrame.speedKmh, gpsFix);
 
     const fix = !!trial || !!demo || gpsFix;
+    const hasActiveWorld = !!trial || !!demo || gpsFix || hasPosition;
     const snapshot = osm.isLiveOsm ? osm.snapshot : undefined;
+    liveElevation.update(frame.latitude, frame.longitude, liveElevationEnabled && !trial && hasActiveWorld);
+    const liveSampler = !trial && liveElevationEnabled && snapshot
+      ? liveElevation.getSampler(snapshot.originLat, snapshot.originLon)
+      : undefined;
+    const activeElevation = trial ? trialHeight : liveSampler;
+    const elevVersion = trial ? -1 : liveElevation.getVersion();
+
     const position = snapshot ? geoDeltaMeters(snapshot.originLat, snapshot.originLon, frame.latitude, frame.longitude) : { x: 0, z: 0 };
     const direction = (frame.headingDeg * Math.PI) / 180;
     const turn = Math.atan2(Math.sin(direction - heading), Math.cos(direction - heading));
@@ -437,18 +526,18 @@ if (!stage) {
         orbit.target.add(offset);
         magic.shift(offset);
         festivities.shift(offset);
+        lastTerrainKey = '';
       }
       priorMapOrigin = { lat: snapshot.originLat, lon: snapshot.originLon };
-      map.update(snapshot, trial ? trialHeight : undefined);
+      map.update(snapshot, activeElevation, elevVersion);
     }
 
-    const hasActiveWorld = !!trial || !!demo || gpsFix || hasPosition;
     avatar.visible = hasActiveWorld;
     const dx = position.x - avatar.position.x, dz = position.z - avatar.position.z;
     const rebase = Math.hypot(dx, dz) > 90;
     if (snapshot && hasActiveWorld) {
       const ease = !hasPosition || rebase ? 1 : 1 - Math.exp(-dt * 8);
-      const height = trial ? trialHeight(avatar.position.x + dx * ease, avatar.position.z + dz * ease) : 0;
+      const height = activeElevation ? activeElevation(avatar.position.x + dx * ease, avatar.position.z + dz * ease) : 0;
       movement.set(dx * ease, (height - avatar.position.y) * ease, dz * ease);
       avatar.position.add(movement);
       camera.position.add(movement);
@@ -459,11 +548,13 @@ if (!stage) {
 
     avatar.rotation.order = 'YXZ';
     avatar.rotation.y = -heading;
-    if (trial) {
+    if (activeElevation) {
       const x = avatar.position.x, z = avatar.position.z;
       const east = Math.sin(heading) * 5, north = Math.cos(heading) * 5;
-      const pitch = Math.atan2(trialHeight(x + east, z - north) - trialHeight(x - east, z + north), 10);
+      const pitch = Math.atan2(activeElevation(x + east, z - north) - activeElevation(x - east, z + north), 10);
       avatar.rotation.x = THREE.MathUtils.lerp(avatar.rotation.x, pitch, Math.min(1, dt * 6));
+    } else {
+      avatar.rotation.x = THREE.MathUtils.lerp(avatar.rotation.x, 0, Math.min(1, dt * 6));
     }
 
     const env = festivities.update(
@@ -476,7 +567,7 @@ if (!stage) {
       heading,
       liveState,
       hasActiveWorld,
-      trial ? trialHeight : undefined
+      activeElevation
     );
 
     const beat = festivities.getBeatEnergy();
@@ -502,6 +593,30 @@ if (!stage) {
     if (semi.group.visible) semi.update(dt, wheelPhase, frame.isBraking, beat * 0.65, time);
     if (truck.group.visible) truck.update(wheelPhase, time);
 
+    matchedRoad = snapshot ? streetAtCar(snapshot, frame) : undefined;
+    fsdPath.update(
+      dt,
+      time,
+      frame,
+      env,
+      matchedRoad,
+      avatar.position,
+      heading,
+      hasActiveWorld && !trial,
+      activeElevation
+    );
+    vehicleLighting.update(time, frame, env, hasActiveWorld, flying ? sleigh.group.position.y : 0);
+    if (snapshot) {
+      ambientTraffic.update(dt, time, snapshot, map.mapData, avatar.position, activeElevation, elevVersion);
+    }
+    ambientTraffic.group.visible = !!snapshot && ambientTraffic.isEnabled() && !trial;
+
+    if (frame.isBraking && !wasBraking && time - lastBrakeJingleAt > 2.5 && hasActiveWorld) {
+      festivities.audio.playBrakeJingle();
+      lastBrakeJingleAt = time;
+    }
+    wasBraking = frame.isBraking;
+
     magic.update(
       dt,
       time,
@@ -520,25 +635,48 @@ if (!stage) {
     const flightFactor = magic.getFlightFactor();
     if (alignWithHeading) {
       currentOffset.copy(camera.position).sub(orbit.target);
-      drivingView(time, speedNorm, flightFactor);
+      drivingView(time, speedNorm, flightFactor, activeElevation);
       currentOffset.lerp(cameraOffset, Math.min(1, dt * 2.8));
       orbit.target.lerp(desiredTarget, rebase ? 1 : Math.min(1, dt * 6));
       camera.position.copy(orbit.target).add(currentOffset);
     }
     orbit.update();
-    camera.position.y = Math.max((trial ? trialHeight(camera.position.x, camera.position.z) : 0) + 1.4, camera.position.y);
+    camera.position.y = Math.max((activeElevation ? activeElevation(camera.position.x, camera.position.z) : 0) + 1.4, camera.position.y);
     camera.lookAt(orbit.target);
+    if (alignWithHeading && cameraMode === 'chase') {
+      cameraRoll = THREE.MathUtils.damp(
+        cameraRoll,
+        THREE.MathUtils.clamp(-frame.turnRate * 0.032, -0.045, 0.045),
+        5,
+        dt
+      );
+      camera.rotateZ(cameraRoll);
+    } else {
+      cameraRoll = THREE.MathUtils.damp(cameraRoll, 0, 5, dt);
+    }
 
-    const targetFov = (cameraMode === 'map' ? 56 : 52) + speedNorm * 10 + flightFactor * 7;
+    const targetFov = (cameraMode === 'map' ? 54 : 45) + speedNorm * 10 + flightFactor * 5;
     if (Math.abs(camera.fov - targetFov) > 0.05) {
       camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
       camera.updateProjectionMatrix();
     }
     camera.updateMatrixWorld();
 
-    ground.position.set(avatar.position.x, trial ? terrainFloor - 0.15 : 0, avatar.position.z);
-    updateWinterGround(groundMaterial, time, env.daylightFactor, avatar.position, env.theme);
-    updateChristmasMapAtmosphere(time, env.daylightFactor, avatar.position, env.theme, beat);
+    if (!trial && activeElevation && snapshot) {
+      ground.visible = false;
+      liveRelief.visible = true;
+      outerSkirt.visible = true;
+      updateLiveTerrainMesh(activeElevation, `${snapshot.version}:${elevVersion}`);
+    } else {
+      liveRelief.visible = false;
+      outerSkirt.visible = false;
+      ground.visible = true;
+      ground.position.set(avatar.position.x, trial ? terrainFloor - 0.15 : 0, avatar.position.z);
+    }
+    const headlightFactor = Math.max(0.08, 1 - env.daylightFactor * 0.85);
+    const brakeFactor = frame.isBraking ? 1 : frame.speedKmh < 2.2 ? 0.55 : 0;
+    updateWinterGround(groundMaterial, time, env.daylightFactor, avatar.position, heading, headlightFactor, env.theme);
+    updateChristmasMapAtmosphere(time, env.daylightFactor, avatar.position, heading, brakeFactor, headlightFactor, env.theme, beat);
     map.animate(time, avatar.position);
     warm.target.position.copy(orbit.target);
     warm.position.copy(warm.target.position).add(shadowOffset);
@@ -547,7 +685,7 @@ if (!stage) {
     sky.material.uniforms.uTime.value = time;
     applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor);
 
-    horizon.group.position.set(camera.position.x, trial ? avatar.position.y : 0, camera.position.z);
+    horizon.group.position.set(camera.position.x, activeElevation ? avatar.position.y : 0, camera.position.z);
     horizon.update(time, env);
 
     snowfall.group.position.copy(avatar.position);
@@ -584,9 +722,8 @@ if (!stage) {
         aircraftModels.set(id, model);
         flightsRoot.add(model);
       }
-      const matched = snapshot && streetAtCar(snapshot, frame);
-      const ahead = matched && map.nextStreet(matched, position, direction);
-      const streetLabel = matched?.name || (snapshot ? 'Din position' : gpsFix ? 'Hämtar omgivningen' : 'Väntar på GPS');
+      const ahead = matchedRoad && map.nextStreet(matchedRoad, position, direction);
+      const streetLabel = matchedRoad?.name || (snapshot ? 'Din position' : gpsFix ? 'Hämtar omgivningen' : 'Väntar på GPS');
       const viewHeading = Math.atan2(orbit.target.x - camera.position.x, camera.position.z - orbit.target.z);
 
       hud.updateReadout({
@@ -595,6 +732,8 @@ if (!stage) {
         placeName: snapshot ? osm.placeName : '',
         streetLabel,
         aheadJunction: ahead,
+        maxspeedKmh: matchedRoad?.maxspeed,
+        fsdActive: fsdPath.isEnabled(),
         hasWorld: hasActiveWorld,
         viewHeading,
       });

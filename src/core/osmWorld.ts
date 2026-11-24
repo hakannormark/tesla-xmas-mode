@@ -33,6 +33,9 @@ export interface OsmRoadRibbon {
   points: OsmPoint2D[];
   widthM: number;
   isMajor: boolean;
+  highway?: string;
+  lanes?: number;
+  maxspeed?: number;
   tunnel?: boolean;
   name: string | null;
 }
@@ -71,6 +74,9 @@ export interface OsmMapSnapshot {
   pois: OsmPoi[];
   trees?: OsmPoint2D[];
   woodland?: OsmPoint2D[][];
+  streetLamps?: OsmPoint2D[];
+  trafficSignals?: OsmPoint2D[];
+  crossings?: OsmPoint2D[];
 }
 
 export interface OsmWorldState {
@@ -674,7 +680,7 @@ export class OsmWorldDirector {
       const fLat = lat.toFixed(4);
       const fLon = lon.toFixed(4);
       const streets = `way(around:650,${fLat},${fLon})["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]`;
-      const overpassQuery = `[out:json][timeout:6];${streets};out body geom;(way(around:460,${fLat},${fLon})["building"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];node(around:350,${fLat},${fLon})["natural"="tree"];);out body geom;`;
+      const overpassQuery = `[out:json][timeout:6];${streets};out body geom;(way(around:460,${fLat},${fLon})["building"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];node(around:350,${fLat},${fLon})["natural"="tree"];node(around:320,${fLat},${fLon})["highway"~"^(traffic_signals|crossing|street_lamp)$"];);out body geom;`;
 
       const [nomRes, els] = await Promise.all([
         fetch(nomUrl, { signal: AbortSignal.timeout(3500) }).catch(() => null),
@@ -702,6 +708,9 @@ export class OsmWorldDirector {
       const pois: OsmPoi[] = [];
       const trees: OsmPoint2D[] = [];
       const woodland: OsmPoint2D[][] = [];
+      const streetLamps: OsmPoint2D[] = [];
+      const trafficSignals: OsmPoint2D[] = [];
+      const crossings: OsmPoint2D[] = [];
       const seenWays = new Set<number>();
 
       {
@@ -721,6 +730,12 @@ export class OsmWorldDirector {
             const pt = geoDeltaMeters(lat, lon, el.lat, el.lon);
             if (tags.natural === 'tree') {
               trees.push(pt);
+            } else if (tags.highway === 'street_lamp') {
+              streetLamps.push(pt);
+            } else if (tags.highway === 'traffic_signals') {
+              trafficSignals.push(pt);
+            } else if (tags.highway === 'crossing') {
+              crossings.push(pt);
             } else if (tags.amenity === 'charging_station') {
               const cname = tags.name || tags.operator || 'Laddstation';
               if (!nextCharger) nextCharger = cname;
@@ -778,10 +793,15 @@ export class OsmWorldDirector {
             const isMajor = hw === 'motorway' || hw === 'trunk' || hw === 'primary' || hw === 'secondary';
             if (isMajor) hasHighwayOnly = true;
             const widthM = isMajor ? 8.5 : hw === 'tertiary' || hw === 'residential' ? 6.2 : 4.2;
+            const lanes = Number.parseInt(tags.lanes ?? '', 10);
+            const maxspeed = Number.parseInt(tags.maxspeed ?? '', 10);
             roads.push({
               points: pts,
               widthM,
               isMajor,
+              highway: hw,
+              lanes: Number.isFinite(lanes) && lanes > 0 ? lanes : undefined,
+              maxspeed: Number.isFinite(maxspeed) && maxspeed >= 10 && maxspeed <= 160 ? maxspeed : undefined,
               tunnel: tags.tunnel === 'yes' || tags.tunnel === 'building_passage',
               name: tags.name ?? tags.ref ?? null,
             });
@@ -857,7 +877,11 @@ export class OsmWorldDirector {
         originLat: lat,
         originLon: lon,
         buildings: buildings.slice(0, 350),
-        trees, woodland,
+        trees,
+        woodland,
+        streetLamps: streetLamps.slice(0, 120),
+        trafficSignals: trafficSignals.slice(0, 24),
+        crossings: crossings.slice(0, 32),
         roads,
         waters: waters.slice(0, 10),
         forests: forests.slice(0, 14),
