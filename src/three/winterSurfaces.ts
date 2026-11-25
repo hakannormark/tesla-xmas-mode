@@ -18,8 +18,8 @@ float winterNoise(vec2 p) {
 }
 `;
 
-export function createWinterGround(): THREE.MeshStandardMaterial {
-  const material = new THREE.MeshStandardMaterial({color:'#a6bce0', roughness:0.93});
+export function createWinterGround(baseColor = '#a6bce0', roughness = 0.93): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({ color: baseColor, roughness });
   const uniforms = {
     uTime: { value: 0 },
     uDaylight: { value: 0 },
@@ -29,7 +29,7 @@ export function createWinterGround(): THREE.MeshStandardMaterial {
     uGroundTint: { value: new THREE.Color('#ffffff') },
   };
   material.userData.winterUniforms = uniforms;
-  material.customProgramCacheKey = () => 'winter-ground-fsd-v3';
+  material.customProgramCacheKey = () => 'winter-ground-fsd-v4';
   material.onBeforeCompile = shader => {
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uDaylight = uniforms.uDaylight;
@@ -37,51 +37,103 @@ export function createWinterGround(): THREE.MeshStandardMaterial {
     shader.uniforms.uVehicleDir = uniforms.uVehicleDir;
     shader.uniforms.uHeadlight = uniforms.uHeadlight;
     shader.uniforms.uGroundTint = uniforms.uGroundTint;
-    shader.vertexShader = 'varying vec2 vSnowWorld;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\nvSnowWorld = (modelMatrix * vec4(position, 1.0)).xz;',
-    );
-    shader.fragmentShader =
-      'uniform float uTime;\nuniform float uDaylight;\nuniform vec3 uVehiclePos;\nuniform vec2 uVehicleDir;\nuniform float uHeadlight;\nuniform vec3 uGroundTint;\nvarying vec2 vSnowWorld;\n' +
-      snowNoise +
-      shader.fragmentShader.replace(
-        '#include <color_fragment>', /* glsl */`
-        #include <color_fragment>
-        float sweep = vSnowWorld.x*0.36+vSnowWorld.y*0.22+
-          winterNoise(vSnowWorld*0.065)*3.0;
-        float drifts = 0.5+0.5*cos(sweep);
-        float broad = winterNoise(vSnowWorld*0.075);
-        float powder = winterNoise(vSnowWorld*3.2);
-        vec3 cool = vec3(0.62,0.74,0.96);
-        vec3 warm = vec3(1.14,1.10,1.06);
-        diffuseColor.rgb *= mix(cool,warm,broad*0.68+drifts*0.27);
-        diffuseColor.rgb *= (0.82+0.24*smoothstep(0.15,0.9,broad*0.64+drifts*0.36)) * (0.93+0.13*powder);
-        diffuseColor.rgb *= mix(vec3(0.72, 0.80, 0.94), vec3(1.06, 1.07, 1.08), uDaylight);
-        diffuseColor.rgb *= uGroundTint;
+    shader.vertexShader =
+      'varying vec3 vSnowWorldPos;\n' +
+      shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        /* glsl */`
+        #include <begin_vertex>
+        vec4 snowWsPos = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          snowWsPos = instanceMatrix * snowWsPos;
+        #endif
+        snowWsPos = modelMatrix * snowWsPos;
+        vSnowWorldPos = snowWsPos.xyz;
         `,
-      ).replace('#include <normal_fragment_maps>', /* glsl */`
-        #include <normal_fragment_maps>
-        float driftSlope = sin(sweep)*0.095 + sin(sweep*2.6+broad*5.0)*0.032;
-        vec3 windNormal = mat3(viewMatrix)*vec3(0.82,0.0,0.57);
-        normal = normalize(normal+windNormal*driftSlope);
-      `).replace('#include <dithering_fragment>', /* glsl */`
-        vec2 toSnow = vSnowWorld - uVehiclePos.xz;
-        float snowFwd = dot(toSnow, uVehicleDir);
-        float snowLat = abs(toSnow.x * uVehicleDir.y - toSnow.y * uVehicleDir.x);
-        float snowBeam = smoothstep(-0.5, 2.5, snowFwd) * (1.0 - smoothstep(12.0, 30.0, snowFwd))
-          * exp(-pow(snowLat / max(1.8, 1.6 + snowFwd * 0.25), 2.0));
-        gl_FragColor.rgb += vec3(0.95, 0.88, 0.72) * snowBeam * 0.22 * uHeadlight * (1.0 - uDaylight * 0.82);
-        vec2 sgCell = floor(vSnowWorld * 4.8);
-        float sRnd = winterHash(sgCell);
-        if (sRnd > 0.964) {
-          float glint = pow(0.5 + 0.5 * sin(uTime * 4.2 + sRnd * 55.0 + vSnowWorld.y * 0.35), 4.0);
+      );
+    shader.fragmentShader =
+      'uniform float uTime;\nuniform float uDaylight;\nuniform vec3 uVehiclePos;\nuniform vec2 uVehicleDir;\nuniform float uHeadlight;\nuniform vec3 uGroundTint;\nvarying vec3 vSnowWorldPos;\n' +
+      snowNoise +
+      shader.fragmentShader
+        .replace(
+          '#include <color_fragment>',
+          /* glsl */`
+          #include <color_fragment>
+          vec2 vSnowWorld = vSnowWorldPos.xz;
+          float sweep = vSnowWorld.x * 0.36 + vSnowWorld.y * 0.22 +
+            winterNoise(vSnowWorld * 0.065) * 3.0;
+          float drifts = 0.5 + 0.5 * cos(sweep);
+          float broad = winterNoise(vSnowWorld * 0.075);
+          float powder = winterNoise(vSnowWorld * 3.2);
+          float fineGrain = winterNoise(vSnowWorld * 9.5);
+          vec3 cool = vec3(0.62, 0.74, 0.96);
+          vec3 warm = vec3(1.14, 1.10, 1.06);
+          diffuseColor.rgb *= mix(cool, warm, broad * 0.68 + drifts * 0.27);
+          diffuseColor.rgb *= (0.82 + 0.24 * smoothstep(0.15, 0.9, broad * 0.64 + drifts * 0.36))
+            * (0.91 + 0.11 * powder + 0.06 * fineGrain);
+          diffuseColor.rgb *= mix(vec3(0.72, 0.80, 0.94), vec3(1.06, 1.07, 1.08), uDaylight);
+          diffuseColor.rgb *= uGroundTint;
+          `,
+        )
+        .replace(
+          '#include <roughnessmap_fragment>',
+          /* glsl */`
+          #include <roughnessmap_fragment>
+          roughnessFactor = clamp(roughnessFactor - 0.14 * drifts + 0.06 * powder, 0.62, 0.98);
+          `,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          /* glsl */`
+          #include <normal_fragment_maps>
+          float driftSlope = sin(sweep) * 0.095 + sin(sweep * 2.6 + broad * 5.0) * 0.032 + (fineGrain - 0.5) * 0.055;
+          vec3 windNormal = mat3(viewMatrix) * vec3(0.82, 0.0, 0.57);
+          normal = normalize(normal + windNormal * driftSlope);
+          `,
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          /* glsl */`
+          vec2 toSnow = vSnowWorldPos.xz - uVehiclePos.xz;
+          float snowFwd = dot(toSnow, uVehicleDir);
+          float snowLat = abs(toSnow.x * uVehicleDir.y - toSnow.y * uVehicleDir.x);
+          float snowBeam = smoothstep(-0.5, 2.5, snowFwd) * (1.0 - smoothstep(12.0, 30.0, snowFwd))
+            * exp(-pow(snowLat / max(1.8, 1.6 + snowFwd * 0.25), 2.0));
+          gl_FragColor.rgb += vec3(0.95, 0.88, 0.72) * snowBeam * 0.22 * uHeadlight * (1.0 - uDaylight * 0.82);
+
+          // Smooth cell-centered radial ice-crystal micro-sparkle aligned with view & light half-vector
           float distSq = dot(toSnow, toSnow);
-          float nearFade = 1.0 - smoothstep(1400.0, 9200.0, distSq);
-          vec3 crystalCol = sRnd > 0.986 ? vec3(1.12, 0.94, 0.66) : vec3(0.86, 0.96, 1.15);
-          gl_FragColor.rgb += crystalCol * glint * nearFade * (0.28 + uDaylight * 0.20 + snowBeam * 0.35);
-        }
-        #include <dithering_fragment>
-      `);
+          float sparkFade = (1.0 - smoothstep(260.0, 3400.0, distSq)) * smoothstep(1.5, 10.0, distSq);
+          if (sparkFade > 0.01) {
+            vec2 spUv = vSnowWorldPos.xz * 5.6;
+            vec2 spCell = floor(spUv);
+            vec2 spFrac = fract(spUv);
+            float sRnd = winterHash(spCell);
+            if (sRnd > 0.78) {
+              vec2 jitter = vec2(winterHash(spCell + 1.37), winterHash(spCell + 7.91)) * 0.64 + 0.18;
+              float radial = smoothstep(0.24, 0.03, length(spFrac - jitter));
+              if (radial > 0.01) {
+                vec3 facetN = normalize(vec3(
+                  (winterHash(spCell + 3.13) - 0.5) * 0.92,
+                  1.0,
+                  (winterHash(spCell + 5.71) - 0.5) * 0.92
+                ));
+                vec3 viewDirW = normalize(cameraPosition - vSnowWorldPos);
+                vec3 skyKeyW = normalize(vec3(-0.29, 0.55, -0.78));
+                vec3 headDirW = normalize(vec3(-uVehicleDir.x, 0.24, -uVehicleDir.y));
+                float specKey = pow(max(dot(facetN, normalize(viewDirW + skyKeyW)), 0.0), 26.0);
+                float specHead = pow(max(dot(facetN, normalize(viewDirW + headDirW)), 0.0), 18.0)
+                  * snowBeam * uHeadlight * (1.0 - uDaylight * 0.75);
+                float shimmer = 0.62 + 0.38 * sin(uTime * 2.8 + sRnd * 53.0);
+                float crystal = radial * (specKey * (0.55 + uDaylight * 0.45) + specHead * 1.45) * shimmer * sparkFade;
+                vec3 crystalCol = sRnd > 0.93 ? vec3(1.12, 0.96, 0.72) : vec3(0.86, 0.96, 1.15);
+                gl_FragColor.rgb += crystalCol * crystal * 0.95;
+              }
+            }
+          }
+          #include <dithering_fragment>
+          `,
+        );
   };
   return material;
 }
@@ -112,8 +164,8 @@ export function createWinterRoad(): THREE.MeshPhysicalMaterial {
     color: '#2c3a54',
     roughness: 0.56,
     metalness: 0.14,
-    clearcoat: 0.78,
-    clearcoatRoughness: 0.15,
+    clearcoat: 0.74,
+    clearcoatRoughness: 0.18,
   });
   material.defines = { USE_UV: 1 };
   const uniforms = {
@@ -127,7 +179,7 @@ export function createWinterRoad(): THREE.MeshPhysicalMaterial {
     uBeat: { value: 0 },
   };
   material.userData.winterUniforms = uniforms;
-  material.customProgramCacheKey = () => 'winter-road-wet-v3';
+  material.customProgramCacheKey = () => 'winter-road-wet-v4';
   material.onBeforeCompile = shader => {
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uDaylight = uniforms.uDaylight;
@@ -137,57 +189,96 @@ export function createWinterRoad(): THREE.MeshPhysicalMaterial {
     shader.uniforms.uBraking = uniforms.uBraking;
     shader.uniforms.uHeadlight = uniforms.uHeadlight;
     shader.uniforms.uBeat = uniforms.uBeat;
-    shader.vertexShader = 'attribute float junctionBlend; varying float vJunction; varying vec2 vRoad;\nvarying vec2 vRoadWorld;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\nvJunction = junctionBlend; vRoad = uv;\nvRoadWorld = (modelMatrix * vec4(position,1.0)).xz;',
-    );
+    shader.vertexShader =
+      'attribute float junctionBlend;\nattribute float roadWidth;\nvarying float vJunction;\nvarying float vRoadWidth;\nvarying vec2 vRoad;\nvarying vec2 vRoadWorld;\n' +
+      shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvJunction = junctionBlend; vRoadWidth = roadWidth; vRoad = uv;\nvRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xz;',
+      );
     shader.fragmentShader =
-      'uniform float uTime;\nuniform float uDaylight;\nuniform vec3 uAuroraTint;\nuniform vec3 uVehiclePos;\nuniform vec2 uVehicleDir;\nuniform float uBraking;\nuniform float uHeadlight;\nuniform float uBeat;\nvarying float vJunction;\nvarying vec2 vRoad;\nvarying vec2 vRoadWorld;\n' +
+      'uniform float uTime;\nuniform float uDaylight;\nuniform vec3 uAuroraTint;\nuniform vec3 uVehiclePos;\nuniform vec2 uVehicleDir;\nuniform float uBraking;\nuniform float uHeadlight;\nuniform float uBeat;\nvarying float vJunction;\nvarying float vRoadWidth;\nvarying vec2 vRoad;\nvarying vec2 vRoadWorld;\n' +
       snowNoise +
-      shader.fragmentShader.replace(
-        '#include <color_fragment>', /* glsl */`
-        #include <color_fragment>
-        float across = abs(vRoad.x-0.5);
-        float slush = winterNoise(vec2(vRoad.x*13.0,vRoad.y*0.35));
-        float shoulder = smoothstep(0.34,0.51,across+0.12*slush);
-        float track = (abs(across-0.245)-0.091)*27.0;
-        float ruts = exp(-track*track);
-        float frost = 0.12*slush + 0.26*(1.0-ruts);
-        float speckles = winterNoise(vRoadWorld*3.8);
-        diffuseColor.rgb *= 0.86+0.16*speckles;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.28,0.37,0.50),frost);
-        diffuseColor.rgb = mix(diffuseColor.rgb,vec3(0.50,0.62,0.76), shoulder*0.76);
-        float centerLine = smoothstep(0.022, 0.008, across) * step(0.46, fract(vRoad.y * 0.14));
-        float edgeLine = smoothstep(0.018, 0.006, abs(across - 0.405));
-        float laneMark = clamp(centerLine + edgeLine * 0.72, 0.0, 1.0) * (1.0 - vJunction);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.76, 0.84, 0.95), laneMark * 0.56);
-        vec3 packed = mix(vec3(0.085,0.11,0.15),vec3(0.15,0.19,0.25),winterNoise(vRoadWorld*0.78));
-        diffuseColor.rgb = mix(diffuseColor.rgb,packed*(0.88+0.18*speckles),vJunction);
-        `,
-      ).replace('#include <roughnessmap_fragment>', /* glsl */`
-        #include <roughnessmap_fragment>
-        float rutSheen = mix(ruts * (1.0 - shoulder * 0.8), 0.42, vJunction);
-        roughnessFactor = mix(roughnessFactor, 0.22, rutSheen * 0.75);
-      `).replace('#include <dithering_fragment>', /* glsl */`
-        float roadMask = mix(1.0 - smoothstep(0.38, 0.50, across), 0.74, vJunction);
-        float rutMask = mix(ruts, 0.45, vJunction);
-        float nightWeight = 1.0 - clamp(uDaylight * 0.78, 0.0, 0.78);
-        float shimmer = 0.72 + 0.28 * sin(vRoadWorld.x * 1.4 + vRoadWorld.y * 2.1 + uTime * 3.0);
-        float lampPools = pow(0.5 + 0.5 * sin(vRoad.y * 0.34), 6.0) * smoothstep(0.08, 0.42, across) * (1.0 - vJunction * 0.68);
-        vec3 goldRefl = vec3(0.95, 0.68, 0.28) * lampPools * (0.22 + rutMask * 0.40) * shimmer;
-        vec3 auroraRefl = uAuroraTint * (0.045 + rutMask * 0.11 + uBeat * 0.04) * (0.55 + 0.45 * sin((vRoadWorld.x + vRoadWorld.y) * 0.16 + uTime * 1.3));
-        vec2 toRoad = vRoadWorld - uVehiclePos.xz;
-        float roadFwd = dot(toRoad, uVehicleDir);
-        float roadLat = abs(toRoad.x * uVehicleDir.y - toRoad.y * uVehicleDir.x);
-        float headBeam = smoothstep(-0.5, 2.2, roadFwd) * (1.0 - smoothstep(14.0, 34.0, roadFwd))
-          * exp(-pow(roadLat / max(1.5, 1.35 + roadFwd * 0.23), 2.0));
-        vec3 headRefl = vec3(1.0, 0.94, 0.78) * headBeam * (0.28 + rutMask * 0.28) * uHeadlight;
-        float rearDist = dot(toRoad, -uVehicleDir);
-        float brakeBeam = smoothstep(-0.6, 1.2, rearDist) * (1.0 - smoothstep(3.5, 11.5, rearDist)) * exp(-roadLat * roadLat * 0.38);
-        vec3 tailRefl = vec3(0.95, 0.14, 0.22) * brakeBeam * (0.20 + uBraking * 0.64) * (0.55 + 0.45 * rutMask);
-        gl_FragColor.rgb += (goldRefl + auroraRefl + headRefl + tailRefl) * roadMask * nightWeight;
-        #include <dithering_fragment>
-      `);
+      shader.fragmentShader
+        .replace(
+          '#include <color_fragment>',
+          /* glsl */`
+          #include <color_fragment>
+          float roadW = max(3.6, vRoadWidth);
+          float twoLane = smoothstep(5.0, 5.8, roadW);
+          float across = abs(vRoad.x - 0.5);
+          float acrossM = across * roadW;
+          float slush = winterNoise(vec2(vRoad.x * 13.0, vRoad.y * 0.35));
+          float slushMacro = winterNoise(vRoadWorld * 0.42);
+          float shoulder = smoothstep(0.34, 0.51, across + 0.11 * slush + 0.05 * slushMacro);
+          float rutCenter = mix(0.16, 0.245, twoLane);
+          float rutHalf = mix(0.082, 0.091, twoLane);
+          float track = (abs(across - rutCenter) - rutHalf) * 26.0;
+          float ruts = exp(-track * track);
+          float puddle = smoothstep(0.54, 0.84, slushMacro);
+          float frost = (0.11 * slush + 0.24 * (1.0 - ruts)) * (1.0 - puddle * 0.45);
+          float speckles = winterNoise(vRoadWorld * 4.2);
+          float fineAgg = winterNoise(vRoadWorld * 14.5);
+          diffuseColor.rgb *= 0.84 + 0.14 * speckles + 0.06 * fineAgg;
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.28, 0.37, 0.50), frost);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.54, 0.66, 0.80), shoulder * 0.78);
+          float centerLine = smoothstep(0.11, 0.04, acrossM) * step(0.44, fract(vRoad.y * 0.125)) * twoLane;
+          float edgeLine = smoothstep(0.10, 0.035, abs(across - 0.415) * roadW) * smoothstep(4.2, 5.0, roadW);
+          float laneMark = clamp(centerLine + edgeLine * 0.72, 0.0, 1.0) * (1.0 - vJunction) * (1.0 - slush * 0.28);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.76, 0.84, 0.95), laneMark * 0.56);
+          vec3 packed = mix(vec3(0.085, 0.11, 0.15), vec3(0.16, 0.20, 0.27), winterNoise(vRoadWorld * 0.78));
+          packed = mix(packed, vec3(0.46, 0.58, 0.72), shoulder * 0.52);
+          diffuseColor.rgb = mix(diffuseColor.rgb, packed * (0.86 + 0.16 * speckles + 0.06 * fineAgg), vJunction);
+          `,
+        )
+        .replace(
+          '#include <roughnessmap_fragment>',
+          /* glsl */`
+          #include <roughnessmap_fragment>
+          float rutSheen = mix(max(ruts, puddle * 0.65) * (1.0 - shoulder * 0.82), 0.38 + puddle * 0.35, vJunction);
+          roughnessFactor = clamp(mix(roughnessFactor + 0.12 * shoulder, 0.18, rutSheen * 0.78) + (fineAgg - 0.5) * 0.08, 0.14, 0.92);
+          `,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          /* glsl */`
+          #include <normal_fragment_maps>
+          float aggA = fineAgg;
+          float aggB = winterNoise(vRoadWorld * 14.5 + vec2(0.37, 0.0));
+          float aggC = winterNoise(vRoadWorld * 14.5 + vec2(0.0, 0.37));
+          vec2 aggGrad = vec2(aggB - aggA, aggC - aggA);
+          float slA = winterNoise(vRoadWorld * 1.9 + vec2(0.0, 4.1));
+          float slB = winterNoise(vRoadWorld * 1.9 + vec2(0.28, 4.1));
+          float slC = winterNoise(vRoadWorld * 1.9 + vec2(0.0, 4.38));
+          vec2 slGrad = vec2(slB - slA, slC - slA);
+          float wetSmooth = mix(1.0, 0.32, clamp(rutSheen, 0.0, 1.0));
+          vec3 roadPerturb = mat3(viewMatrix) * vec3(
+            aggGrad.x * 0.24 * wetSmooth + slGrad.x * 0.14,
+            0.0,
+            aggGrad.y * 0.24 * wetSmooth + slGrad.y * 0.14
+          );
+          normal = normalize(normal + roadPerturb);
+          `,
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          /* glsl */`
+          float roadMask = mix(1.0 - smoothstep(0.38, 0.50, across), 1.0 - smoothstep(0.40, 0.50, across) * 0.45, vJunction);
+          float rutMask = mix(max(ruts, puddle * 0.55), 0.42 + puddle * 0.32, vJunction);
+          float nightWeight = 1.0 - clamp(uDaylight * 0.78, 0.0, 0.78);
+          vec3 auroraRefl = uAuroraTint * (0.045 + rutMask * 0.11 + uBeat * 0.04) * (0.55 + 0.45 * sin((vRoadWorld.x + vRoadWorld.y) * 0.16 + uTime * 1.3));
+          vec2 toRoad = vRoadWorld - uVehiclePos.xz;
+          float roadFwd = dot(toRoad, uVehicleDir);
+          float roadLat = abs(toRoad.x * uVehicleDir.y - toRoad.y * uVehicleDir.x);
+          float headBeam = smoothstep(-0.5, 2.2, roadFwd) * (1.0 - smoothstep(14.0, 34.0, roadFwd))
+            * exp(-pow(roadLat / max(1.5, 1.35 + roadFwd * 0.23), 2.0));
+          vec3 headRefl = vec3(1.0, 0.94, 0.78) * headBeam * (0.28 + rutMask * 0.30) * uHeadlight;
+          float rearDist = dot(toRoad, -uVehicleDir);
+          float brakeBeam = smoothstep(-0.6, 1.2, rearDist) * (1.0 - smoothstep(3.5, 11.5, rearDist)) * exp(-roadLat * roadLat * 0.38);
+          vec3 tailRefl = vec3(0.95, 0.14, 0.22) * brakeBeam * (0.20 + uBraking * 0.64) * (0.55 + 0.45 * rutMask);
+          gl_FragColor.rgb += (auroraRefl + headRefl + tailRefl) * roadMask * nightWeight;
+          #include <dithering_fragment>
+          `,
+        );
   };
   return material;
 }

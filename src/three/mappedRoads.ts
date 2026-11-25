@@ -38,10 +38,21 @@ export function roadJunctions(roads: OsmRoadRibbon[]) {
 
 // Fill each corner between adjacent approach edges with a rounded ploughed apron.
 export function junctionGeometry(nodes: Map<string,Junction>, elevation?: (x:number,z:number)=>number, shoulder = 0) {
-  const positions:number[] = [], indices:number[] = [];
+  const positions:number[] = [], indices:number[] = [], uvs:number[] = [], widths:number[] = [];
   for (const {point,arms,radius} of nodes.values()) {
+    const primary = arms[0];
+    const pCos = primary ? Math.cos(primary.angle) : 1;
+    const pSin = primary ? Math.sin(primary.angle) : 0;
+    const roadW = Math.max(4, radius / 1.2);
+    const invRadius = 1 / Math.max(1, radius + shoulder);
     const vertex = (x:number,z:number) => {
       positions.push(x,(elevation?.(x,z) ?? 0)+0.064,z);
+      const dx = x - point.x;
+      const dz = z - point.z;
+      const radial = Math.min(1, Math.hypot(dx, dz) * invRadius);
+      // Map center -> u=0.5 (across=0) and apron rim -> u~0.94 so slush/shoulder blends cleanly
+      uvs.push(0.5 + radial * 0.44, dx * pCos + dz * pSin);
+      widths.push(roadW);
       return positions.length/3-1;
     };
     const center = vertex(point.x,point.z);
@@ -69,8 +80,9 @@ export function junctionGeometry(nodes: Map<string,Junction>, elevation?: (x:num
   const geometry=new THREE.BufferGeometry();
   const count=positions.length/3;
   geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(new Float32Array(count*2),2));
+  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
   geometry.setAttribute('junctionBlend',new THREE.Float32BufferAttribute(new Float32Array(count).fill(1),1));
+  geometry.setAttribute('roadWidth',new THREE.Float32BufferAttribute(widths,1));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
@@ -82,6 +94,7 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
   const indices: number[] = [];
   const uvs: number[] = [];
   const blends: number[] = [];
+  const widths: number[] = [];
   for (const road of roads) {
     const vertices = road.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.z !== all[i - 1].z);
     if (vertices.length < 2) continue;
@@ -120,6 +133,7 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
         const side = 1-2*lane/across;
         const x = p.x+dx*side,z = p.z+dz*side;
         blends.push(blend);
+        widths.push(road.widthM);
         uvs.push(lane/across,traveled);
         positions.push(x,(elevation?.(x,z) ?? 0)+0.047,z);
         if (i && lane > 0) {
@@ -133,6 +147,7 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
   geometry.setAttribute('junctionBlend',new THREE.Float32BufferAttribute(blends,1));
+  geometry.setAttribute('roadWidth',new THREE.Float32BufferAttribute(widths,1));
   geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
   geometry.computeVertexNormals();
   return geometry;
@@ -191,18 +206,19 @@ export function snowbankGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,
         }
         const scale = endTaper * junctionClear;
         const wave = 0.86 + 0.18 * Math.sin(traveled * 0.24 + sideSign * 1.7) + 0.08 * Math.cos(traveled * 0.43);
+        const driftWobble = Math.sin(traveled * 0.19 + sideSign * 2.3) * 0.16 * scale;
         const profile = sideSign === 1
           ? [
-              { offset: half + 1.85, y: -0.05 },
-              { offset: half + 1.18, y: THREE.MathUtils.lerp(-0.04, 0.26 * wave, scale) },
-              { offset: half + 0.65, y: THREE.MathUtils.lerp(-0.04, 0.34 * wave, scale) },
+              { offset: half + 1.92 + driftWobble * 1.2, y: -0.05 },
+              { offset: half + 1.18 + driftWobble, y: THREE.MathUtils.lerp(-0.04, 0.26 * wave, scale) },
+              { offset: half + 0.64 + driftWobble * 0.55, y: THREE.MathUtils.lerp(-0.04, 0.34 * wave, scale) },
               { offset: half + 0.05, y: THREE.MathUtils.lerp(-0.04, 0.015, scale) },
             ]
           : [
               { offset: -(half + 0.05), y: THREE.MathUtils.lerp(-0.04, 0.015, scale) },
-              { offset: -(half + 0.65), y: THREE.MathUtils.lerp(-0.04, 0.34 * wave, scale) },
-              { offset: -(half + 1.18), y: THREE.MathUtils.lerp(-0.04, 0.26 * wave, scale) },
-              { offset: -(half + 1.85), y: -0.05 },
+              { offset: -(half + 0.64 + driftWobble * 0.55), y: THREE.MathUtils.lerp(-0.04, 0.34 * wave, scale) },
+              { offset: -(half + 1.18 + driftWobble), y: THREE.MathUtils.lerp(-0.04, 0.26 * wave, scale) },
+              { offset: -(half + 1.92 + driftWobble * 1.2), y: -0.05 },
             ];
 
         const start = positions.length / 3;
