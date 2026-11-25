@@ -417,7 +417,11 @@ if (!stage) {
     };
   }
 
+  const AUTO_RECENTER_MS = 5000;
+  let lastManualOrbitMs = 0;
+
   function detachFollow(): void {
+    lastManualOrbitMs = performance.now();
     if (!alignWithHeading) return;
     alignWithHeading = false;
     hud.setFollowActive(false);
@@ -428,12 +432,16 @@ if (!stage) {
   const activePointers = new Map<number, { x: number; y: number }>();
   renderer.domElement.addEventListener('pointerdown', e => {
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!alignWithHeading) lastManualOrbitMs = performance.now();
     if (activePointers.size >= 2) detachFollow();
     if (e.isPrimary && e.button === 0) {
       tapDown = { id: e.pointerId, x: e.clientX, y: e.clientY, time: e.timeStamp };
     }
   });
   renderer.domElement.addEventListener('pointermove', e => {
+    if (!alignWithHeading && activePointers.has(e.pointerId)) {
+      lastManualOrbitMs = performance.now();
+    }
     const down = activePointers.get(e.pointerId);
     if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 14) {
       detachFollow();
@@ -442,6 +450,7 @@ if (!stage) {
   renderer.domElement.addEventListener('wheel', () => detachFollow(), { passive: true });
   renderer.domElement.addEventListener('pointerup', e => {
     activePointers.delete(e.pointerId);
+    if (!alignWithHeading) lastManualOrbitMs = performance.now();
     if (!tapDown || tapDown.id !== e.pointerId) return;
     const dist = Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y);
     const elapsed = e.timeStamp - tapDown.time;
@@ -782,6 +791,10 @@ if (!stage) {
 
     const speedNorm = Math.min(1, frame.speedKmh / 110);
     const flightFactor = magic.getFlightFactor();
+    if (!alignWithHeading && activePointers.size === 0 && now - lastManualOrbitMs >= AUTO_RECENTER_MS) {
+      alignWithHeading = true;
+      hud.setFollowActive(true);
+    }
     if (alignWithHeading) {
       currentOffset.copy(camera.position).sub(orbit.target);
       drivingView(time, speedNorm, flightFactor, activeElevation);
