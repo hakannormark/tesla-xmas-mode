@@ -145,8 +145,8 @@ export class DriveFestivities {
   private readonly effects = new THREE.Group();
 
   private readonly convoy = [
-    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 98 },
-    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 152 },
+    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 98, active: false, worldX: 0, worldZ: 0, heading: 0, aheadMeters: 98 },
+    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 152, active: false, worldX: 0, worldZ: 0, heading: 0, aheadMeters: 152 },
   ];
   readonly convoyPositions: Array<{ x: number; y: number; z: number; heading: number }> = [];
   private readonly convoyPosPool = [
@@ -162,6 +162,17 @@ export class DriveFestivities {
   private plowActive = false;
   private plowProgress = 90;
   private plowCooldown = 0;
+  private plowWorldX = 0;
+  private plowWorldZ = 0;
+  private plowHeading = 0;
+  private plowHasPose = false;
+
+  // Persistent world-space trajectory for Elon 'cyberplow' event so it never pops out on street ends
+  private eventPlowActive = false;
+  private eventPlowX = 0;
+  private eventPlowZ = 0;
+  private eventPlowHeading = 0;
+  private readonly eventPlowSpot = { x: 0, z: 0, heading: 0 };
 
   private readonly giftPool: GiftProjectile[] = [];
   private readonly snowballPool: SnowballProjectile[] = [];
@@ -683,6 +694,20 @@ export class DriveFestivities {
     if (this.optimusAnchorPos) {
       this.optimusAnchorPos.add(offset);
     }
+    if (this.plowActive && this.plowHasPose) {
+      this.plowWorldX += offset.x;
+      this.plowWorldZ += offset.z;
+    }
+    if (this.eventPlowActive) {
+      this.eventPlowX += offset.x;
+      this.eventPlowZ += offset.z;
+    }
+    for (const entry of this.convoy) {
+      if (entry.active) {
+        entry.worldX += offset.x;
+        entry.worldZ += offset.z;
+      }
+    }
     for (const ws of this.wishStars) {
       if (ws.placed) {
         ws.worldX += offset.x;
@@ -760,6 +785,9 @@ export class DriveFestivities {
 
   startConvoy(): void {
     this.convoyTime = 16;
+    for (const entry of this.convoy) {
+      if (!entry.active) entry.aheadMeters = entry.baseOffset;
+    }
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('hohoho');
     this.audio.playConvoyHorn();
@@ -767,7 +795,12 @@ export class DriveFestivities {
   }
 
   triggerConvoySalute(): void {
-    if (!this.convoyTime) this.convoyTime = 14;
+    if (!this.convoyTime) {
+      this.convoyTime = 16;
+      for (const entry of this.convoy) {
+        if (!entry.active) entry.aheadMeters = entry.baseOffset;
+      }
+    }
     this.hornFlashTimer = 2.2;
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('hohoho');
@@ -1174,13 +1207,36 @@ export class DriveFestivities {
       this.map.mapData.clearance
     );
 
-    // Elon Roadside / Celestial Events (zero-GC scratch vectors + gated matrixWorld update)
+    // Elon Roadside / Celestial Events (zero-GC scratch vectors + gated matrixWorld update + continuous cyberplow)
     const charger = event?.type === 'supercharger' && mapSnapshot?.pois.find(p =>
       p.tesla && p.kind === 'charger' && Math.hypot(p.x - center.x, p.z - center.z) < 180);
     if (event?.type === 'supercharger' && event.elapsed <= dt && !charger) {
       this.announce('Ingen kartlagd Tesla Supercharger i närheten');
     }
-    const plow = event?.type === 'cyberplow' && street && pointAlongStreet(street, center, heading, 100 - event.progress * 109);
+    let plow: { x: number; z: number; heading: number } | false = false;
+    if (event?.type === 'cyberplow') {
+      const targetAhead = 125 - event.progress * 170;
+      const rawPlow = street && pointAlongStreet(street, center, heading, targetAhead);
+      if (rawPlow && (!this.eventPlowActive || Math.hypot(rawPlow.x - this.eventPlowX, rawPlow.z - this.eventPlowZ) < 12)) {
+        this.eventPlowX = rawPlow.x;
+        this.eventPlowZ = rawPlow.z;
+        this.eventPlowHeading = rawPlow.heading;
+        this.eventPlowActive = true;
+      } else if (this.eventPlowActive) {
+        // Street ended or switched mid-event: glide smoothly oncoming along last heading so Cybertruck never vanishes!
+        const travelHeading = this.eventPlowHeading + Math.PI;
+        this.eventPlowX += Math.sin(travelHeading) * 16 * dt;
+        this.eventPlowZ -= Math.cos(travelHeading) * 16 * dt;
+      }
+      if (this.eventPlowActive) {
+        this.eventPlowSpot.x = this.eventPlowX;
+        this.eventPlowSpot.z = this.eventPlowZ;
+        this.eventPlowSpot.heading = this.eventPlowHeading;
+        plow = this.eventPlowSpot;
+      }
+    } else {
+      this.eventPlowActive = false;
+    }
     if (charger || plow) {
       this.effects.updateMatrixWorld();
     }
@@ -1199,7 +1255,9 @@ export class DriveFestivities {
       roadPointAt: this.eventRoadPointAt,
     });
 
-    // 4-Truck Coca-Cola & Tesla Convoy on Real Mapped Lanes (pooled convoyPositions)
+    // Coca-Cola & Tesla Convoy on Real Mapped Lanes (never snaps invisible in view; drives smoothly behind camera)
+    const eastCar = Math.sin(heading);
+    const northCar = Math.cos(heading);
     this.convoyTime = Math.max(0, this.convoyTime - dt);
     this.convoyPositions.length = 0;
     const beat = this.audio.getBeatEnergy();
@@ -1207,24 +1265,65 @@ export class DriveFestivities {
     const lightShowBoost = beat * 0.65 + (this.hornFlashTimer > 0 ? 0.85 : 0);
     for (let index = 0; index < this.convoy.length; index++) {
       const entry = this.convoy[index];
-      const aheadMeters = entry.baseOffset - (16 - this.convoyTime) * 15;
-      const slot = this.convoyTime > 0 && street && aheadMeters > -38 && pointAlongStreet(street, center, heading, aheadMeters);
-      entry.handle.group.visible = !!slot;
-      if (!slot) continue;
-      const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
-      const tx = slot.x + Math.cos(slot.heading) * laneOffset;
-      const tz = slot.z + Math.sin(slot.heading) * laneOffset;
-      const ty = groundAt(tx, tz) + 0.05;
-      const truckHeading = slot.heading + Math.PI;
-      entry.handle.group.position.set(tx, ty, tz);
+      if (!entry.active) {
+        if (this.convoyTime <= 0 || !street) {
+          entry.handle.group.visible = false;
+          continue;
+        }
+        entry.aheadMeters -= 15 * dt;
+        const spawnSlot = entry.aheadMeters > 20 && pointAlongStreet(street, center, heading, entry.aheadMeters);
+        if (!spawnSlot) {
+          entry.handle.group.visible = false;
+          continue;
+        }
+        const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
+        entry.worldX = spawnSlot.x + Math.cos(spawnSlot.heading) * laneOffset;
+        entry.worldZ = spawnSlot.z + Math.sin(spawnSlot.heading) * laneOffset;
+        entry.heading = spawnSlot.heading + Math.PI;
+        entry.active = true;
+      } else {
+        entry.aheadMeters -= 15 * dt;
+        const candSlot = street && pointAlongStreet(street, center, heading, entry.aheadMeters);
+        if (candSlot && street) {
+          const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
+          const cx = candSlot.x + Math.cos(candSlot.heading) * laneOffset;
+          const cz = candSlot.z + Math.sin(candSlot.heading) * laneOffset;
+          if (Math.hypot(cx - entry.worldX, cz - entry.worldZ) < 9.5) {
+            entry.worldX = cx;
+            entry.worldZ = cz;
+            entry.heading = candSlot.heading + Math.PI;
+          } else {
+            entry.worldX += Math.sin(entry.heading) * 15 * dt;
+            entry.worldZ -= Math.cos(entry.heading) * 15 * dt;
+          }
+        } else {
+          // Continue smoothly along current heading even if street ends or convoyTime reaches 0
+          entry.worldX += Math.sin(entry.heading) * 15 * dt;
+          entry.worldZ -= Math.cos(entry.heading) * 15 * dt;
+        }
+      }
+
+      const dx = entry.worldX - center.x;
+      const dz = entry.worldZ - center.z;
+      const ahead = dx * eastCar - dz * northCar;
+      const dist = Math.hypot(dx, dz);
+      if (ahead < -44 || dist > 230) {
+        entry.active = false;
+        entry.handle.group.visible = false;
+        continue;
+      }
+
+      const ty = groundAt(entry.worldX, entry.worldZ) + 0.05;
+      entry.handle.group.visible = true;
+      entry.handle.group.position.set(entry.worldX, ty, entry.worldZ);
       entry.handle.group.scale.setScalar(0.76);
-      entry.handle.group.rotation.y = -truckHeading;
-      entry.handle.update(dt, time * frame.speedKmh * 0.1 + index, false, lightShowBoost, time, hornPulse);
+      entry.handle.group.rotation.y = -entry.heading;
+      entry.handle.update(dt, time * Math.max(18, frame.speedKmh) * 0.1 + index, false, lightShowBoost, time, hornPulse);
       const pooledPos = this.convoyPosPool[index];
-      pooledPos.x = tx;
+      pooledPos.x = entry.worldX;
       pooledPos.y = ty;
-      pooledPos.z = tz;
-      pooledPos.heading = truckHeading;
+      pooledPos.z = entry.worldZ;
+      pooledPos.heading = entry.heading;
       this.convoyPositions.push(pooledPos);
     }
 
@@ -1252,30 +1351,59 @@ export class DriveFestivities {
       this.redLightOptimus.group.visible = false;
     }
 
+    // Red-Light Cybertruck Snowplow: world-space continuous drive-past (never vanishes mid-screen!)
     if (this.stoppedSec > 3.8 && !this.plowActive && this.plowCooldown <= 0 && street) {
-      const startD = [88, 64, 42, 26].find(d => pointAlongStreet(street, center, heading, d));
+      const startD = [112, 88, 64, 48].find(d => pointAlongStreet(street, center, heading, d));
       if (startD !== undefined) {
-        this.plowActive = true;
-        this.plowProgress = startD;
-        this.plowCooldown = 16;
+        const spawnSpot = pointAlongStreet(street, center, heading, startD);
+        if (spawnSpot) {
+          const lane = -Math.min(2.05, street.widthM * 0.27);
+          this.plowWorldX = spawnSpot.x + Math.cos(spawnSpot.heading) * lane;
+          this.plowWorldZ = spawnSpot.z + Math.sin(spawnSpot.heading) * lane;
+          this.plowHeading = spawnSpot.heading + Math.PI;
+          this.plowHasPose = true;
+          this.plowActive = true;
+          this.plowProgress = startD;
+          this.plowCooldown = 16;
+        }
       }
     }
-    if (this.plowActive) {
+    if (this.plowActive && this.plowHasPose) {
       this.plowProgress -= 14 * dt;
       const plowSpot = street && pointAlongStreet(street, center, heading, this.plowProgress);
-      if (plowSpot && street && this.plowProgress > -16) {
+      let followedStreet = false;
+      if (plowSpot && street) {
         const lane = -Math.min(2.05, street.widthM * 0.27);
-        const px = plowSpot.x + Math.cos(plowSpot.heading) * lane;
-        const pz = plowSpot.z + Math.sin(plowSpot.heading) * lane;
-        const py = groundAt(px, pz) + 0.02;
-        this.redLightPlow.group.visible = true;
-        this.redLightPlow.group.position.set(px, py, pz);
-        this.redLightPlow.group.rotation.y = -plowSpot.heading + Math.PI;
-        this.redLightPlow.update(time * 12, time);
-        this.emitPlowSpray(px, py, pz, plowSpot.heading + Math.PI);
-      } else {
+        const cx = plowSpot.x + Math.cos(plowSpot.heading) * lane;
+        const cz = plowSpot.z + Math.sin(plowSpot.heading) * lane;
+        if (Math.hypot(cx - this.plowWorldX, cz - this.plowWorldZ) < 8.5) {
+          this.plowWorldX = cx;
+          this.plowWorldZ = cz;
+          this.plowHeading = plowSpot.heading + Math.PI;
+          followedStreet = true;
+        }
+      }
+      if (!followedStreet) {
+        // Keep Cybertruck smoothly driving past even when street changes, ends, or light turns green!
+        this.plowWorldX += Math.sin(this.plowHeading) * 14 * dt;
+        this.plowWorldZ -= Math.cos(this.plowHeading) * 14 * dt;
+      }
+
+      const pdx = this.plowWorldX - center.x;
+      const pdz = this.plowWorldZ - center.z;
+      const plowAhead = pdx * eastCar - pdz * northCar;
+      const plowDist = Math.hypot(pdx, pdz);
+      if (plowAhead < -38 || plowDist > 210) {
         this.plowActive = false;
+        this.plowHasPose = false;
         this.redLightPlow.group.visible = false;
+      } else {
+        const py = groundAt(this.plowWorldX, this.plowWorldZ) + 0.02;
+        this.redLightPlow.group.visible = true;
+        this.redLightPlow.group.position.set(this.plowWorldX, py, this.plowWorldZ);
+        this.redLightPlow.group.rotation.y = -this.plowHeading;
+        this.redLightPlow.update(time * 12, time);
+        this.emitPlowSpray(this.plowWorldX, py, this.plowWorldZ, this.plowHeading);
       }
     } else {
       this.redLightPlow.group.visible = false;
