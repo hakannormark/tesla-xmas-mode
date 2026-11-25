@@ -63,7 +63,7 @@ interface ReindeerAnim {
   phaseOffset: number;
   blinkTimer: number;
   blinkVal: number;
-  breathPuffs: THREE.Mesh[];
+  breathPuffs: THREE.Sprite[];
   reinSegA: THREE.Mesh;
   reinSegB: THREE.Mesh;
 }
@@ -454,12 +454,24 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   const mugTrim = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.016, 6, 10), goldMat);
   mugTrim.rotation.x = Math.PI * 0.5;
   mugTrim.position.y = 0.08;
-  const steamOrb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.06, 6, 6),
-    new THREE.MeshBasicMaterial({ color: '#eef7ff', transparent: true, opacity: 0.48 })
-  );
-  steamOrb.position.y = 0.16;
-  gloggMug.add(mugBody, mugTrim, steamOrb);
+  const steamSprites: THREE.Sprite[] = [];
+  const softGlowTex = getSoftGlowTexture();
+  for (let s = 0; s < 2; s++) {
+    const wisp = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: softGlowTex,
+        color: '#eef7ff',
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+      })
+    );
+    wisp.scale.set(0.18, 0.18, 1);
+    wisp.position.y = 0.16 + s * 0.08;
+    gloggMug.add(wisp);
+    steamSprites.push(wisp);
+  }
+  gloggMug.add(mugBody, mugTrim);
   gloggMug.visible = false;
   rightArmPivot.add(rightArmMesh, rightMitten, gloggMug);
   santaTorsoPivot.add(rightArmPivot);
@@ -475,7 +487,6 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   const muzzleMat = new THREE.MeshPhysicalMaterial({ color: '#d8b490', roughness: 0.75 });
   const antlerMat = new THREE.MeshStandardMaterial({ color: '#e6caa2', roughness: 0.55 });
   const hoofMat = new THREE.MeshStandardMaterial({ color: '#1b1614', roughness: 0.35 });
-  const puffMat = new THREE.MeshBasicMaterial({ color: '#eef7ff', transparent: true, opacity: 0.42 });
 
   const reinSegGeo = new THREE.CylinderGeometry(0.015, 0.015, 1, 5);
   reinSegGeo.rotateX(Math.PI * 0.5);
@@ -489,7 +500,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
   const reindeerRigs: ReindeerAnim[] = [];
   let rudolphNoseHalo: THREE.Sprite | null = null;
-  let rudolphNoseLight: THREE.PointLight | null = null;
+  let rudolphGroundGlow: THREE.Mesh | null = null;
+  let rudolphGroundGlowMat: THREE.MeshBasicMaterial | null = null;
   const hoofSparkles: THREE.Sprite[] = [];
 
   for (const slot of deerSlots) {
@@ -622,21 +634,32 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
       rudolphNoseHalo = new THREE.Sprite(
         new THREE.SpriteMaterial({
-          map: getSoftGlowTexture(),
+          map: softGlowTex,
           color: '#ff364c',
           transparent: true,
-          opacity: 0.65,
+          opacity: 0.72,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         })
       );
-      rudolphNoseHalo.scale.set(0.95, 0.95, 1);
+      rudolphNoseHalo.scale.set(1.05, 1.05, 1);
       rudolphNoseHalo.position.set(0, 0.34, -0.54);
       headGroup.add(rudolphNoseHalo);
 
-      rudolphNoseLight = new THREE.PointLight('#ff3b4c', 5.5, 16);
-      rudolphNoseLight.position.set(0, 0.42, -0.82);
-      headGroup.add(rudolphNoseLight);
+      rudolphGroundGlowMat = new THREE.MeshBasicMaterial({
+        map: softGlowTex,
+        color: '#ff3248',
+        transparent: true,
+        opacity: 0.34,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      rudolphGroundGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(4.8, 6.2).rotateX(-Math.PI * 0.5),
+        rudolphGroundGlowMat
+      );
+      rudolphGroundGlow.position.set(slot.x, 0.08, slot.z - 1.55);
+      root.add(rudolphGroundGlow);
     } else {
       const darkNose = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), hoofMat);
       darkNose.position.set(0, 0.34, -0.47);
@@ -685,9 +708,17 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     const bl = makeLeg(-0.15, 0.32);
     const br = makeLeg(0.15, 0.32);
 
-    const breathPuffs: THREE.Mesh[] = [];
+    const breathPuffs: THREE.Sprite[] = [];
     for (let p = 0; p < 3; p++) {
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), puffMat.clone());
+      const puff = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: softGlowTex,
+          color: '#e8f5ff',
+          transparent: true,
+          opacity: 0.36,
+          depthWrite: false,
+        })
+      );
       puff.visible = false;
       headGroup.add(puff);
       breathPuffs.push(puff);
@@ -742,6 +773,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   let currentTheme: HolidayThemeId = 'classic';
 
   const windVec = new THREE.Vector3();
+  const scarfWindVec = new THREE.Vector3();
+  const hatWindVec = new THREE.Vector3();
   const hatAnchor = new THREE.Vector3(0, 0.22, 0);
   const scarfAnchor = new THREE.Vector3(0.16, 0.65, 0.06);
   const reinStart = new THREE.Vector3();
@@ -809,11 +842,14 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       giftPackGroup.position.y = 1.56 + Math.abs(Math.sin(gallopAccum * 0.5)) * (0.04 + speedNorm * 0.07);
 
       const turboBoost = Math.max(0, (speedNorm - 0.55) / 0.45) + (giftTimer > 0 ? 0.5 : 0);
-      if (rudolphNoseHalo && rudolphNoseLight) {
+      if (rudolphNoseHalo && rudolphGroundGlow && rudolphGroundGlowMat) {
         const pulse = 1 + Math.sin(time * 9) * 0.15 + turboBoost * 1.15;
-        rudolphNoseHalo.scale.setScalar(0.95 * pulse);
-        rudolphNoseHalo.material.opacity = Math.min(0.96, 0.52 + turboBoost * 0.38);
-        rudolphNoseLight.intensity = 5.5 + turboBoost * 9.0;
+        rudolphNoseHalo.scale.setScalar(1.05 * pulse);
+        rudolphNoseHalo.material.opacity = Math.min(0.96, 0.58 + turboBoost * 0.36);
+        rudolphGroundGlow.position.y = 0.08 - root.position.y;
+        const liftFade = Math.max(0.2, 1 - root.position.y * 0.22);
+        rudolphGroundGlowMat.opacity =
+          Math.min(0.74, (0.28 + turboBoost * 0.32 + Math.sin(time * 9) * 0.05) * liftFade);
       }
       hoofSparkles.forEach((hg, idx) => {
         hg.material.opacity = turboBoost > 0.2 ? (0.3 + 0.25 * Math.sin(time * 12 + idx)) * Math.min(1, turboBoost) : 0;
@@ -837,7 +873,14 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       if (isWavingAtRedLight) {
         rightArmPivot.rotation.z = -0.85 + Math.sin(time * 4.2) * 0.28;
         rightArmPivot.rotation.x = 0.65;
-        steamOrb.position.y = 0.14 + ((time * 0.45) % 0.16);
+        for (let s = 0; s < steamSprites.length; s++) {
+          const cyc = (time * 0.55 + s * 0.5) % 1;
+          const sp = steamSprites[s];
+          sp.position.set(Math.sin(cyc * 4 + s) * 0.025, 0.12 + cyc * 0.26, 0);
+          const sc = 0.14 + cyc * 0.22;
+          sp.scale.set(sc, sc, 1);
+          sp.material.opacity = Math.sin(cyc * Math.PI) * 0.45;
+        }
       } else {
         rightArmPivot.rotation.z += (0 - rightArmPivot.rotation.z) * Math.min(1, dt * 6);
         rightArmPivot.rotation.x += (0 - rightArmPivot.rotation.x) * Math.min(1, dt * 6);
@@ -877,15 +920,32 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       for (const eye of santaEyes) eye.scale.y = eyeSquash;
       for (const cheek of santaCheeks) cheek.position.y = -0.04 + smileW * 0.022;
 
-      // Secondary cloth/wind simulation for Hat Tail & Scarf!
+      // Secondary cloth/wind simulation for Hat Tail & Scarf (rotated into torso/head local space!)
       windVec.set(-turnRate * 4.5, 0.6 + speedNorm * 1.6, 3.2 + speedNorm * 14.0);
-      hatWindChain.update(dt, hatAnchor, windVec, -3.2);
+      const torsoYaw = santaTorsoPivot.rotation.y;
+      const cosT = Math.cos(-torsoYaw);
+      const sinT = Math.sin(-torsoYaw);
+      scarfWindVec.set(
+        windVec.x * cosT + windVec.z * sinT,
+        windVec.y,
+        -windVec.x * sinT + windVec.z * cosT
+      );
+      const headTotalYaw = torsoYaw + santaHeadPivot.rotation.y;
+      const cosH = Math.cos(-headTotalYaw);
+      const sinH = Math.sin(-headTotalYaw);
+      hatWindVec.set(
+        windVec.x * cosH + windVec.z * sinH,
+        windVec.y,
+        -windVec.x * sinH + windVec.z * cosH
+      );
+
+      hatWindChain.update(dt, hatAnchor, hatWindVec, -3.2, time);
       for (let i = 0; i < hatSegs.length; i++) {
         orientSegmentBetween(hatSegs[i], hatWindChain.points[i], hatWindChain.points[i + 1]);
       }
       pom.position.copy(hatWindChain.points[hatWindChain.points.length - 1]);
 
-      scarfWindChain.update(dt, scarfAnchor, windVec, -2.8);
+      scarfWindChain.update(dt, scarfAnchor, scarfWindVec, -2.8, time);
       for (let i = 0; i < scarfSegs.length; i++) {
         orientSegmentBetween(scarfSegs[i], scarfWindChain.points[i], scarfWindChain.points[i + 1]);
       }
@@ -949,10 +1009,10 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
           puff.visible = showBreath;
           if (!showBreath) return;
           const cyc = (time * 0.6 + r.phaseOffset + pIdx * 0.33) % 1;
-          puff.position.set(Math.sin(cyc * 4) * 0.05, 0.32 + cyc * 0.42, -0.52 - cyc * 0.48);
-          const sc = (0.65 + cyc * 1.85) * breathMul;
-          puff.scale.set(sc, sc, sc);
-          (puff.material as THREE.MeshBasicMaterial).opacity = Math.min(0.65, (1 - cyc) * 0.42 * breathMul);
+          puff.position.set(Math.sin(cyc * 4) * 0.05, 0.32 + cyc * 0.45, -0.52 - cyc * 0.52);
+          const sc = (0.20 + cyc * 0.52) * breathMul;
+          puff.scale.set(sc, sc, 1);
+          puff.material.opacity = Math.min(0.62, Math.sin(cyc * Math.PI) * 0.46 * breathMul);
         });
 
         // Dynamic sagging leather/gold reins connecting Santa's mittens to each reindeer's collar!
@@ -1018,12 +1078,19 @@ export function createPixarCottage(seed = 0): PixarCottageHandle {
   chim.position.set(1.05, 3.85, 0.65);
   group.add(chim);
 
-  const smokePuffs: THREE.Mesh[] = [];
+  const smokeTex = getSoftGlowTexture();
+  const smokePuffs: THREE.Sprite[] = [];
   for (let i = 0; i < 4; i++) {
-    const sm = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 8, 8),
-      new THREE.MeshBasicMaterial({ color: '#dbe8fa', transparent: true, opacity: 0.26 })
+    const sm = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: smokeTex,
+        color: '#dbe8fa',
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+      })
     );
+    sm.scale.set(0.7, 0.7, 1);
     group.add(sm);
     smokePuffs.push(sm);
   }
@@ -1115,13 +1182,13 @@ export function createPixarCottage(seed = 0): PixarCottageHandle {
       smokePuffs.forEach((puff, idx) => {
         const p = (time * 0.34 + idx * 0.25 + seed * 0.13) % 1;
         puff.position.set(
-          1.05 + Math.sin(p * 4 + seed) * 0.25 - p * 0.35,
-          4.6 + p * 2.4,
-          0.65 + Math.cos(p * 3) * 0.18
+          1.05 + Math.sin(p * 4 + seed) * 0.28 - p * 0.42,
+          4.65 + p * 2.55,
+          0.65 + Math.cos(p * 3) * 0.2
         );
-        const s = 0.7 + p * 2.0;
-        puff.scale.set(s, s, s);
-        (puff.material as THREE.MeshBasicMaterial).opacity = (1 - p) * 0.26;
+        const s = 0.55 + p * 1.65;
+        puff.scale.set(s, s, 1);
+        puff.material.opacity = Math.sin(p * Math.PI) * 0.36;
       });
     },
   };

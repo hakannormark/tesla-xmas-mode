@@ -37,6 +37,43 @@ interface CrownSnowman {
   bounceTimer: number;
 }
 
+const TOWN_TREE_BULB_COUNT = 48;
+const WILDLIFE_CULL_DIST_SQ = 110 * 110;
+const WILDLIFE_CULL_BEHIND = -18;
+const _tmpBulbMat = new THREE.Matrix4();
+const _tmpBulbCol = new THREE.Color();
+
+function dampAngle(current: number, target: number, lambda: number, dt: number): number {
+  const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + delta * (1 - Math.exp(-lambda * dt));
+}
+
+interface RoamingCritter {
+  id: string;
+  handle: PixarAnimalHandle;
+  anchorX: number;
+  anchorZ: number;
+  x: number;
+  z: number;
+  targetX: number;
+  targetZ: number;
+  yaw: number;
+  radius: number;
+  speed: number;
+  phase: number;
+  state: 'wander' | 'pause';
+  stateTimer: number;
+  wanderStep: number;
+}
+
+interface PlacedWildAnimal {
+  handle: PixarAnimalHandle;
+  x: number;
+  z: number;
+  baseYaw: number;
+  placed: boolean;
+}
+
 export class MapLivingWorld {
   readonly group = new THREE.Group();
 
@@ -51,25 +88,21 @@ export class MapLivingWorld {
   private wildlifePooled = false;
   private holidayPool: PixarAnimalHandle[] = [];
   private wildPool: PixarAnimalHandle[] = [];
-  private animals: PixarAnimalHandle[] = [];
-  private roamingCritters: Array<{
-    id: string;
-    handle: PixarAnimalHandle;
-    anchorX: number;
-    anchorZ: number;
-    radius: number;
-    speed: number;
-    phase: number;
-    isRoamer: boolean;
-  }> = [];
+  private roamingCritters: RoamingCritter[] = [];
+  private placedWild: PlacedWildAnimal[] = [];
   private readonly mooseGroup = new THREE.Group();
   private readonly mooseHeadPivot = new THREE.Group();
+  private moosePlaced = false;
+  private mooseX = 0;
+  private mooseZ = 0;
   private builtVersion?: number;
 
-  // 3. Swooping White Snowy Owl
+  // 3. Swooping White Snowy Owl (sculpted feathered wings, enabled on all quality tiers)
   private readonly owlGroup = new THREE.Group();
-  private readonly owlWingL: THREE.Mesh;
-  private readonly owlWingR: THREE.Mesh;
+  private readonly owlWingL = new THREE.Group();
+  private readonly owlWingR = new THREE.Group();
+  private readonly owlTipL = new THREE.Group();
+  private readonly owlTipR = new THREE.Group();
   private owlCycleT = 4.0;
 
   // 4. Giant 15m Town Tree (anchors to clear village spaces ahead)
@@ -77,7 +110,8 @@ export class MapLivingWorld {
   private townTreePlaced = false;
   private townTreeLit = false;
   private townTreeLitLevel = 0.14;
-  private readonly townTreeBulbs: THREE.MeshBasicMaterial[] = [];
+  private readonly townTreeBulbInst: THREE.InstancedMesh;
+  private readonly townTreeGroundGlow: THREE.Mesh;
   private readonly townTreeStar: THREE.Mesh;
   private readonly townTreeHalo: THREE.Sprite;
 
@@ -137,63 +171,165 @@ export class MapLivingWorld {
     this.skateGroup.visible = false;
     this.group.add(this.skateGroup);
 
-    // --- 2. Wildlife Container + Ornament-Antler Moose ---
+    // --- 2. Wildlife Container + Sculpted Ornament-Antler Moose ---
     this.group.add(this.wildlifeGroup);
 
-    const mooseBrown = new THREE.MeshPhysicalMaterial({ color: '#5c3824', roughness: 0.82, sheen: 0.3 });
-    const mooseHorn = new THREE.MeshStandardMaterial({ color: '#e6cda6', roughness: 0.55 });
+    const mooseBrown = new THREE.MeshPhysicalMaterial({ color: '#5c3824', roughness: 0.82, sheen: 0.35 });
+    const mooseSnoutMat = new THREE.MeshPhysicalMaterial({ color: '#452819', roughness: 0.78 });
+    const mooseHorn = new THREE.MeshStandardMaterial({ color: '#e6cda6', roughness: 0.52 });
+    const mooseDark = new THREE.MeshPhysicalMaterial({ color: '#14151c', roughness: 0.12, clearcoat: 0.95 });
+    const catchlightMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
     const mTorso = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 1.1, 8, 12), mooseBrown);
     mTorso.rotation.x = Math.PI * 0.5;
     mTorso.position.y = 1.48;
     const mShoulder = new THREE.Mesh(new THREE.SphereGeometry(0.48, 10, 10), mooseBrown);
     mShoulder.position.set(0, 1.65, -0.35);
+    const legGeo = new THREE.CylinderGeometry(0.08, 0.06, 1.25, 7);
+    const hoofGeo = new THREE.CylinderGeometry(0.065, 0.075, 0.1, 7);
     for (const [lx, lz] of [
       [-0.28, -0.45],
       [0.28, -0.45],
       [-0.28, 0.5],
       [0.28, 0.5],
     ]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 1.25, 7), mooseBrown);
+      const leg = new THREE.Mesh(legGeo, mooseBrown);
       leg.position.set(lx, 0.62, lz);
-      this.mooseGroup.add(leg);
+      const hoof = new THREE.Mesh(hoofGeo, mooseDark);
+      hoof.position.set(lx, 0.05, lz);
+      this.mooseGroup.add(leg, hoof);
     }
     this.mooseHeadPivot.position.set(0, 1.72, -0.58);
     const mHead = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.42, 6, 8), mooseBrown);
     mHead.rotation.x = Math.PI * 0.35;
     mHead.position.set(0, 0.14, -0.26);
-    this.mooseHeadPivot.add(mHead);
+    const mBell = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), mooseSnoutMat);
+    mBell.scale.set(0.7, 1.4, 0.8);
+    mBell.position.set(0, -0.05, -0.15);
+    const mMuzzle = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), mooseSnoutMat);
+    mMuzzle.scale.set(0.95, 0.85, 1.25);
+    mMuzzle.position.set(0, 0.06, -0.52);
+    this.mooseHeadPivot.add(mHead, mBell, mMuzzle);
     const baubleMatRed = new THREE.MeshPhysicalMaterial({ color: '#e31937', metalness: 0.65, roughness: 0.18 });
     const baubleMatGold = new THREE.MeshPhysicalMaterial({ color: '#ffd166', metalness: 0.78, roughness: 0.15 });
+    const eyeGeo = new THREE.SphereGeometry(0.044, 8, 8);
+    const glintGeo = new THREE.SphereGeometry(0.015, 6, 6);
+    const earGeo = new THREE.ConeGeometry(0.065, 0.22, 6);
+    const baubleGeo = new THREE.SphereGeometry(0.085, 8, 8);
     for (const side of [-1, 1]) {
-      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.32, 0.12), mooseHorn);
-      palm.position.set(side * 0.48, 0.46, -0.15);
-      palm.rotation.z = side * 0.42;
-      palm.rotation.y = side * -0.25;
-      const bauble = new THREE.Mesh(
-        new THREE.SphereGeometry(0.085, 8, 8),
-        side < 0 ? baubleMatRed : baubleMatGold
-      );
-      bauble.position.set(side * 0.62, 0.25, -0.18);
-      this.mooseHeadPivot.add(palm, bauble);
+      const eye = new THREE.Mesh(eyeGeo, mooseDark);
+      eye.position.set(side * 0.15, 0.24, -0.32);
+      const glint = new THREE.Mesh(glintGeo, catchlightMat);
+      glint.position.set(side * 0.015, 0.014, -0.034);
+      eye.add(glint);
+      const ear = new THREE.Mesh(earGeo, mooseBrown);
+      ear.position.set(side * 0.22, 0.34, -0.14);
+      ear.rotation.z = side * -1.05;
+      this.mooseHeadPivot.add(eye, ear);
+
+      // Sculpted organic curved palmate antler beam + 4 branching tines
+      const mainBeam = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(side * 0.12, 0.34, -0.16),
+        new THREE.Vector3(side * 0.38, 0.44, -0.14),
+        new THREE.Vector3(side * 0.68, 0.62, -0.10),
+        new THREE.Vector3(side * 0.88, 0.78, -0.02),
+      ]);
+      this.mooseHeadPivot.add(new THREE.Mesh(new THREE.TubeGeometry(mainBeam, 12, 0.045, 6, false), mooseHorn));
+
+      const palmCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(side * 0.34, 0.44, -0.14),
+        new THREE.Vector3(side * 0.58, 0.56, -0.22),
+        new THREE.Vector3(side * 0.78, 0.70, -0.18),
+      ]);
+      this.mooseHeadPivot.add(new THREE.Mesh(new THREE.TubeGeometry(palmCurve, 8, 0.055, 6, false), mooseHorn));
+
+      const tineSpecs: Array<[number, number, number, number, number, number]> = [
+        [0.44, 0.48, -0.18, 0.46, 0.72, -0.30],
+        [0.58, 0.56, -0.18, 0.64, 0.86, -0.26],
+        [0.72, 0.66, -0.12, 0.82, 0.94, -0.18],
+        [0.82, 0.74, -0.06, 0.96, 0.98, -0.02],
+      ];
+      for (const [x0, y0, z0, x1, y1, z1] of tineSpecs) {
+        const tineCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(side * x0, y0, z0),
+          new THREE.Vector3(side * ((x0 + x1) * 0.5), (y0 + y1) * 0.5 + 0.04, (z0 + z1) * 0.5),
+          new THREE.Vector3(side * x1, y1, z1),
+        ]);
+        this.mooseHeadPivot.add(new THREE.Mesh(new THREE.TubeGeometry(tineCurve, 6, 0.024, 5, false), mooseHorn));
+      }
+
+      const bauble = new THREE.Mesh(baubleGeo, side < 0 ? baubleMatRed : baubleMatGold);
+      bauble.position.set(side * 0.66, 0.38, -0.18);
+      this.mooseHeadPivot.add(bauble);
     }
     this.mooseGroup.add(mTorso, mShoulder, this.mooseHeadPivot);
     this.mooseGroup.visible = false;
     this.group.add(this.mooseGroup);
 
-    // --- 3. Swooping Snowy Owl ---
-    const owlWhite = new THREE.MeshStandardMaterial({ color: '#f4f8ff', roughness: 0.65 });
+    // --- 3. Swooping White Snowy Owl (Sculpted Articulated Feathered Wings) ---
+    const owlWhite = new THREE.MeshPhysicalMaterial({ color: '#f4f8ff', roughness: 0.62, sheen: 0.55 });
+    const owlFeatherTip = new THREE.MeshStandardMaterial({ color: '#d4dfef', roughness: 0.72 });
     const owlBeak = new THREE.MeshStandardMaterial({ color: '#ffb838', roughness: 0.4 });
-    const oBody = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), owlWhite);
-    oBody.scale.set(0.9, 0.85, 1.35);
-    const oHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), owlWhite);
-    oHead.position.set(0, 0.14, -0.28);
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.12, 6), owlBeak);
+    const owlIrisMat = new THREE.MeshBasicMaterial({ color: '#ffcf48', toneMapped: false });
+    const oBody = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), owlWhite);
+    oBody.scale.set(0.88, 0.82, 1.45);
+    const oHead = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), owlWhite);
+    oHead.position.set(0, 0.14, -0.32);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.13, 6), owlBeak);
     beak.rotation.x = -Math.PI * 0.5;
-    beak.position.set(0, 0.1, -0.48);
-    this.owlWingL = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.05, 0.36), owlWhite);
-    this.owlWingL.position.set(-0.42, 0.08, 0);
-    this.owlWingR = this.owlWingL.clone();
-    this.owlWingR.position.x = 0.42;
+    beak.position.set(0, 0.1, -0.52);
+    for (const side of [-1, 1]) {
+      const oEye = new THREE.Mesh(new THREE.SphereGeometry(0.042, 8, 8), owlIrisMat);
+      oEye.position.set(side * 0.09, 0.17, -0.47);
+      const oPupil = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), mooseDark);
+      oPupil.position.set(0, 0, -0.028);
+      oEye.add(oPupil);
+      this.owlGroup.add(oEye);
+    }
+    // Fanned tail feathers
+    const tailShape = new THREE.Shape();
+    tailShape.moveTo(-0.08, 0);
+    tailShape.lineTo(-0.24, 0.48);
+    tailShape.quadraticCurveTo(0, 0.58, 0.24, 0.48);
+    tailShape.lineTo(0.08, 0);
+    tailShape.closePath();
+    const tailGeo = new THREE.ExtrudeGeometry(tailShape, { depth: 0.025, bevelEnabled: false });
+    tailGeo.rotateX(Math.PI * 0.5);
+    const oTail = new THREE.Mesh(tailGeo, owlFeatherTip);
+    oTail.position.set(0, 0.02, 0.28);
+    this.owlGroup.add(oTail);
+
+    // Sculpted airfoil inner wing + tapered feathered primary wingtip
+    const buildWingShape = (span: number, rootChord: number, tipChord: number): THREE.BufferGeometry => {
+      const s = new THREE.Shape();
+      s.moveTo(0, -rootChord * 0.5);
+      s.quadraticCurveTo(span * 0.5, -rootChord * 0.55, span, -tipChord * 0.42);
+      s.quadraticCurveTo(span * 1.08, 0, span, tipChord * 0.55);
+      s.quadraticCurveTo(span * 0.5, rootChord * 0.52, 0, rootChord * 0.45);
+      s.closePath();
+      const g = new THREE.ExtrudeGeometry(s, { depth: 0.032, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 2 });
+      g.rotateX(Math.PI * 0.5);
+      return g;
+    };
+    const innerWingGeo = buildWingShape(0.62, 0.42, 0.34);
+    const outerWingGeo = buildWingShape(0.56, 0.34, 0.14);
+
+    const innerMeshR = new THREE.Mesh(innerWingGeo, owlWhite);
+    this.owlWingR.position.set(0.14, 0.08, -0.04);
+    this.owlWingR.add(innerMeshR);
+    this.owlTipR.position.set(0.60, 0, 0.02);
+    this.owlTipR.add(new THREE.Mesh(outerWingGeo, owlFeatherTip));
+    this.owlWingR.add(this.owlTipR);
+
+    const innerMeshL = new THREE.Mesh(innerWingGeo, owlWhite);
+    innerMeshL.scale.x = -1;
+    this.owlWingL.position.set(-0.14, 0.08, -0.04);
+    this.owlWingL.add(innerMeshL);
+    const outerMeshL = new THREE.Mesh(outerWingGeo, owlFeatherTip);
+    outerMeshL.scale.x = -1;
+    this.owlTipL.position.set(-0.60, 0, 0.02);
+    this.owlTipL.add(outerMeshL);
+    this.owlWingL.add(this.owlTipL);
+
     this.owlGroup.add(oBody, oHead, beak, this.owlWingL, this.owlWingR);
     this.owlGroup.visible = false;
     this.group.add(this.owlGroup);
@@ -282,18 +418,40 @@ export class MapLivingWorld {
     );
     this.townTreeGroup.add(garlandTube);
 
-    const palette = ['#ffd468', '#ff3b4c', '#5ce6ff', '#ffe99e'];
-    for (let i = 0; i < 48; i++) {
-      const f = i / 48;
+    // 48 Town Tree Bulbs batched into 1 InstancedMesh!
+    const bulbGeo = new THREE.SphereGeometry(0.18, 8, 8);
+    const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false });
+    this.townTreeBulbInst = new THREE.InstancedMesh(bulbGeo, bulbMat, TOWN_TREE_BULB_COUNT);
+    for (let i = 0; i < TOWN_TREE_BULB_COUNT; i++) {
+      const f = i / TOWN_TREE_BULB_COUNT;
       const ang = i * 1.48;
       const y = 2.15 + f * 10.7;
       const rad = 3.88 * (1 - f * 0.82);
-      const bm = new THREE.MeshBasicMaterial({ color: palette[i % palette.length], toneMapped: false });
-      this.townTreeBulbs.push(bm);
-      const b = new THREE.Mesh(new THREE.SphereGeometry(i % 3 === 0 ? 0.22 : 0.16, 8, 8), bm);
-      b.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
-      this.townTreeGroup.add(b);
+      const sc = i % 3 === 0 ? 1.22 : 0.89;
+      _tmpBulbMat.makeScale(sc, sc, sc);
+      _tmpBulbMat.setPosition(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
+      this.townTreeBulbInst.setMatrixAt(i, _tmpBulbMat);
+      _tmpBulbCol.setRGB(1.0, 0.85, 0.45);
+      this.townTreeBulbInst.setColorAt(i, _tmpBulbCol);
     }
+    this.townTreeBulbInst.instanceMatrix.needsUpdate = true;
+    if (this.townTreeBulbInst.instanceColor) this.townTreeBulbInst.instanceColor.needsUpdate = true;
+    this.townTreeBulbInst.computeBoundingSphere();
+    this.townTreeGroup.add(this.townTreeBulbInst);
+
+    this.townTreeGroundGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(12.5, 12.5).rotateX(-Math.PI * 0.5),
+      new THREE.MeshBasicMaterial({
+        map: glowTex,
+        color: '#ffcf6b',
+        transparent: true,
+        opacity: 0.14,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    this.townTreeGroundGlow.position.y = 0.08;
+    this.townTreeGroup.add(this.townTreeGroundGlow);
 
     // Wrapped gift boxes around base skirt
     const giftColors = ['#e01b3a', '#1b7a52', '#2662c8', '#f2b830'];
@@ -414,7 +572,6 @@ export class MapLivingWorld {
       critter.group.visible = false;
       this.wildlifeGroup.add(critter.group);
       this.holidayPool.push(critter);
-      this.animals.push(critter);
     }
     const kinds: WildlifeKind[] = ['stag', 'fox', 'owl', 'rabbit', 'stag', 'fox'];
     for (let idx = 0; idx < kinds.length; idx++) {
@@ -425,7 +582,6 @@ export class MapLivingWorld {
       animal.group.visible = false;
       this.wildlifeGroup.add(animal.group);
       this.wildPool.push(animal);
-      this.animals.push(animal);
     }
   }
 
@@ -444,8 +600,8 @@ export class MapLivingWorld {
     this.wildlifePooled = false;
     this.holidayPool = [];
     this.wildPool = [];
-    this.animals = [];
     this.roamingCritters = [];
+    this.placedWild = [];
   }
 
   private rebuildForSnapshot(mapData: ChristmasMapData, road: OsmRoadRibbon | undefined, center: THREE.Vector3, heading: number): void {
@@ -456,6 +612,9 @@ export class MapLivingWorld {
     for (const h of this.holidayPool) h.group.visible = false;
     for (const w of this.wildPool) w.group.visible = false;
     this.roamingCritters = [];
+    this.placedWild = [];
+    this.moosePlaced = false;
+    this.mooseGroup.visible = false;
     this.townTreePlaced = false;
     this.townTreeGroup.visible = false;
     this.magicalSignPlaced = false;
@@ -504,17 +663,29 @@ export class MapLivingWorld {
 
     holidaySpots.forEach((spot, idx) => {
       const critter = this.holidayPool[idx];
+      const radius = 1.65 + (idx % 3) * 0.55;
+      const initAng = idx * 1.93;
+      const tx = spot.x + Math.cos(initAng) * radius * 0.7;
+      const tz = spot.z + Math.sin(initAng) * radius * 0.7;
       critter.group.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
-      critter.group.visible = true;
+      critter.group.rotation.y = initAng;
+      critter.group.visible = false;
       this.roamingCritters.push({
         id: `${critter.kind}-${idx}`,
         handle: critter,
         anchorX: spot.x,
         anchorZ: spot.z,
-        radius: 0.75 + (idx % 3) * 0.25,
-        speed: critter.kind === 'elf' ? 0.85 : 0.65,
+        x: spot.x,
+        z: spot.z,
+        targetX: tx,
+        targetZ: tz,
+        yaw: initAng,
+        radius,
+        speed: critter.kind === 'elf' ? 0.95 : 0.75,
         phase: idx * 1.37,
-        isRoamer: true,
+        state: idx % 2 === 0 ? 'wander' : 'pause',
+        stateTimer: 1.4 + (idx % 4) * 0.85,
+        wanderStep: idx + 1,
       });
     });
 
@@ -531,25 +702,32 @@ export class MapLivingWorld {
       }
     }
 
-    let moosePlaced = false;
     let wildIdx = 0;
     spots.slice(0, 7).forEach((spot, idx) => {
       const street = clearance?.nearestStreet(spot);
       const yaw = street ? Math.atan2(street.x - spot.x, street.z - spot.z) : 0;
-      if (!moosePlaced && idx === spots.length - 1 && (snap.biome === 'forest' || snap.biome === 'open')) {
-        moosePlaced = true;
+      if (!this.moosePlaced && idx === spots.length - 1 && (snap.biome === 'forest' || snap.biome === 'open')) {
+        this.moosePlaced = true;
+        this.mooseX = spot.x;
+        this.mooseZ = spot.z;
         this.mooseGroup.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
         this.mooseGroup.rotation.y = yaw + 0.35;
-        this.mooseGroup.visible = true;
+        this.mooseGroup.visible = false;
         return;
       }
       if (wildIdx >= this.wildPool.length) return;
       const animal = this.wildPool[wildIdx++];
       animal.group.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
       animal.group.rotation.y = yaw;
-      animal.group.visible = true;
+      animal.group.visible = false;
+      this.placedWild.push({
+        handle: animal,
+        x: spot.x,
+        z: spot.z,
+        baseYaw: yaw,
+        placed: true,
+      });
     });
-    if (!moosePlaced) this.mooseGroup.visible = false;
   }
 
   private tryPlaceAlongStreet(
@@ -680,7 +858,7 @@ export class MapLivingWorld {
     road: OsmRoadRibbon | undefined,
     center: THREE.Vector3,
     heading: number,
-    quality: GraphicsQuality,
+    _quality: GraphicsQuality,
     sleighAlert: number
   ): void {
     this.rebuildForSnapshot(mapData, road, center, heading);
@@ -710,24 +888,88 @@ export class MapLivingWorld {
       }
     }
 
-    // 2. Wildlife, Roaming Reindeer/Elves & Ornament Moose animations
-    for (const rc of this.roamingCritters) {
-      const a = time * rc.speed + rc.phase;
-      const nx = rc.anchorX + Math.cos(a) * rc.radius;
-      const nz = rc.anchorZ + Math.sin(a) * rc.radius;
-      rc.handle.group.position.set(nx, groundY(nx, nz), nz);
-      rc.handle.group.rotation.y = Math.atan2(-Math.sin(a), Math.cos(a));
-    }
-    for (const anim of this.animals) {
-      if (anim.group.visible) anim.update(dt, time, sleighAlert);
-    }
-    if (this.mooseGroup.visible) {
-      this.mooseHeadPivot.rotation.y = Math.sin(time * 1.1) * 0.35;
+    // 2. Wildlife, Natural Wandering Reindeer/Elves & Ornament Moose (distance & behind-camera culled)
+    for (let i = 0; i < this.roamingCritters.length; i++) {
+      const rc = this.roamingCritters[i];
+      const dx = rc.x - center.x;
+      const dz = rc.z - center.z;
+      const distSq = dx * dx + dz * dz;
+      const ahead = dx * east - dz * north;
+      const inView = distSq <= WILDLIFE_CULL_DIST_SQ && ahead >= WILDLIFE_CULL_BEHIND;
+      rc.handle.group.visible = inView;
+      if (!inView) continue;
+
+      const nearSleigh = distSq < 26 * 26;
+      if (nearSleigh) {
+        // Pause and turn curiously toward approaching sleigh!
+        const watchYaw = Math.atan2(center.x - rc.x, center.z - rc.z);
+        rc.yaw = dampAngle(rc.yaw, watchYaw, 4.5, dt);
+        rc.handle.group.position.set(rc.x, groundY(rc.x, rc.z), rc.z);
+        rc.handle.group.rotation.y = rc.yaw;
+        rc.handle.update(dt, time, Math.max(sleighAlert, 0.72));
+        continue;
+      }
+
+      rc.stateTimer -= dt;
+      if (rc.state === 'wander') {
+        const tx = rc.targetX - rc.x;
+        const tz = rc.targetZ - rc.z;
+        const distToTarget = Math.hypot(tx, tz);
+        if (distToTarget < 0.25 || rc.stateTimer <= 0) {
+          rc.state = 'pause';
+          rc.stateTimer = 1.8 + ((rc.wanderStep * 1.37 + rc.phase) % 2.6);
+        } else {
+          const step = Math.min(distToTarget, rc.speed * dt);
+          rc.x += (tx / distToTarget) * step;
+          rc.z += (tz / distToTarget) * step;
+          const moveYaw = Math.atan2(tx, tz);
+          rc.yaw = dampAngle(rc.yaw, moveYaw, 5.2, dt);
+        }
+      } else if (rc.stateTimer <= 0) {
+        rc.wanderStep += 1;
+        const nextAng = (rc.wanderStep * 2.39996 + rc.phase) % (Math.PI * 2);
+        const nextRad = (0.35 + ((rc.wanderStep * 0.43) % 0.65)) * rc.radius;
+        rc.targetX = rc.anchorX + Math.cos(nextAng) * nextRad;
+        rc.targetZ = rc.anchorZ + Math.sin(nextAng) * nextRad;
+        rc.state = 'wander';
+        rc.stateTimer = 2.6 + ((rc.wanderStep * 0.91) % 2.4);
+      }
+
+      rc.handle.group.position.set(rc.x, groundY(rc.x, rc.z), rc.z);
+      rc.handle.group.rotation.y = rc.yaw;
+      rc.handle.update(dt, time, rc.state === 'wander' ? Math.max(sleighAlert, 0.2) : sleighAlert * 0.35);
     }
 
-    // 3. Swooping White Snowy Owl
+    for (let i = 0; i < this.placedWild.length; i++) {
+      const pw = this.placedWild[i];
+      if (!pw.placed) continue;
+      const dx = pw.x - center.x;
+      const dz = pw.z - center.z;
+      const distSq = dx * dx + dz * dz;
+      const ahead = dx * east - dz * north;
+      const inView = distSq <= WILDLIFE_CULL_DIST_SQ && ahead >= WILDLIFE_CULL_BEHIND;
+      pw.handle.group.visible = inView;
+      if (!inView) continue;
+      if (distSq < 28 * 28) {
+        const lookYaw = Math.atan2(center.x - pw.x, center.z - pw.z);
+        pw.handle.group.rotation.y = dampAngle(pw.handle.group.rotation.y, lookYaw, 3.2, dt);
+      }
+      pw.handle.update(dt, time, distSq < 28 * 28 ? Math.max(sleighAlert, 0.68) : sleighAlert);
+    }
+
+    if (this.moosePlaced) {
+      const mdx = this.mooseX - center.x;
+      const mdz = this.mooseZ - center.z;
+      const mInView = mdx * mdx + mdz * mdz <= WILDLIFE_CULL_DIST_SQ && mdx * east - mdz * north >= WILDLIFE_CULL_BEHIND;
+      this.mooseGroup.visible = mInView;
+      if (mInView) {
+        this.mooseHeadPivot.rotation.y = Math.sin(time * 1.1) * 0.35;
+      }
+    }
+
+    // 3. Swooping White Snowy Owl (unconditionally enabled on all tiers!)
     this.owlCycleT = (this.owlCycleT + dt) % 18;
-    if (this.owlCycleT < 4.2 && quality === 'ultra' && osm.enabled) {
+    if (this.owlCycleT < 4.2 && osm.enabled) {
       const p = this.owlCycleT / 4.2;
       const ahead = THREE.MathUtils.lerp(28, 62, p);
       const lat = THREE.MathUtils.lerp(7.5, -16.5, p);
@@ -738,9 +980,13 @@ export class MapLivingWorld {
         center.z - north * ahead + east * lat
       );
       this.owlGroup.rotation.y = -heading + 0.72;
-      const flap = Math.sin(time * 15) * 0.65;
+      this.owlGroup.rotation.z = Math.sin(p * Math.PI) * 0.24;
+      const flap = Math.sin(time * 13) * 0.52;
+      const tipLag = Math.sin(time * 13 - 0.75) * 0.42;
       this.owlWingL.rotation.z = flap;
       this.owlWingR.rotation.z = -flap;
+      this.owlTipL.rotation.z = tipLag;
+      this.owlTipR.rotation.z = -tipLag;
     } else {
       this.owlGroup.visible = false;
     }
@@ -763,17 +1009,20 @@ export class MapLivingWorld {
       const targetLvl = this.townTreeLit ? 1.0 : 0.34;
       this.townTreeLitLevel += (targetLvl - this.townTreeLitLevel) * Math.min(1, dt * 6);
       const lvl = this.townTreeLitLevel;
-      this.townTreeBulbs.forEach((bm, idx) => {
+      for (let idx = 0; idx < TOWN_TREE_BULB_COUNT; idx++) {
         const tw = 0.72 + 0.28 * Math.sin(time * 5 + idx);
         const a = lvl * tw;
-        if (idx % 4 === 0) bm.color.setRGB(1.4 * a, 1.15 * a, 0.45 * a);
-        else if (idx % 4 === 1) bm.color.setRGB(1.4 * a, 0.2 * a, 0.28 * a);
-        else if (idx % 4 === 2) bm.color.setRGB(0.35 * a, 1.2 * a, 1.45 * a);
-        else bm.color.setRGB(1.4 * a, 1.3 * a, 0.85 * a);
-      });
+        if (idx % 4 === 0) _tmpBulbCol.setRGB(1.4 * a, 1.15 * a, 0.45 * a);
+        else if (idx % 4 === 1) _tmpBulbCol.setRGB(1.4 * a, 0.2 * a, 0.28 * a);
+        else if (idx % 4 === 2) _tmpBulbCol.setRGB(0.35 * a, 1.2 * a, 1.45 * a);
+        else _tmpBulbCol.setRGB(1.4 * a, 1.3 * a, 0.85 * a);
+        this.townTreeBulbInst.setColorAt(idx, _tmpBulbCol);
+      }
+      if (this.townTreeBulbInst.instanceColor) this.townTreeBulbInst.instanceColor.needsUpdate = true;
       this.townTreeStar.rotation.y = time * (this.townTreeLit ? 2.4 : 0.6);
       this.townTreeStar.scale.setScalar(0.85 + lvl * 0.55);
       this.townTreeHalo.material.opacity = 0.08 + lvl * 0.62;
+      (this.townTreeGroundGlow.material as THREE.MeshBasicMaterial).opacity = 0.12 + lvl * 0.58;
     }
 
     // 5. Interactive Crownable Snowmen
@@ -837,6 +1086,8 @@ export class MapLivingWorld {
 
   dispose(): void {
     this.clearWildlife();
+    const sharedGlowTex = getSoftGlowTexture();
+    this.townTreeBulbInst.dispose();
     this.group.traverse(obj => {
       const m = obj as THREE.Mesh;
       if (m.geometry && !m.geometry.userData?.shared) m.geometry.dispose();
@@ -844,8 +1095,8 @@ export class MapLivingWorld {
       const disposeMat = (x: THREE.Material) => {
         if (!x.userData?.shared) {
           const std = x as THREE.MeshStandardMaterial;
-          std.map?.dispose();
-          std.emissiveMap?.dispose();
+          if (std.map && std.map !== sharedGlowTex) std.map.dispose();
+          if (std.emissiveMap && std.emissiveMap !== sharedGlowTex) std.emissiveMap.dispose();
           x.dispose();
         }
       };
