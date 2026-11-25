@@ -515,6 +515,8 @@ let cachedClapboard: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } 
 let cachedPlasterBrick: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
 let cachedShingleRoof: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
 let cachedGigaWall: THREE.CanvasTexture | null = null;
+let cachedGigaAtrium: THREE.CanvasTexture | null = null;
+let cachedGigaSign: THREE.CanvasTexture | null = null;
 let cachedGigaSolarRoof: THREE.CanvasTexture | null = null;
 let cachedMarsTex: THREE.CanvasTexture | null = null;
 
@@ -692,7 +694,7 @@ export function createShingleRoofTextures(): { map: THREE.CanvasTexture; bumpMap
   return cachedShingleRoof;
 }
 
-/** Iconic Giga Texas / Giga Berlin exterior: architectural white metal cladding + horizontal curtain glass ribbons */
+/** Authentic Giga Texas exterior: clean minimalist windowless white precast concrete & vertical architectural panels */
 export function createGigafactoryWallTexture(): THREE.CanvasTexture {
   if (cachedGigaWall) return cachedGigaWall;
   const w = 512;
@@ -702,52 +704,164 @@ export function createGigafactoryWallTexture(): THREE.CanvasTexture {
   c.height = h;
   const ctx = c.getContext('2d')!;
 
-  const baseGrad = ctx.createLinearGradient(0, 0, 0, h);
-  baseGrad.addColorStop(0, '#eef3fa');
-  baseGrad.addColorStop(0.5, '#dde5f0');
-  baseGrad.addColorStop(1, '#c8d2e2');
-  ctx.fillStyle = baseGrad;
+  ctx.fillStyle = '#e7edf6';
   ctx.fillRect(0, 0, w, h);
 
-  ctx.strokeStyle = 'rgba(85, 102, 132, 0.28)';
-  ctx.lineWidth = 2;
-  for (let x = 0; x <= w; x += 32) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, h);
-    ctx.stroke();
-  }
-  for (let y = 0; y <= h; y += 32) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
+  // Subtle vertical precast architectural panels (seamless X and Y wrapping across terrain elevations)
+  const colW = 64;
+  for (let x = 0; x < w; x += colW) {
+    const shade = 228 + Math.round((pseudoRand(x * 0.37 + 3) - 0.5) * 14);
+    const pg = ctx.createLinearGradient(x, 0, x + colW, 0);
+    pg.addColorStop(0, `rgb(${shade + 8},${shade + 11},${shade + 15})`);
+    pg.addColorStop(0.08, `rgb(${shade},${shade + 4},${shade + 9})`);
+    pg.addColorStop(0.92, `rgb(${shade - 6},${shade - 2},${shade + 4})`);
+    pg.addColorStop(1, `rgb(${shade - 24},${shade - 19},${shade - 12})`);
+    ctx.fillStyle = pg;
+    ctx.fillRect(x, 0, colW, h);
+
+    // Crisp panel joint seam & inner flute highlight
+    ctx.fillStyle = 'rgba(72, 92, 122, 0.24)';
+    ctx.fillRect(x, 0, 2, h);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
+    ctx.fillRect(x + 2, 0, 2, h);
   }
 
-  for (const bandY of [48, 136]) {
-    const bandH = 44;
-    ctx.fillStyle = '#152236';
-    ctx.fillRect(0, bandY, w, bandH);
-    for (let x = 8; x < w; x += 32) {
-      const lit = pseudoRand(bandY * 3 + x) > 0.25;
-      const g = ctx.createLinearGradient(x, bandY + 4, x, bandY + bandH - 4);
-      g.addColorStop(0, lit ? 'rgba(255, 224, 152, 0.78)' : 'rgba(54, 92, 148, 0.45)');
-      g.addColorStop(1, lit ? 'rgba(240, 154, 72, 0.55)' : 'rgba(20, 38, 66, 0.8)');
-      ctx.fillStyle = g;
-      ctx.fillRect(x, bandY + 5, 22, bandH - 10);
-    }
-    ctx.fillStyle = '#f5f8fc';
-    ctx.fillRect(0, bandY - 3, w, 3);
-    ctx.fillRect(0, bandY + bandH, w, 3);
+  // Two delicate horizontal concrete reveal grooves
+  for (const ry of [0, 128]) {
+    ctx.fillStyle = 'rgba(76, 94, 124, 0.22)';
+    ctx.fillRect(0, ry, w, 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.fillRect(0, ry + 2, w, 2);
   }
 
-  ctx.fillStyle = '#c8102e';
-  ctx.fillRect(0, 14, w, 10);
+  // Subtle matte precast concrete micro-variation
+  for (let i = 0; i < 320; i++) {
+    const gx = pseudoRand(i * 5.7) * w;
+    const gy = pseudoRand(i * 9.3) * h;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(92,110,138,0.06)';
+    ctx.fillRect(gx, gy, 5, 3);
+  }
 
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   cachedGigaWall = tex;
+  return tex;
+}
+
+/** Giga Texas West Main Entrance smoked architectural curtain-wall atrium with subtle interior holiday lobby tree glow */
+export function createGigaAtriumGlassTexture(): THREE.CanvasTexture {
+  if (cachedGigaAtrium) return cachedGigaAtrium;
+  const w = 512;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const glassGrad = ctx.createLinearGradient(0, 0, 0, h);
+  glassGrad.addColorStop(0, '#0a1628');
+  glassGrad.addColorStop(0.45, '#132847');
+  glassGrad.addColorStop(1, '#091423');
+  ctx.fillStyle = glassGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle futuristic aurora / winter sky diagonal reflection across curtain glass
+  ctx.fillStyle = 'rgba(130, 198, 255, 0.11)';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.08, 0);
+  ctx.lineTo(w * 0.34, 0);
+  ctx.lineTo(w * 0.18, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(180, 232, 255, 0.08)';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.56, 0);
+  ctx.lineTo(w * 0.68, 0);
+  ctx.lineTo(w * 0.50, h);
+  ctx.lineTo(w * 0.38, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Warm understated showroom holiday tree silhouette & festive glow inside atrium floor
+  const lobbyGlow = ctx.createRadialGradient(w * 0.5, h * 0.82, 8, w * 0.5, h * 0.78, 128);
+  lobbyGlow.addColorStop(0, 'rgba(255, 224, 158, 0.42)');
+  lobbyGlow.addColorStop(0.55, 'rgba(227, 45, 72, 0.16)');
+  lobbyGlow.addColorStop(1, 'rgba(10, 22, 40, 0)');
+  ctx.fillStyle = lobbyGlow;
+  ctx.fillRect(w * 0.22, h * 0.28, w * 0.56, h * 0.72);
+
+  ctx.fillStyle = 'rgba(26, 76, 56, 0.45)';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.5, h * 0.42);
+  ctx.lineTo(w * 0.57, h * 0.94);
+  ctx.lineTo(w * 0.43, h * 0.94);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255, 226, 145, 0.65)';
+  for (let d = 0; d < 7; d++) {
+    ctx.beginPath();
+    ctx.arc(w * 0.5 + ((d % 3) - 1) * 14, h * (0.56 + d * 0.05), 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sleek dark anodized structural mullions (4 columns x 3 rows)
+  ctx.fillStyle = '#070c14';
+  const cols = 4;
+  const rows = 3;
+  for (let i = 0; i <= cols; i++) {
+    const mx = Math.round((i / cols) * (w - 6));
+    ctx.fillRect(mx, 0, 6, h);
+  }
+  for (let j = 0; j <= rows; j++) {
+    const my = Math.round((j / rows) * (h - 5));
+    ctx.fillRect(0, my, w, 5);
+  }
+  ctx.strokeStyle = 'rgba(170, 204, 240, 0.22)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, w - 4, h - 4);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGigaAtrium = tex;
+  return tex;
+}
+
+/** Clean architectural Giga Texas TESLA signage with Tesla crest & glowing red trim */
+export function createGigaSignTexture(): THREE.CanvasTexture {
+  if (cachedGigaSign) return cachedGigaSign;
+  const w = 512;
+  const h = 112;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#0c1320');
+  bg.addColorStop(1, '#182236');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(220, 232, 248, 0.45)';
+  ctx.fillRect(0, 0, w, 4);
+  ctx.fillStyle = '#e31937';
+  ctx.fillRect(0, h - 8, w, 8);
+
+  drawTeslaCrestPath(ctx, 74, 52, 34);
+
+  ctx.fillStyle = '#f6f9ff';
+  ctx.font = '700 48px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('T E S L A', w * 0.59, h * 0.49);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGigaSign = tex;
   return tex;
 }
 
@@ -761,26 +875,41 @@ export function createGigaSolarRoofTexture(): THREE.CanvasTexture {
   c.height = h;
   const ctx = c.getContext('2d')!;
 
-  ctx.fillStyle = '#e8f0fa';
+  // Clean winter white TPO roof perimeter
+  ctx.fillStyle = '#eef4fc';
   ctx.fillRect(0, 0, w, h);
 
   const stepX = 16;
   const stepY = 16;
-  for (let y = 14; y < h - 14; y += stepY) {
-    for (let x = 14; x < w - 14; x += stepX) {
-      ctx.fillStyle = ((x + y) / 16) % 2 === 0 ? '#142648' : '#192e56';
+  for (let y = 16; y < h - 16; y += stepY) {
+    for (let x = 16; x < w - 16; x += stepX) {
+      ctx.fillStyle = ((x + y) / 16) % 2 === 0 ? '#0f2042' : '#162d58';
       ctx.fillRect(x + 1, y + 1, stepX - 2, stepY - 2);
+      ctx.fillStyle = 'rgba(155, 202, 255, 0.14)';
+      ctx.fillRect(x + 2, y + 2, stepX - 4, 2);
     }
   }
 
+  // Crisp negative-space white TESLA cutout on roof solar array
   ctx.fillStyle = '#f7faff';
-  ctx.strokeStyle = '#c8102e';
-  ctx.lineWidth = 4;
+  ctx.fillRect(58, 72, w - 116, 112);
+  ctx.strokeStyle = '#d4deec';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(58, 72, w - 116, 112);
+
+  ctx.fillStyle = '#142648';
   ctx.font = '900 72px Inter, Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.strokeText('T E S L A', w * 0.5, h * 0.5);
-  ctx.fillText('T E S L A', w * 0.5, h * 0.5);
+  ctx.fillText('T E S L A', w * 0.5, h * 0.51);
+
+  // Subtle festive crimson & gold corner markers on the rooftop TPO border
+  for (const [cx, cy] of [[10, 10], [w - 18, 10], [10, h - 18], [w - 18, h - 18]]) {
+    ctx.fillStyle = '#d81834';
+    ctx.fillRect(cx, cy, 8, 8);
+    ctx.fillStyle = '#ffd166';
+    ctx.fillRect(cx + 2, cy + 2, 4, 4);
+  }
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;

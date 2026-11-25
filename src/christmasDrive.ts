@@ -12,7 +12,7 @@ import { AmbientTraffic } from './three/AmbientTraffic';
 import { ChristmasMap, updateChristmasMapAtmosphere } from './three/ChristmasMap';
 import { DriveFestivities } from './three/DriveFestivities';
 import { FsdHolidayPath } from './three/FsdHolidayPath';
-import { streetAtCar } from './three/mappedRoads';
+import { projectOntoRoad } from './three/mappedRoads';
 import { createBokehSnowField, createPixarSkyDome, getSoftGlowTexture } from './three/pixarMaterials';
 import { createPixarSantaSleigh } from './three/pixarModels';
 import { createPixarStageOrFallback } from './three/pixarRenderer';
@@ -84,7 +84,9 @@ if (!stage) {
   let wheelPhase = 0;
   let flightSpeed = 0;
   let hoverPhase = 0;
-  let sleighVehicleLift = 0;
+  let roadSnapBlend = 0;
+  let gpsLatBias = 0;
+  let steerLaneSway = 0;
   let liveState = live.getState();
   let activeFlights: LiveFlight[] = [];
   let demoPrevHeading = 0;
@@ -130,7 +132,7 @@ if (!stage) {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
 
-  const liveReliefGeo = new THREE.PlaneGeometry(640, 640, 112, 112).rotateX(-Math.PI / 2);
+  const liveReliefGeo = new THREE.PlaneGeometry(640, 640, 72, 72).rotateX(-Math.PI / 2);
   const liveRelief = new THREE.Mesh(liveReliefGeo, groundMaterial);
   liveRelief.receiveShadow = true;
   liveRelief.visible = false;
@@ -229,28 +231,29 @@ if (!stage) {
     const rightX = north;
     const rightZ = east;
     const aheadSlope = groundAt ? groundAt(avatar.position.x + 12 * east, avatar.position.z - 12 * north) - avatar.position.y : 0;
+    const sleighH = sleigh.group.visible ? sleigh.group.position.y : 0;
 
     if (cameraMode === 'map') {
-      desiredTarget.set(avatar.position.x + 10 * east, avatar.position.y + 8 + aheadSlope * 0.38, avatar.position.z - 10 * north);
+      desiredTarget.set(avatar.position.x + 10 * east, avatar.position.y + 8 + aheadSlope * 0.38 + sleighH * 0.25, avatar.position.z - 10 * north);
       cameraOffset.set(-45 * east, -0.6, 45 * north);
       return;
     }
 
     if (cameraMode === 'cinematic') {
       if (festivities.getStoppedSec() > 3.6) {
-        desiredTarget.set(avatar.position.x, avatar.position.y + 2.2, avatar.position.z);
-        cameraOffset.set(east * 8.2 + rightX * 3.8, 1.65, -north * 8.2 + rightZ * 3.8);
+        desiredTarget.set(avatar.position.x, avatar.position.y + 2.2 + sleighH * 0.4, avatar.position.z);
+        cameraOffset.set(east * 8.2 + rightX * 3.8, 1.65 + sleighH * 0.2, -north * 8.2 + rightZ * 3.8);
         return;
       }
       const shot = Math.floor(time / 9.0) % 3;
       if (shot === 1) {
-        desiredTarget.set(avatar.position.x + 14 * east, avatar.position.y + 2.4 + aheadSlope * 0.4, avatar.position.z - 14 * north);
-        cameraOffset.set(-22 * east - rightX * 6.5, 0.35, 22 * north - rightZ * 6.5);
+        desiredTarget.set(avatar.position.x + 14 * east, avatar.position.y + 2.4 + aheadSlope * 0.4 + sleighH * 0.35, avatar.position.z - 14 * north);
+        cameraOffset.set(-22 * east - rightX * 6.5, 0.35 + sleighH * 0.2, 22 * north - rightZ * 6.5);
         return;
       }
       if (shot === 2) {
-        desiredTarget.set(avatar.position.x + 16 * east, avatar.position.y + 2.2 + aheadSlope * 0.4, avatar.position.z - 16 * north);
-        cameraOffset.set(-40 * east + rightX * 10, 10.4, 40 * north + rightZ * 10);
+        desiredTarget.set(avatar.position.x + 16 * east, avatar.position.y + 2.2 + aheadSlope * 0.4 + sleighH * 0.35, avatar.position.z - 16 * north);
+        cameraOffset.set(-40 * east + rightX * 10, 10.4 + sleighH * 0.2, 40 * north + rightZ * 10);
         return;
       }
     }
@@ -261,12 +264,12 @@ if (!stage) {
     const totalSpan = targetAhead + camBack;
     desiredTarget.set(
       avatar.position.x + targetAhead * east,
-      avatar.position.y + 2.1 + aheadSlope * 0.45,
+      avatar.position.y + 2.1 + aheadSlope * 0.45 + sleighH * 0.42,
       avatar.position.z - targetAhead * north
     );
     cameraOffset.set(
       -totalSpan * east,
-      2.6 - flightFactor * 0.25 + aheadSlope * 0.25,
+      2.6 - flightFactor * 0.25 + aheadSlope * 0.25 + sleighH * 0.22,
       totalSpan * north
     );
   }
@@ -275,7 +278,9 @@ if (!stage) {
     hasPosition = false;
     priorMapOrigin = undefined;
     lastTerrainKey = '';
-    sleighVehicleLift = 0;
+    roadSnapBlend = 0;
+    gpsLatBias = 0;
+    steerLaneSway = 0;
     demoHasInit = false;
     avatar.position.set(0, 0, 0);
     avatar.rotation.set(0, 0, 0);
@@ -412,19 +417,31 @@ if (!stage) {
     };
   }
 
-  orbit.addEventListener('start', () => {
+  function detachFollow(): void {
+    if (!alignWithHeading) return;
     alignWithHeading = false;
     hud.setFollowActive(false);
-  });
+  }
 
   // Tap-to-Interact vs Tap Plane / Wish Star / Reindeer vs Drag-to-Orbit on the 3D canvas
   let tapDown: { id: number; x: number; y: number; time: number } | undefined;
+  const activePointers = new Map<number, { x: number; y: number }>();
   renderer.domElement.addEventListener('pointerdown', e => {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointers.size >= 2) detachFollow();
     if (e.isPrimary && e.button === 0) {
       tapDown = { id: e.pointerId, x: e.clientX, y: e.clientY, time: e.timeStamp };
     }
   });
+  renderer.domElement.addEventListener('pointermove', e => {
+    const down = activePointers.get(e.pointerId);
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 14) {
+      detachFollow();
+    }
+  });
+  renderer.domElement.addEventListener('wheel', () => detachFollow(), { passive: true });
   renderer.domElement.addEventListener('pointerup', e => {
+    activePointers.delete(e.pointerId);
     if (!tapDown || tapDown.id !== e.pointerId) return;
     const dist = Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y);
     const elapsed = e.timeStamp - tapDown.time;
@@ -464,7 +481,10 @@ if (!stage) {
       );
     }
   });
-  renderer.domElement.addEventListener('pointercancel', () => { tapDown = undefined; });
+  renderer.domElement.addEventListener('pointercancel', e => {
+    activePointers.delete(e.pointerId);
+    tapDown = undefined;
+  });
 
   window.addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -560,25 +580,91 @@ if (!stage) {
     const activeElevation = trial ? trialHeight : liveSampler;
     const elevVersion = trial ? -1 : liveElevation.getVersion();
 
-    const position = snapshot ? geoDeltaMeters(snapshot.originLat, snapshot.originLon, frame.latitude, frame.longitude) : { x: 0, z: 0 };
+    const rawPosition = snapshot
+      ? geoDeltaMeters(snapshot.originLat, snapshot.originLon, frame.latitude, frame.longitude)
+      : { x: 0, z: 0 };
+    const roadProj = snapshot && !trial ? projectOntoRoad(snapshot, rawPosition, frame.headingDeg) : undefined;
+    matchedRoad = roadProj?.road;
+
+    let position = rawPosition;
     const direction = (frame.headingDeg * Math.PI) / 180;
     const turn = Math.atan2(Math.sin(direction - heading), Math.cos(direction - heading));
     heading += turn * (hasPosition ? Math.min(1, dt * 5) : 1);
 
     map.group.visible = !!snapshot;
+    let originShifted = false;
     if (snapshot) {
       if (priorMapOrigin && (priorMapOrigin.lat !== snapshot.originLat || priorMapOrigin.lon !== snapshot.originLon)) {
+        originShifted = true;
         const shift = geoDeltaMeters(snapshot.originLat, snapshot.originLon, priorMapOrigin.lat, priorMapOrigin.lon);
         const offset = new THREE.Vector3(shift.x, 0, shift.z);
         avatar.position.add(offset);
         camera.position.add(offset);
         orbit.target.add(offset);
+        map.shiftActiveContent(offset);
         magic.shift(offset);
         festivities.shift(offset);
         lastTerrainKey = '';
       }
       priorMapOrigin = { lat: snapshot.originLat, lon: snapshot.originLon };
       map.update(snapshot, activeElevation, elevVersion);
+    }
+
+    if (roadProj) {
+      const targetLane = roadProj.road.widthM >= 5.2 ? Math.min(2.05, roadProj.road.widthM * 0.24) : 0;
+      const alignFactor = THREE.MathUtils.smoothstep(roadProj.alignment, 0.52, 0.84);
+      const distFactor = 1 - THREE.MathUtils.smoothstep(
+        roadProj.distance,
+        roadProj.road.widthM * 0.5 + 3.5,
+        roadProj.road.widthM * 0.5 + 11.0
+      );
+      const targetSnap = alignFactor * distFactor;
+      const latErr = roadProj.signedLateral - targetLane;
+
+      if (!hasPosition || originShifted) {
+        roadSnapBlend = targetSnap;
+        if (!demo && targetSnap > 0.5 && Math.abs(frame.turnRate) < 0.35) {
+          gpsLatBias = latErr;
+        }
+      } else {
+        roadSnapBlend = THREE.MathUtils.damp(roadSnapBlend, targetSnap, 4.2, dt);
+      }
+
+      let finalLat: number;
+      if (demo) {
+        steerLaneSway = THREE.MathUtils.damp(
+          steerLaneSway,
+          THREE.MathUtils.clamp(frame.turnRate * 0.42, -0.5, 0.5),
+          6.5,
+          dt
+        );
+        const demoMaxLat = Math.max(0.4, roadProj.road.widthM * 0.36);
+        finalLat = THREE.MathUtils.clamp(targetLane + steerLaneSway, -demoMaxLat, demoMaxLat);
+      } else {
+        if (targetSnap > 0.5 && Math.abs(frame.turnRate) < 0.25) {
+          gpsLatBias = THREE.MathUtils.damp(gpsLatBias, latErr, 0.55, dt);
+        } else {
+          gpsLatBias = THREE.MathUtils.damp(gpsLatBias, 0, 2.2, dt);
+        }
+        const fastLat = THREE.MathUtils.clamp(latErr - gpsLatBias, -1.1, 1.1);
+        steerLaneSway = THREE.MathUtils.damp(
+          steerLaneSway,
+          THREE.MathUtils.clamp(frame.turnRate * 0.62, -0.72, 0.72),
+          6.5,
+          dt
+        );
+        const maxSafeLat = Math.max(0.4, roadProj.road.widthM * 0.5 - 0.95);
+        finalLat = THREE.MathUtils.clamp(targetLane + fastLat * 0.65 + steerLaneSway, -maxSafeLat, maxSafeLat);
+      }
+
+      const snapX = roadProj.centerX + roadProj.rightX * finalLat;
+      const snapZ = roadProj.centerZ + roadProj.rightZ * finalLat;
+      position = {
+        x: THREE.MathUtils.lerp(rawPosition.x, snapX, roadSnapBlend),
+        z: THREE.MathUtils.lerp(rawPosition.z, snapZ, roadSnapBlend),
+      };
+    } else {
+      roadSnapBlend = THREE.MathUtils.damp(roadSnapBlend, 0, 4.2, dt);
     }
 
     avatar.visible = hasActiveWorld;
@@ -620,6 +706,7 @@ if (!stage) {
     );
 
     const beat = festivities.getBeatEnergy();
+    const lightShow = festivities.getLightShowIntensity();
     stage!.setQuality(env.quality);
     stage!.setAtmosphere(env.daylightFactor, env.blueHourFactor, env.fogColor);
     warm.intensity = 1.12 + env.daylightFactor * 0.45 + env.blueHourFactor * 0.14;
@@ -631,37 +718,19 @@ if (!stage) {
     const flying = sleigh.group.visible;
     if (flying) {
       hoverPhase += dt * (1.25 + 0.65 * lift);
-      const cruiseAlt = THREE.MathUtils.smoothstep(flightSpeed, 22, 92);
-      const baseSleighY = 0.28 + 1.35 * cruiseAlt + Math.sin(hoverPhase) * (0.09 - 0.04 * lift);
-      let needLift = 0;
-      for (const b of ambientTraffic.getVehicleBounds()) {
-        if (Math.hypot(b.x - avatar.position.x, b.z - avatar.position.z) < b.radius + 2.6) {
-          needLift = Math.max(needLift, b.height + 1.15 - baseSleighY);
-        }
-      }
-      for (const c of festivities.convoyPositions) {
-        if (Math.hypot(c.x - avatar.position.x, c.z - avatar.position.z) < 6.8 + 2.6) {
-          needLift = Math.max(needLift, 3.3 + 1.15 - baseSleighY);
-        }
-      }
-      sleighVehicleLift = THREE.MathUtils.damp(
-        sleighVehicleLift,
-        needLift,
-        needLift > sleighVehicleLift ? 7.5 : 3.2,
-        dt
-      );
-      sleigh.group.position.y = baseSleighY + sleighVehicleLift;
+      const cruiseAlt = THREE.MathUtils.smoothstep(flightSpeed, 8, 82);
+      const baseSleighY = 0.85 + 3.0 * cruiseAlt + Math.sin(hoverPhase) * (0.10 - 0.04 * lift);
+      sleigh.group.position.y = baseSleighY;
       const pitch = THREE.MathUtils.clamp((airspeed - flightSpeed) * 0.009, -0.075, 0.075);
       sleigh.group.rotation.x = THREE.MathUtils.damp(sleigh.group.rotation.x, pitch, 3.5, dt);
       sleigh.update(dt, flightSpeed, frame.turnRate, frame.acceleration, time);
     }
-    shadow.scale.setScalar(flying ? 1.06 + 0.18 * lift : 1);
-    shadow.material.opacity = flying ? 0.47 - 0.12 * lift : 0.52;
+    shadow.scale.setScalar(flying ? 1.08 + 0.28 * lift : 1);
+    shadow.material.opacity = flying ? 0.44 - 0.16 * lift : 0.52;
     wheelPhase += frame.speedKmh * dt;
     if (semi.group.visible) semi.update(dt, wheelPhase, frame.isBraking, beat * 0.65, time);
     if (truck.group.visible) truck.update(wheelPhase, time);
 
-    matchedRoad = snapshot ? streetAtCar(snapshot, frame) : undefined;
     fsdPath.update(
       dt,
       time,
@@ -671,9 +740,10 @@ if (!stage) {
       avatar.position,
       heading,
       hasActiveWorld && !trial,
-      activeElevation
+      activeElevation,
+      lightShow
     );
-    vehicleLighting.update(time, frame, env, hasActiveWorld, flying ? sleigh.group.position.y : 0);
+    vehicleLighting.update(time, frame, env, hasActiveWorld, flying ? sleigh.group.position.y : 0, lightShow);
     if (snapshot) {
       ambientTraffic.update(
         dt,
@@ -755,14 +825,14 @@ if (!stage) {
     const headlightFactor = Math.max(0.08, 1 - env.daylightFactor * 0.85);
     const brakeFactor = frame.isBraking ? 1 : frame.speedKmh < 2.2 ? 0.55 : 0;
     updateWinterGround(groundMaterial, time, env.daylightFactor, avatar.position, heading, headlightFactor, env.theme);
-    updateChristmasMapAtmosphere(time, env.daylightFactor, avatar.position, heading, brakeFactor, headlightFactor, env.theme, beat);
+    updateChristmasMapAtmosphere(time, env.daylightFactor, avatar.position, heading, brakeFactor, headlightFactor, env.theme, beat, lightShow);
     map.animate(time, avatar.position);
     warm.target.position.copy(orbit.target);
     warm.position.copy(warm.target.position).add(shadowOffset);
 
     sky.mesh.position.copy(camera.position);
     sky.material.uniforms.uTime.value = time;
-    applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor);
+    applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor, lightShow);
 
     horizon.group.position.set(camera.position.x, trial ? terrainFloor : 0, camera.position.z);
     horizon.update(time, env);

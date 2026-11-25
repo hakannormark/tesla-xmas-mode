@@ -266,7 +266,8 @@ export class AmbientTraffic {
 
   private drivableRoads: DrivableRoad[] = [];
   private endpointLinks = new Map<string, Array<{ roadIdx: number; atEnd: boolean }>>();
-  private builtKey?: string;
+  private builtSnapshotVersion?: number;
+  private builtElevVersion?: number;
   private enabled = true;
 
   // Shared lightweight geometries & materials for festive gift sleighs, walkers, beams & AO shadows
@@ -748,7 +749,7 @@ export class AmbientTraffic {
       for (const f of candidateFracs) {
         const testDist = THREE.MathUtils.clamp(dr.totalLen * f, 4, Math.max(5, dr.totalLen - 4));
         const sample = sampleRoad(dr, testDist);
-        const vergeOffset = dr.road.widthM * 0.5 + 1.5;
+        const vergeOffset = dr.road.widthM * 0.5 + 1.95;
         const pt = {
           x: sample.x + sample.nx * walker.side * vergeOffset,
           z: sample.z + sample.nz * walker.side * vergeOffset,
@@ -776,10 +777,16 @@ export class AmbientTraffic {
     convoyPositions: ReadonlyArray<{ x: number; y: number; z: number; heading: number }> = [],
     sleighAlert = 0,
   ): void {
-    const nextKey = `${snapshot.version}:${groundAt ? elevationVersion : 'flat'}`;
-    if (this.builtKey !== nextKey) {
-      this.builtKey = nextKey;
+    const resolvedElev = groundAt ? elevationVersion : -1;
+    if (this.builtSnapshotVersion !== snapshot.version) {
+      this.builtSnapshotVersion = snapshot.version;
+      this.builtElevVersion = resolvedElev;
       this.rebuild(snapshot, mapData, playerPos, playerHeading, groundAt);
+    } else if (this.builtElevVersion !== resolvedElev) {
+      this.builtElevVersion = resolvedElev;
+      for (const parked of this.parkedLayer.children) {
+        parked.position.y = groundAt?.(parked.position.x, parked.position.z) ?? 0;
+      }
     }
     if (!this.enabled || !this.drivableRoads.length) return;
 
@@ -1008,7 +1015,7 @@ export class AmbientTraffic {
       const dr = this.drivableRoads[walker.roadIdx];
       if (!dr) continue;
       const cur = sampleRoad(dr, walker.dist);
-      const vergeOffset = dr.road.widthM * 0.5 + 1.5;
+      const vergeOffset = dr.road.widthM * 0.5 + 1.95;
       const wx = cur.x + cur.nx * walker.side * vergeOffset;
       const wz = cur.z + cur.nz * walker.side * vergeOffset;
       const dPlayer = Math.hypot(wx - playerPos.x, wz - playerPos.z);

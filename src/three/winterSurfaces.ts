@@ -313,7 +313,8 @@ export function applyChristmasSkyEnv(
   env: EnvironmentState,
   live: LiveWorldState,
   beat: number,
-  flightFactor: number
+  flightFactor: number,
+  lightShow = 0
 ): void {
   const u = material.uniforms;
   u.uThemeMode.value = env.theme === 'cyber2099' ? 2.0 : env.theme === 'nordic' ? 1.0 : 0.0;
@@ -329,7 +330,8 @@ export function applyChristmasSkyEnv(
   u.uAuroraBoost.value =
     THREE.MathUtils.clamp(live.auroraLiveBoost, 0.9, 1.7) * 1.12 +
     beat * 0.45 +
-    flightFactor * 0.55;
+    flightFactor * 0.55 +
+    lightShow * 1.6;
   u.uTopColor.value.set(env.skyTopColor);
   u.uMidColor.value.set(env.skyMidColor);
   workSkyColor.set(env.skyHorizonColor);

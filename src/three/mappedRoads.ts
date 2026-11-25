@@ -90,14 +90,14 @@ export function streetGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,z:
       if (!i) return [b];
       const a = vertices[i-1];
       const near = elevation || junctions?.has(pointKey(a)) || junctions?.has(pointKey(b));
-      const steps = !near ? 1 : Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/2.5);
+      const steps = !near ? 1 : Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)/5.0);
       return Array.from({length:steps},(_,j) => {
         const t = (j+1)/steps;
         return {x:THREE.MathUtils.lerp(a.x,b.x,t),z:THREE.MathUtils.lerp(a.z,b.z,t)};
       });
     }) : vertices;
     let traveled = 0;
-    const across = elevation ? 4 : 1;
+    const across = elevation ? 2 : 1;
     const stride = across+1;
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
@@ -152,7 +152,7 @@ export function snowbankGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,
     const points = vertices.flatMap((b, i) => {
       if (!i) return [b];
       const a = vertices[i - 1];
-      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2.5));
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 5.0));
       return Array.from({ length: steps }, (_, j) => {
         const t = (j + 1) / steps;
         return { x: THREE.MathUtils.lerp(a.x, b.x, t), z: THREE.MathUtils.lerp(a.z, b.z, t) };
@@ -229,11 +229,29 @@ export function snowbankGeometry(roads: OsmRoadRibbon[], elevation?: (x: number,
   return geometry;
 }
 
-export function streetAtCar(snapshot: OsmMapSnapshot, car: TelemetryFrame): OsmRoadRibbon | undefined {
-  const pos = geoDeltaMeters(snapshot.originLat, snapshot.originLon, car.latitude, car.longitude);
-  const angle = car.headingDeg * Math.PI / 180;
+export interface RoadProjection {
+  road: OsmRoadRibbon;
+  centerX: number;
+  centerZ: number;
+  tx: number;
+  tz: number;
+  rightX: number;
+  rightZ: number;
+  distance: number;
+  signedLateral: number;
+  alignment: number;
+}
+
+export function projectOntoRoad(
+  snapshot: OsmMapSnapshot,
+  pos: { x: number; z: number },
+  headingDeg: number
+): RoadProjection | undefined {
+  const angle = (headingDeg * Math.PI) / 180;
+  const carFwdX = Math.sin(angle);
+  const carFwdZ = -Math.cos(angle);
   let bestScore = Infinity;
-  let match: OsmRoadRibbon | undefined;
+  let match: RoadProjection | undefined;
   for (const road of snapshot.roads) {
     for (let i = 1; i < road.points.length; i++) {
       const a = road.points[i - 1], b = road.points[i];
@@ -241,14 +259,33 @@ export function streetAtCar(snapshot: OsmMapSnapshot, car: TelemetryFrame): OsmR
       const length = Math.hypot(dx, dz);
       if (!length) continue;
       const t = THREE.MathUtils.clamp(((pos.x - a.x) * dx + (pos.z - a.z) * dz) / (length * length), 0, 1);
-      const distance = Math.hypot(a.x + t * dx - pos.x, a.z + t * dz - pos.z);
-      if (distance > road.widthM / 2 + 12) continue;
-      const alignment = Math.abs((dx * Math.sin(angle) - dz * Math.cos(angle)) / length);
-      const score = distance + (1 - alignment) * 5;
-      if (score < bestScore) { bestScore = score; match = road; }
+      const cx = a.x + t * dx;
+      const cz = a.z + t * dz;
+      const distance = Math.hypot(cx - pos.x, cz - pos.z);
+      if (distance > road.widthM * 0.5 + 11.5) continue;
+      const segTx = dx / length;
+      const segTz = dz / length;
+      const rawDot = segTx * carFwdX + segTz * carFwdZ;
+      const alignment = Math.abs(rawDot);
+      const score = distance + (1 - alignment) * 6.5;
+      if (score < bestScore) {
+        bestScore = score;
+        const sign = rawDot >= 0 ? 1 : -1;
+        const tx = segTx * sign;
+        const tz = segTz * sign;
+        const rightX = -tz;
+        const rightZ = tx;
+        const signedLateral = (pos.x - cx) * rightX + (pos.z - cz) * rightZ;
+        match = { road, centerX: cx, centerZ: cz, tx, tz, rightX, rightZ, distance, signedLateral, alignment };
+      }
     }
   }
   return match;
+}
+
+export function streetAtCar(snapshot: OsmMapSnapshot, car: TelemetryFrame): OsmRoadRibbon | undefined {
+  const pos = geoDeltaMeters(snapshot.originLat, snapshot.originLon, car.latitude, car.longitude);
+  return projectOntoRoad(snapshot, pos, car.headingDeg)?.road;
 }
 
 // Project onto the current OSM way and walk its actual vertices, without extrapolating past its ends.

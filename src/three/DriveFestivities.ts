@@ -133,6 +133,7 @@ export class DriveFestivities {
   private comboTimer = 0;
   private convoyTime = 0;
   private hornFlashTimer = 0;
+  private lightShowTimer = 0;
   private hoHoBannerUntil = 0;
   private sleighAlert = 0;
   private elonCycleIdx = 0;
@@ -506,17 +507,9 @@ export class DriveFestivities {
     this.announce(i18n.t().convoyHornToast, 4.5);
   }
 
-  triggerHoHoHo(): void {
-    this.sleighAlert = 1.0;
-    this.hoHoBannerUntil = this.time + 2.6;
-    this.sleigh.triggerReaction('hohoho');
-    this.audio.playHoHoHo();
-    this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
-    this.sky.triggerCelebrationFireworks(4.2, this.time);
-    this.announce('🎅 HO! HO! HO! · GOD JUL!', 3.6);
-
+  private spawnRingBurst(ringColors: string[], speedScale = 1): void {
     const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
-    const ringColors = ['#ffe37a', '#ff3b5c', '#6ff0ff'];
+    const sleighY = this.sleigh.group.visible ? this.sleigh.group.position.y * 0.45 : 0;
     ringColors.forEach((col, idx) => {
       const mat = new THREE.MeshBasicMaterial({
         color: col,
@@ -528,7 +521,7 @@ export class DriveFestivities {
       const mesh = new THREE.Mesh(this.ringGeo, mat);
       mesh.position.set(
         this.lastCenter.x + east * (3.5 + idx * 1.4),
-        this.lastCenter.y + 2.0 + (this.sleigh.group.visible ? this.sleigh.group.position.y * 0.45 : 0),
+        this.lastCenter.y + 2.0 + sleighY,
         this.lastCenter.z - north * (3.5 + idx * 1.4)
       );
       mesh.rotation.y = -this.lastHeading;
@@ -538,7 +531,7 @@ export class DriveFestivities {
         mesh,
         mat,
         age: idx * 0.14,
-        velocity: new THREE.Vector3(east * (11 + idx * 3), 0.6, -north * (11 + idx * 3)),
+        velocity: new THREE.Vector3(east * (11 + idx * 3) * speedScale, 0.6, -north * (11 + idx * 3) * speedScale),
       });
     });
 
@@ -551,12 +544,23 @@ export class DriveFestivities {
       this.burstPos[i * 3 + 2] = bz;
       const theta = Math.random() * Math.PI * 2;
       const phi = (Math.random() - 0.25) * Math.PI * 0.9;
-      const spd = 6.5 + Math.random() * 14.0;
+      const spd = (6.5 + Math.random() * 14.0) * speedScale;
       this.burstVel[i * 3] = Math.cos(theta) * Math.cos(phi) * spd + east * 4.5;
       this.burstVel[i * 3 + 1] = Math.sin(phi) * spd + 4.0;
       this.burstVel[i * 3 + 2] = Math.sin(theta) * Math.cos(phi) * spd - north * 4.5;
       this.burstLife[i] = 1.15;
     }
+  }
+
+  triggerHoHoHo(): void {
+    this.sleighAlert = 1.0;
+    this.hoHoBannerUntil = this.time + 2.6;
+    this.sleigh.triggerReaction('hohoho');
+    this.audio.playHoHoHo();
+    this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
+    this.sky.triggerCelebrationFireworks(4.2, this.time);
+    this.announce('🎅 HO! HO! HO! · GOD JUL!', 3.6);
+    this.spawnRingBurst(['#ffe37a', '#ff3b5c', '#6ff0ff']);
   }
 
   triggerSnowball(normX = 0.5): void {
@@ -651,10 +655,20 @@ export class DriveFestivities {
     this.checkMilestoneFireworks();
   }
 
+  getLightShowIntensity(): number {
+    return this.lightShowTimer > 0 ? Math.min(1, this.lightShowTimer / 1.2) : 0;
+  }
+
   requestLightWave(): void {
-    this.requestedLightWave = true;
-    this.sleighAlert = 0.85;
+    this.lightShowTimer = 6.5;
+    this.hornFlashTimer = 6.5;
+    this.sleighAlert = 1.0;
+    this.sleigh.triggerReaction('hohoho');
+    this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
+    this.sky.triggerCelebrationFireworks(5.8, this.time);
     this.audio.playLightWaveChime();
+    this.spawnRingBurst(['#ffd866', '#ff2e55', '#55f0ff'], 1.12);
+    this.announce('✨ Tesla Jul-Ljusshow!', 4.8);
   }
 
   interact(normX = 0.5, _normY = 0.45): void {
@@ -785,6 +799,7 @@ export class DriveFestivities {
     this.lastCenter.copy(center);
     this.sleighAlert = Math.max(0, this.sleighAlert - dt * 0.55);
     this.hornFlashTimer = Math.max(0, this.hornFlashTimer - dt);
+    this.lightShowTimer = Math.max(0, this.lightShowTimer - dt);
     this.plowCooldown = Math.max(0, this.plowCooldown - dt);
 
     if (this.comboTimer > 0) {
@@ -828,11 +843,9 @@ export class DriveFestivities {
       this.nextLightWaveMeters -= traveled;
     }
     if (this.requestedLightWave || (this.automatic && this.nextLightWaveMeters <= 0 && frame.isMoving)) {
-      const manual = this.requestedLightWave;
       this.requestedLightWave = false;
       const started = this.map.villageLights.startWave(time, center, heading);
       this.nextLightWaveMeters = started ? 92 : 24;
-      if (manual) this.announce(started ? '✨ Julens ljusvåg' : 'Inga jullyktor i närheten');
     }
     if (this.automatic && this.nextMagicMeters <= 0 && frame.isMoving && !this.director.getActiveEvent() && this.convoyTime <= 0) {
       this.nextMagicMeters = 165;

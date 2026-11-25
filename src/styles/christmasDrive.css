@@ -34,17 +34,11 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
 .drive-header {
   inset: 0.85rem 1rem auto;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 0.6rem;
   pointer-events: none;
 }
-.drive-brand {
-  font: 700 clamp(1.05rem, 2.4vw, 1.45rem) Cinzel, Georgia, serif;
-  letter-spacing: 0.04em;
-  text-shadow: 0 2px 12px rgba(6, 12, 28, 0.85);
-}
-.drive-brand span { color: var(--gold); }
 .drive-actions {
   display: flex;
   gap: 0.45rem;
@@ -73,19 +67,17 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   background: rgba(34, 54, 86, 0.84);
   color: #ffe9be;
 }
-[data-follow][aria-pressed="true"] {
-  opacity: 0.78;
-}
-[data-follow][aria-pressed="false"] {
+.follow-recenter-pill {
   border-color: var(--gold);
-  background: rgba(112, 62, 24, 0.82);
-  color: #fff2cc;
+  background: rgba(112, 62, 24, 0.88);
+  color: #fff3cf;
+  box-shadow: 0 0 18px rgba(240, 203, 138, 0.38);
 }
 
 /* Street Board */
 .street-board {
   left: 1rem;
-  top: 4.1rem;
+  top: 0.85rem;
   width: fit-content;
   max-width: min(82vw, 33rem);
   background: var(--glass-bg);

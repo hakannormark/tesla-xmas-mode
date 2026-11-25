@@ -609,7 +609,7 @@ async function streetElements(
         osmCtrl.abort();
         return els;
       }),
-      fetchOsmMapJson(lat, lon, 450, AbortSignal.any([signal, osmCtrl.signal])).then(els => {
+      fetchOsmMapJson(lat, lon, 440, AbortSignal.any([signal, osmCtrl.signal])).then(els => {
         overpassCtrl.abort();
         return els;
       }),
@@ -644,6 +644,8 @@ export class OsmWorldDirector {
   private lastFetchLon = 0;
   private retryMap = false;
   private inflightAbort: AbortController | null = null;
+  private pendingCacheTimer?: number;
+  private pendingCacheIdle?: number;
   private placeListeners = new Set<(state: OsmWorldState) => void>();
 
   constructor(liveOnly = false) {
@@ -728,11 +730,14 @@ export class OsmWorldDirector {
       const now = Date.now();
       const movedM =
         this.lastFetchMs === 0 ? 9999 : haversineMeters(this.lastFetchLat, this.lastFetchLon, lat, lon);
+      const distFromOrigin = this.isLiveOsm
+        ? haversineMeters(this.snapshot.originLat, this.snapshot.originLon, lat, lon)
+        : 9999;
 
       if (
         !this.inflightAbort &&
         (this.lastFetchMs === 0 ||
-          (now - this.lastFetchMs >= 4000 && movedM >= 145) ||
+          (now - this.lastFetchMs >= 8000 && (distFromOrigin >= 210 || movedM >= 260)) ||
           (now - this.lastFetchMs >= 18000 && (!this.isLiveOsm || this.retryMap)))
       ) {
         this.lastFetchMs = now;
@@ -788,14 +793,41 @@ export class OsmWorldDirector {
   }
 
   private saveToCache(entry: CachedOsmEntry): void {
-    try {
-      const raw = localStorage.getItem(OSM_CACHE_KEY);
-      const list: CachedOsmEntry[] = raw ? JSON.parse(raw) : [];
-      const filtered = Array.isArray(list) ? list.filter(item => item.cellKey !== entry.cellKey) : [];
-      filtered.unshift(entry);
-      localStorage.setItem(OSM_CACHE_KEY, JSON.stringify(filtered.slice(0, 4)));
-    } catch {
-      // Ignore quota / privacy storage failures
+    if (this.pendingCacheTimer !== undefined) {
+      window.clearTimeout(this.pendingCacheTimer);
+      this.pendingCacheTimer = undefined;
+    }
+    if (this.pendingCacheIdle !== undefined && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(this.pendingCacheIdle);
+      this.pendingCacheIdle = undefined;
+    }
+
+    const writeCompact = () => {
+      this.pendingCacheTimer = undefined;
+      this.pendingCacheIdle = undefined;
+      try {
+        const snap = entry.snapshot;
+        const maxBSq = 360 * 360;
+        const maxRSq = 420 * 420;
+        const compactEntry: CachedOsmEntry = {
+          ...entry,
+          snapshot: {
+            ...snap,
+            buildings: snap.buildings.filter(b => b.centerX * b.centerX + b.centerZ * b.centerZ <= maxBSq).slice(0, 140),
+            roads: snap.roads.filter(r => r.points.some(p => p.x * p.x + p.z * p.z <= maxRSq)),
+            trees: snap.trees ? snap.trees.slice(0, 60) : undefined,
+          },
+        };
+        localStorage.setItem(OSM_CACHE_KEY, JSON.stringify([compactEntry]));
+      } catch {
+        // Ignore quota / privacy storage failures
+      }
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+      this.pendingCacheIdle = window.requestIdleCallback(writeCompact, { timeout: 1500 });
+    } else {
+      this.pendingCacheTimer = window.setTimeout(writeCompact, 800);
     }
   }
 
@@ -807,7 +839,7 @@ export class OsmWorldDirector {
 
     try {
       // Bias chunk center forward along heading so upcoming roads & buildings pre-load far ahead
-      const lookaheadM = Math.max(0, Math.min(155, speedKmh * 3.0));
+      const lookaheadM = Math.max(0, Math.min(170, speedKmh * 3.2));
       const hRad = (headingDeg * Math.PI) / 180;
       const cosLat = Math.max(0.05, Math.cos((lat * Math.PI) / 180));
       const fetchLat = lat + (Math.cos(hRad) * lookaheadM) / 110540;
@@ -833,9 +865,9 @@ export class OsmWorldDirector {
         })
         .catch(() => {});
 
-      // Fast global bounding-box Overpass query covering ±580m (~1.16 x 1.16 km)
-      const radLat = 580 / 110540;
-      const radLon = 580 / (111320 * cosLat);
+      // Fast global bounding-box Overpass query covering +-520m ahead-biased window
+      const radLat = 520 / 110540;
+      const radLon = 520 / (111320 * cosLat);
       const bS = (fetchLat - radLat).toFixed(5);
       const bN = (fetchLat + radLat).toFixed(5);
       const bW = (fetchLon - radLon).toFixed(5);
@@ -1046,7 +1078,7 @@ export class OsmWorldDirector {
         biome: nextBiome,
         originLat,
         originLon,
-        buildings: buildings.slice(0, 360),
+        buildings: buildings.slice(0, 220),
         trees,
         woodland,
         streetLamps: streetLamps.slice(0, 120),

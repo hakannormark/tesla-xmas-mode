@@ -91,10 +91,10 @@ export class VillageLights {
       const flare = waveIndex >= 0 && local >= 0 && local < 2 ? Math.sin(local*Math.PI/2) : 0;
       const flicker = Math.sin(time*5+i)*0.07+Math.sin(time*11+i*4)*0.045;
       light.position.copy(anchor);
-      light.intensity = 10+flare*13+flicker*10;
+      light.intensity = 10 + flare * 20 + flicker * 10;
       halo.position.copy(anchor);
-      halo.scale.setScalar(1.85+flare*0.9);
-      halo.material.opacity = 0.42+flare*0.29+flicker;
+      halo.scale.setScalar(1.9 + flare * 2.3);
+      halo.material.opacity = Math.min(1, 0.45 + flare * 0.52 + flicker);
     }
     for (const [i,spark] of this.sparks.entries()) {
       const anchor = this.wave[Math.floor(i/2)];
@@ -102,15 +102,15 @@ export class VillageLights {
       spark.visible = !!anchor && phase >= 0 && phase < 1;
       if (!spark.visible) continue;
       const angle = i*2.4+phase*4;
-      const radius = 0.2+phase*1.8;
+      const radius = 0.2+phase*2.6;
       spark.position.copy(anchor);
       spark.position.x += Math.cos(angle)*radius;
       spark.position.z += Math.sin(angle)*radius;
-      spark.position.y += 0.4+phase*4.8;
+      spark.position.y += 0.5 + phase * 8.5;
       const glow = Math.sin(Math.PI*phase);
-      spark.scale.setScalar((0.65+i%3*0.23)+glow*0.50);
+      spark.scale.setScalar((1.0 + i % 3 * 0.25) + glow * 1.1);
       spark.material.rotation = phase*0.8+i;
-      spark.material.opacity = glow*0.88;
+      spark.material.opacity = glow*0.95;
     }
   }
 }

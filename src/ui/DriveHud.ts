@@ -89,10 +89,9 @@ export class DriveHud {
       <main class="drive-world" aria-label="Interaktiv julvärld"></main>
 
       <header class="drive-header">
-        <div class="drive-brand"><span aria-hidden="true">✦</span> Vintervärlden</div>
         <div class="drive-actions">
           <button type="button" class="glass-pill" data-camera-btn title="Växla kamera (C)">✦ FSD Vy</button>
-          <button type="button" class="glass-pill" data-follow aria-pressed="true">◎ Följ</button>
+          <button type="button" class="glass-pill follow-recenter-pill" data-follow hidden>◎ Följ släden</button>
           <button type="button" class="glass-pill" data-sound-quick aria-pressed="false" title="Ljud på/av">🔇</button>
           <button type="button" class="glass-pill" data-drawer-toggle aria-expanded="false" aria-label="Inställningar">⚙</button>
         </div>
@@ -361,7 +360,14 @@ export class DriveHud {
       this.festivities.triggerHoHoHo();
       this.hohoBannerEl.hidden = false;
     };
-    q('[data-light-wave]').onclick = () => this.festivities.requestLightWave();
+    q('[data-light-wave]').onclick = () => {
+      this.festivities.audio.unlock();
+      if (this.festivities.audio.getMixMode() === 'muted') {
+        this.festivities.audio.setMixMode('sfx');
+        this.syncSettings();
+      }
+      this.festivities.requestLightWave();
+    };
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-vehicle]').forEach(btn => {
       btn.onclick = () => {
@@ -523,6 +529,7 @@ export class DriveHud {
   }
 
   setFollowActive(active: boolean): void {
+    this.followBtn.hidden = active;
     this.followBtn.setAttribute('aria-pressed', String(active));
   }
 

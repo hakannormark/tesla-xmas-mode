@@ -48,6 +48,9 @@ export class MapLivingWorld {
 
   // 2. Dynamic Forest Wildlife & Ornament Moose placed on real woodland clearings
   private readonly wildlifeGroup = new THREE.Group();
+  private wildlifePooled = false;
+  private holidayPool: PixarAnimalHandle[] = [];
+  private wildPool: PixarAnimalHandle[] = [];
   private animals: PixarAnimalHandle[] = [];
   private roamingCritters: Array<{
     id: string;
@@ -398,6 +401,34 @@ export class MapLivingWorld {
     this.group.add(this.magicalSign.group);
   }
 
+  private ensureWildlifePooled(): void {
+    if (this.wildlifePooled) return;
+    this.wildlifePooled = true;
+    const holidayRoster: WildlifeKind[] = [
+      'rudolf', 'elf', 'reindeer', 'elf', 'reindeer', 'elf', 'rudolf', 'elf', 'reindeer', 'elf',
+    ];
+    for (let idx = 0; idx < 24; idx++) {
+      const kind = holidayRoster[idx % holidayRoster.length];
+      const critter = createPixarForestAnimal(kind, idx + 11);
+      critter.group.scale.setScalar(kind === 'elf' ? 1.18 : 1.16);
+      critter.group.visible = false;
+      this.wildlifeGroup.add(critter.group);
+      this.holidayPool.push(critter);
+      this.animals.push(critter);
+    }
+    const kinds: WildlifeKind[] = ['stag', 'fox', 'owl', 'rabbit', 'stag', 'fox'];
+    for (let idx = 0; idx < kinds.length; idx++) {
+      const kind = kinds[idx];
+      const animal = createPixarForestAnimal(kind, idx + 1);
+      const scale = kind === 'stag' ? 1.15 : kind === 'fox' || kind === 'owl' ? 1.25 : 1.35;
+      animal.group.scale.setScalar(scale);
+      animal.group.visible = false;
+      this.wildlifeGroup.add(animal.group);
+      this.wildPool.push(animal);
+      this.animals.push(animal);
+    }
+  }
+
   private clearWildlife(): void {
     this.wildlifeGroup.traverse(obj => {
       const m = obj as THREE.Mesh;
@@ -410,6 +441,9 @@ export class MapLivingWorld {
       else if (mat) disposeMat(mat);
     });
     this.wildlifeGroup.clear();
+    this.wildlifePooled = false;
+    this.holidayPool = [];
+    this.wildPool = [];
     this.animals = [];
     this.roamingCritters = [];
   }
@@ -418,7 +452,10 @@ export class MapLivingWorld {
     const snap = mapData.snapshot;
     if (!snap || this.builtVersion === snap.version) return;
     this.builtVersion = snap.version;
-    this.clearWildlife();
+    this.ensureWildlifePooled();
+    for (const h of this.holidayPool) h.group.visible = false;
+    for (const w of this.wildPool) w.group.visible = false;
+    this.roamingCritters = [];
     this.townTreePlaced = false;
     this.townTreeGroup.visible = false;
     this.magicalSignPlaced = false;
@@ -435,7 +472,7 @@ export class MapLivingWorld {
     // 2A. Roaming Pixar Reindeer (incl. glowing-nose Rudolfs!) & Santa's Holiday Elves across yards, parks & verges
     const holidaySpots: OsmPoint2D[] = [];
     const tryAddHolidaySpot = (x: number, z: number, minGap = 11) => {
-      if (holidaySpots.length >= 24 || Math.hypot(x, z) > 260) return;
+      if (holidaySpots.length >= this.holidayPool.length || Math.hypot(x, z) > 260) return;
       if (clearance && !clearance.clear({ x, z }, 1.25)) return;
       if (holidaySpots.some(p => Math.hypot(p.x - x, p.z - z) < minGap)) return;
       holidaySpots.push({ x, z });
@@ -447,17 +484,17 @@ export class MapLivingWorld {
     for (const r of snap.roads) {
       let traveled = 0;
       let nextSpawn = 12;
-      for (let i = 1; i < r.points.length && holidaySpots.length < 24; i++) {
+      for (let i = 1; i < r.points.length && holidaySpots.length < this.holidayPool.length; i++) {
         const a = r.points[i - 1], b = r.points[i];
         const dx = b.x - a.x, dz = b.z - a.z;
         const segLen = Math.hypot(dx, dz);
         if (segLen < 1) continue;
         const nx = -dz / segLen, nz = dx / segLen;
-        while (traveled + segLen >= nextSpawn && holidaySpots.length < 24) {
+        while (traveled + segLen >= nextSpawn && holidaySpots.length < this.holidayPool.length) {
           const f = (nextSpawn - traveled) / segLen;
           const bx = a.x + dx * f, bz = a.z + dz * f;
           const side = holidaySpots.length % 2 === 0 ? 1 : -1;
-          const lateral = r.widthM * 0.5 + 3.2 + (holidaySpots.length % 3) * 1.4;
+          const lateral = r.widthM * 0.5 + 3.4 + (holidaySpots.length % 3) * 1.4;
           tryAddHolidaySpot(bx + nx * side * lateral, bz + nz * side * lateral, 12);
           nextSpawn += 26;
         }
@@ -465,33 +502,17 @@ export class MapLivingWorld {
       }
     }
 
-    const holidayRoster: WildlifeKind[] = [
-      'rudolf',
-      'elf',
-      'reindeer',
-      'elf',
-      'reindeer',
-      'elf',
-      'rudolf',
-      'elf',
-      'reindeer',
-      'elf',
-    ];
     holidaySpots.forEach((spot, idx) => {
-      const kind = holidayRoster[idx % holidayRoster.length];
-      const critter = createPixarForestAnimal(kind, idx + 11);
-      const scale = kind === 'elf' ? 1.18 : 1.16;
-      critter.group.scale.setScalar(scale);
+      const critter = this.holidayPool[idx];
       critter.group.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
-      this.wildlifeGroup.add(critter.group);
-      this.animals.push(critter);
+      critter.group.visible = true;
       this.roamingCritters.push({
-        id: `${kind}-${idx}`,
+        id: `${critter.kind}-${idx}`,
         handle: critter,
         anchorX: spot.x,
         anchorZ: spot.z,
         radius: 0.75 + (idx % 3) * 0.25,
-        speed: kind === 'elf' ? 0.85 : 0.65,
+        speed: critter.kind === 'elf' ? 0.85 : 0.65,
         phase: idx * 1.37,
         isRoamer: true,
       });
@@ -510,8 +531,8 @@ export class MapLivingWorld {
       }
     }
 
-    const kinds: WildlifeKind[] = ['stag', 'fox', 'owl', 'rabbit', 'stag', 'fox'];
     let moosePlaced = false;
+    let wildIdx = 0;
     spots.slice(0, 7).forEach((spot, idx) => {
       const street = clearance?.nearestStreet(spot);
       const yaw = street ? Math.atan2(street.x - spot.x, street.z - spot.z) : 0;
@@ -522,14 +543,11 @@ export class MapLivingWorld {
         this.mooseGroup.visible = true;
         return;
       }
-      const kind = kinds[idx % kinds.length];
-      const animal = createPixarForestAnimal(kind, idx + 1);
-      const scale = kind === 'stag' ? 1.15 : kind === 'fox' || kind === 'owl' ? 1.25 : 1.35;
-      animal.group.scale.setScalar(scale);
+      if (wildIdx >= this.wildPool.length) return;
+      const animal = this.wildPool[wildIdx++];
       animal.group.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
       animal.group.rotation.y = yaw;
-      this.wildlifeGroup.add(animal.group);
-      this.animals.push(animal);
+      animal.group.visible = true;
     });
     if (!moosePlaced) this.mooseGroup.visible = false;
   }
@@ -579,6 +597,7 @@ export class MapLivingWorld {
       onTap: () => void;
     }> = [];
     for (const c of this.roamingCritters) {
+      if (!c.handle.group.visible) continue;
       const p = c.handle.group.position;
       if (Math.hypot(p.x - center.x, p.z - center.z) > 95) continue;
       if (c.handle.kind !== 'rudolf' && c.handle.kind !== 'reindeer' && c.handle.kind !== 'elf') continue;
@@ -597,6 +616,7 @@ export class MapLivingWorld {
   celebrateCritterNear(x: number, z: number, radius = 14): boolean {
     let hit = false;
     for (const c of this.roamingCritters) {
+      if (!c.handle.group.visible) continue;
       const p = c.handle.group.position;
       if (Math.hypot(p.x - x, p.z - z) <= radius) {
         c.handle.triggerJoyJump?.();
@@ -699,7 +719,7 @@ export class MapLivingWorld {
       rc.handle.group.rotation.y = Math.atan2(-Math.sin(a), Math.cos(a));
     }
     for (const anim of this.animals) {
-      anim.update(dt, time, sleighAlert);
+      if (anim.group.visible) anim.update(dt, time, sleighAlert);
     }
     if (this.mooseGroup.visible) {
       this.mooseHeadPivot.rotation.y = Math.sin(time * 1.1) * 0.35;
@@ -762,7 +782,7 @@ export class MapLivingWorld {
         sm.placed = false;
       }
       if (!sm.placed && road) {
-        const spot = this.tryPlaceAlongStreet(road, center, heading, 34 + idx * 36, sm.side, 2.3, 1.4, mapData);
+        const spot = this.tryPlaceAlongStreet(road, center, heading, 34 + idx * 36, sm.side, 3.1, 1.4, mapData);
         if (spot) {
           sm.group.position.set(spot.x, spot.y, spot.z);
           sm.group.rotation.y = -spot.heading + (sm.side < 0 ? 0.55 : -0.55);
@@ -801,7 +821,7 @@ export class MapLivingWorld {
       this.signCooldownM = 185;
     }
     if (!this.magicalSignPlaced && this.signCooldownM <= 0 && road) {
-      const spot = this.tryPlaceAlongStreet(road, center, heading, 58, -1, 3.2, 1.0, mapData);
+      const spot = this.tryPlaceAlongStreet(road, center, heading, 58, -1, 3.8, 1.0, mapData);
       if (spot) {
         this.magicalSign.group.position.set(spot.x, spot.y, spot.z);
         this.magicalSign.group.rotation.y = -spot.heading + 0.14;

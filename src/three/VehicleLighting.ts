@@ -75,7 +75,8 @@ export class VehicleLighting {
     frame: TelemetryFrame,
     env: EnvironmentState,
     visible: boolean,
-    sleighLiftHeight: number
+    sleighLiftHeight: number,
+    lightShow = 0
   ): void {
     this.group.visible = visible;
     if (!visible) return;
@@ -88,25 +89,39 @@ export class VehicleLighting {
     this.leftBeam.rotation.y = steerYaw;
     this.rightBeam.rotation.y = steerYaw;
 
-    this.beamMat.uniforms.uOpacity.value = 0.085 * nightFactor;
-    this.beamMat.uniforms.uColor.value.set(
-      env.theme === 'cyber2099' ? '#8aeaff' : '#fff0cb'
-    );
+    const showWave = lightShow > 0.02 ? 0.5 + 0.5 * Math.sin(time * 9.0) : 0;
+    this.beamMat.uniforms.uOpacity.value =
+      0.085 * nightFactor + lightShow * (0.07 + 0.055 * showWave);
+    if (lightShow > 0.05) {
+      const showColors = ['#ffe27a', '#ff2e55', '#58f4ff', '#fff0cb'];
+      this.beamMat.uniforms.uColor.value.set(showColors[Math.floor(time * 4.5) % showColors.length]);
+    } else {
+      this.beamMat.uniforms.uColor.value.set(
+        env.theme === 'cyber2099' ? '#8aeaff' : '#fff0cb'
+      );
+    }
 
-    this.roadLight.visible = env.quality === 'ultra' && env.daylightFactor < 0.72;
-    this.roadLight.intensity = 6.5 * nightFactor;
+    this.roadLight.visible = env.quality === 'ultra' && (env.daylightFactor < 0.72 || lightShow > 0.05);
+    this.roadLight.intensity = 6.5 * nightFactor + lightShow * (8.5 + 4.5 * Math.sin(time * 12));
     this.roadLight.position.set(Math.sin(-steerYaw) * 12, 2.2 + sleighLiftHeight * 0.4, -13.5);
 
     const brakeBoost = frame.isBraking ? 1 : frame.speedKmh < 2.2 ? 0.55 : 0;
-    const tailScale = 1.9 + brakeBoost * 1.45;
+    const showFlip = Math.sin(time * 14.0) > 0;
+    const tailScale = 1.9 + brakeBoost * 1.45 + lightShow * 1.05;
     this.tailLeft.position.y = this.tailRight.position.y = 0.85 + sleighLiftHeight * 0.65;
     this.tailLeft.scale.set(tailScale, tailScale * 0.72, 1);
     this.tailRight.scale.set(tailScale, tailScale * 0.72, 1);
-    this.tailMat.opacity = (0.34 + brakeBoost * 0.52) * Math.max(0.35, nightFactor);
+    const baseTail = (0.34 + brakeBoost * 0.52) * Math.max(0.35, nightFactor);
+    this.tailMat.opacity = Math.min(1, Math.max(baseTail, lightShow * (showFlip ? 0.95 : 0.45)));
 
     const blinkPulse = (Math.sin(time * 11.0) > 0 ? 1 : 0) * 0.82;
-    this.blinkerMatL.opacity = frame.turnRate < -0.18 ? blinkPulse : 0;
-    this.blinkerMatR.opacity = frame.turnRate > 0.18 ? blinkPulse : 0;
+    if (lightShow > 0.05) {
+      this.blinkerMatL.opacity = (showFlip ? 0.94 : 0.16) * lightShow;
+      this.blinkerMatR.opacity = (!showFlip ? 0.94 : 0.16) * lightShow;
+    } else {
+      this.blinkerMatL.opacity = frame.turnRate < -0.18 ? blinkPulse : 0;
+      this.blinkerMatR.opacity = frame.turnRate > 0.18 ? blinkPulse : 0;
+    }
   }
 
   dispose(): void {

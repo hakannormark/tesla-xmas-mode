@@ -7,42 +7,16 @@ interface Airport {
   iata_code?: string;
   icao_code?: string;
 }
-const airport = (a?: Airport) =>
-  [a?.municipality || a?.name, a?.iata_code || a?.icao_code].filter(Boolean).join(' · ') || 'Okänd';
+const shortAirport = (a?: Airport) =>
+  a?.municipality || a?.name || a?.iata_code || a?.icao_code || 'Okänd';
 
-function buildFestiveTwist(flight: LiveFlight, routeText: string): string {
-  const hay = `${routeText} ${flight.airline ?? ''} ${flight.callsign}`.toLowerCase();
-  if (/köpenhamn|cph/.test(hay)) {
-    return '🎅 Tomtens flygledare: Sätter sikte mot glögg och tivoli-ljus över Öresund!';
-  }
-  if (/oslo|osl/.test(hay)) {
-    return '🎅 Tomtens flygledare: Medvind över fjällen – dubbel last pepparkakor ombord!';
-  }
-  if (/helsingfors|hel|rovaniemi/.test(hay)) {
-    return '🎅 Tomtens flygledare: Nära Korvatunturi – renarna har gett klarering på kanal 122,4!';
-  }
-  if (/london|lhr|lgw/.test(hay)) {
-    return '🎅 Tomtens flygledare: Expressleverans av julrosetter och mistel över Nordsjön!';
-  }
-  if (/paris|cdg|ory/.test(hay)) {
-    return '🎅 Tomtens flygledare: Lussekatt-provning på 10 000 meters höjd med Eiffeltornet i sikte!';
-  }
-  if (/new york|jfk|ewr/.test(hay)) {
-    return '🎅 Tomtens flygledare: På väg mot världens största gran vid Rockefeller Center!';
-  }
-  if (/frankfurt|fra|amsterdam|ams/.test(hay)) {
-    return '🎅 Tomtens flygledare: Julmarknadstrafik – Rudolf blinkade just i höjdled!';
-  }
-  const treesHigh = Math.max(120, Math.round(flight.altitudeM / 15));
-  return `🎅 Tomtens flygledare: Glider ${treesHigh.toLocaleString('sv-SE')} julgranar upp i polar-jetströmmen!`;
-}
+const cleanRouteCity = (label: string) => label.split(' · ')[0].trim();
 
 export class FlightStars {
   private root = document.createElement('div');
   private panel = document.createElement('section');
   private buttons = new Map<string, HTMLButtonElement>();
   private flights = new Map<string, LiveFlight>();
-  private poleKm = 0;
   private selected = '';
   private routes = new Map<string, { routeText: string; airline?: string }>();
 
@@ -102,49 +76,41 @@ export class FlightStars {
     };
 
     const title = document.createElement('strong');
-    const cachedRoute = flight ? this.routes.get(flight.callsign) : undefined;
-    const airlineName = flight?.airline || cachedRoute?.airline;
-    title.textContent = flight
-      ? [airlineName ? `${airlineName} · ${flight.callsign}` : flight.callsign, flight.aircraft, flight.registration]
-          .filter(Boolean)
-          .join(' · ')
-      : 'Nordpolen';
+    if (!flight) {
+      title.textContent = '🧭 Nordpolen';
+      const note = document.createElement('div');
+      note.textContent = 'Geografisk nord · 90° N';
+      this.panel.replaceChildren(close, title, note);
+      return;
+    }
 
-    const details = document.createElement('div');
-    const kmh = flight ? Math.round(flight.groundspeedKts * 1.852) : 0;
-    const trees = flight ? Math.max(100, Math.round(flight.altitudeM / 15)) : 0;
-    details.textContent = flight
-      ? `✈ ${flight.altitudeM.toLocaleString('sv-SE')} m (≈ ${trees.toLocaleString('sv-SE')} granar) · ${kmh} km/h · ${Math.round(flight.distanceKm)} km bort`
-      : 'Geografisk nord · 90° N';
+    const cachedRoute = this.routes.get(flight.callsign);
+    const airlineName = flight.airline || cachedRoute?.airline;
+    title.textContent = `✈ ${airlineName || flight.callsign}`;
 
     const route = document.createElement('div');
-    const twist = document.createElement('div');
-    twist.className = 'flight-twist';
-    const pole = document.createElement('div');
-    pole.textContent = `🧭 Från dig till Nordpolen: ${this.poleKm.toLocaleString('sv-SE')} km`;
-    this.panel.replaceChildren(close, title, details, route, twist, pole);
-
-    if (!flight) return;
+    const trees = Math.max(50, Math.round(flight.altitudeM / 15));
+    const height = document.createElement('div');
+    height.className = 'flight-twist';
+    height.textContent = `🎄 ${trees.toLocaleString('sv-SE')} julgranar högt`;
+    this.panel.replaceChildren(close, title, route, height);
 
     const seededRoute =
       flight.originLabel && flight.destinationLabel
-        ? `🛫 Rutt: ${flight.originLabel} → ${flight.destinationLabel}`
+        ? `🛫 ${cleanRouteCity(flight.originLabel)} → ${cleanRouteCity(flight.destinationLabel)}`
         : undefined;
 
     if (cachedRoute) {
       route.textContent = cachedRoute.routeText;
-      twist.textContent = buildFestiveTwist(flight, cachedRoute.routeText);
       return;
     }
 
     if (seededRoute && flight.routeResolved) {
       route.textContent = seededRoute;
-      twist.textContent = buildFestiveTwist(flight, seededRoute);
       return;
     }
 
-    route.textContent = seededRoute || 'Hämtar riktig flygrutt…';
-    twist.textContent = buildFestiveTwist(flight, seededRoute || flight.callsign);
+    route.textContent = seededRoute || '🛫 Hämtar rutt…';
 
     try {
       const res = await fetch('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(flight.callsign), {
@@ -153,21 +119,16 @@ export class FlightStars {
       if (!res.ok) throw new Error();
       const data = (await res.json()).response?.flightroute;
       if (!data) throw new Error();
-      const text = `🛫 Rutt: ${airport(data.origin)} → ${airport(data.destination)}`;
+      const text = `🛫 ${shortAirport(data.origin)} → ${shortAirport(data.destination)}`;
       const resolvedAirline = data.airline?.name as string | undefined;
       this.routes.set(flight.callsign, { routeText: text, airline: resolvedAirline });
       if (this.selected === id) {
-        if (resolvedAirline) {
-          title.textContent = [`${resolvedAirline} · ${flight.callsign}`, flight.aircraft, flight.registration]
-            .filter(Boolean)
-            .join(' · ');
-        }
+        if (resolvedAirline) title.textContent = `✈ ${resolvedAirline}`;
         route.textContent = text;
-        twist.textContent = buildFestiveTwist(flight, text);
       }
     } catch {
       if (this.selected === id && !seededRoute) {
-        route.textContent = 'Julrutt via polcirkeln (anropssignal saknas i öppet register).';
+        route.textContent = '🛫 Polcirkeln · Julrutt';
       }
     }
   }
@@ -177,7 +138,6 @@ export class FlightStars {
     car: TelemetryFrame,
     project?: (flight: LiveFlight) => { x: number; y: number; visible: boolean; width?: number; height?: number }
   ): void {
-    this.poleKm = Math.round(car.northPoleDistanceKm);
     this.flights.clear();
     const pole = this.button('pole', 'Visa Nordpolen');
     pole.classList.add('pole-star');

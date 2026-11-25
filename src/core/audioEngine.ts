@@ -530,7 +530,7 @@ export class HolidayAudioEngine {
   }
 
   private santaAudioUrl(): string {
-    return new URL('audio/santa-hohoho.mp3', document.baseURI).href;
+    return new URL('audio/santa-hohoho.mp3?v=2', document.baseURI).href;
   }
 
   private preloadSantaVoice(): void {
@@ -916,13 +916,21 @@ export class HolidayAudioEngine {
   playLightWaveChime(): void {
     this.unlock();
     if (!this.ctx || this.mixMode === 'muted') return;
-    const notes = [392.0, 493.88, 587.33, 739.99, 987.77, 1174.66];
+    // Cascading 10-note Tesla Holiday Light Show arpeggio + syncopated sleigh bells
+    const notes = [392.0, 493.88, 587.33, 739.99, 783.99, 987.77, 1174.66, 1479.98, 1567.98, 1975.53];
     notes.forEach((n, idx) => {
       setTimeout(() => {
-        if (this.ctx && this.ctx.state === 'running') {
-          this.playCelestaNote(n, 0.1, 1.05);
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(n, 0.11, 1.15);
         }
-      }, idx * 75);
+      }, idx * 85);
+    });
+    [0, 170, 340, 510, 680, 920].forEach((ms, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.triggerSleighBell(0.75, (idx % 2 === 0 ? -1 : 1) * 0.45);
+        }
+      }, ms);
     });
   }
 
@@ -971,7 +979,7 @@ export class HolidayAudioEngine {
       const src = this.ctx.createBufferSource();
       src.buffer = this.santaVoiceBuf;
       const g = this.ctx.createGain();
-      g.gain.value = 1.15;
+      g.gain.value = 1.25;
       src.connect(g);
       if (this.dryBus) g.connect(this.dryBus);
       if (this.reverbBus) g.connect(this.reverbBus);
@@ -980,15 +988,22 @@ export class HolidayAudioEngine {
       this.speakHoHoHoFallback();
     }
 
-    // Layer crisp sleigh bells & sparkle gently underneath Santa's spoken voice
-    [0, 280, 560].forEach((ms, idx) => {
+    // Rhythmic sleigh-bell jingles & sparkling C-major holiday celesta chord underneath Santa's booming voice
+    [0, 260, 520, 780].forEach((ms, idx) => {
       setTimeout(() => {
         if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
-          this.triggerSleighBell(0.72, (idx - 1) * 0.28);
+          this.triggerSleighBell(0.76, (idx % 2 === 0 ? -1 : 1) * 0.35);
         }
       }, ms);
     });
-    setTimeout(() => this.playSparkleChime(), 680);
+    const holidayChord = [523.25, 659.25, 783.99, 1046.5];
+    holidayChord.forEach((freq, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(freq, 0.085, 1.15);
+        }
+      }, 120 + idx * 45);
+    });
   }
 
   playSnowballSplat(): void {

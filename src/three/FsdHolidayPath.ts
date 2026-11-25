@@ -122,7 +122,8 @@ export class FsdHolidayPath {
     center: THREE.Vector3,
     heading: number,
     visible: boolean,
-    groundAt: (x: number, z: number) => number = () => 0
+    groundAt: (x: number, z: number) => number = () => 0,
+    lightShow = 0
   ): void {
     if (!this.enabled || !visible) {
       this.mesh.visible = false;
@@ -133,7 +134,7 @@ export class FsdHolidayPath {
     const speedNorm = Math.min(1, frame.speedKmh / 100);
     const pathLen = 22 + speedNorm * 36;
     const minAhead = 2.0;
-    this.scroll += (1.8 + frame.speedKmh * 0.18) * dt;
+    this.scroll += (1.8 + frame.speedKmh * 0.18 + lightShow * 7.5) * dt;
 
     let lastX = center.x;
     let lastZ = center.z;
@@ -145,8 +146,9 @@ export class FsdHolidayPath {
       const dist = minAhead + u * pathLen;
       const mapped = road ? pointAlongStreet(road, center, heading, dist) : undefined;
       if (mapped) {
-        lastX = mapped.x;
-        lastZ = mapped.z;
+        const laneOff = road && road.widthM >= 5.2 ? Math.min(2.05, road.widthM * 0.24) : 0;
+        lastX = mapped.x + Math.cos(mapped.heading) * laneOff;
+        lastZ = mapped.z + Math.sin(mapped.heading) * laneOff;
         lastHeading = mapped.heading;
       } else {
         const step = dist - prevDist;
@@ -189,7 +191,11 @@ export class FsdHolidayPath {
     u.uBraking.value = frame.isBraking ? 1 : frame.speedKmh < 2.2 ? 0.55 : 0;
     u.uDaylight.value = env.daylightFactor;
 
-    if (env.theme === 'cyber2099') {
+    if (lightShow > 0.05) {
+      const phase = Math.sin(time * 8.5) * 0.5 + 0.5;
+      u.uEdgeColor.value.set(phase > 0.5 ? '#ff335a' : '#ffe378');
+      u.uCoreColor.value.set(phase > 0.5 ? '#ffe07d' : '#4df2ff');
+    } else if (env.theme === 'cyber2099') {
       u.uEdgeColor.value.set('#ff55cc');
       u.uCoreColor.value.set('#3cf2ff');
     } else if (env.theme === 'nordic') {
