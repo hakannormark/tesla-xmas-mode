@@ -5,6 +5,7 @@ import type { OsmMapSnapshot, OsmPoint2D, OsmRoadRibbon } from '../core/osmWorld
 import {
   createClapboardTextures,
   createGigaAtriumGlassTexture,
+  createGigaRoofDeckTexture,
   createGigaSignTexture,
   createGigaSolarRoofTexture,
   createGigafactoryWallTexture,
@@ -47,21 +48,38 @@ const plasterTex = createPlasterBrickTextures();
 const gigaWallTex = createGigafactoryWallTexture();
 gigaWallTex.repeat.set(0.14, 0.22);
 const gigaSolarTex = createGigaSolarRoofTexture();
-gigaSolarTex.anisotropy = 4;
+gigaSolarTex.anisotropy = 8;
+const gigaRoofDeckTex = createGigaRoofDeckTexture();
+gigaRoofDeckTex.repeat.set(0.35, 0.35);
 const gigaAtriumMat = new THREE.MeshBasicMaterial({ map: createGigaAtriumGlassTexture(), toneMapped: false });
 const gigaSignMat = new THREE.MeshBasicMaterial({ map: createGigaSignTexture(), toneMapped: false });
 const gigaRedLedMat = new THREE.MeshBasicMaterial({ color: '#ff1e3e', toneMapped: false });
-const gigaParapetMat = new THREE.MeshStandardMaterial({ color: '#f4f7fc', roughness: 0.34, metalness: 0.22 });
+const gigaParapetMat = new THREE.MeshStandardMaterial({ color: '#eef3fa', roughness: 0.42, metalness: 0.16 });
 const gigaRibMat = new THREE.MeshStandardMaterial({ color: '#d5deeb', roughness: 0.45, metalness: 0.18 });
-const gigaDockMat = new THREE.MeshStandardMaterial({ color: '#1b2434', roughness: 0.55, metalness: 0.45 });
-const gigaCanopyDarkMat = new THREE.MeshStandardMaterial({ color: '#141d2c', roughness: 0.42, metalness: 0.52 });
-const gigaRoofDeckMat = new THREE.MeshStandardMaterial({ color: '#222d40', roughness: 0.58, metalness: 0.24 });
+const gigaHvacMat = new THREE.MeshStandardMaterial({ color: '#2b374b', roughness: 0.62, metalness: 0.34, envMapIntensity: 0.38 });
+const gigaDockMat = new THREE.MeshStandardMaterial({ color: '#141c2a', roughness: 0.58, metalness: 0.42, envMapIntensity: 0.35 });
+const gigaCanopyDarkMat = new THREE.MeshStandardMaterial({ color: '#141d2c', roughness: 0.48, metalness: 0.38, envMapIntensity: 0.35 });
+const gigaRoofDeckMat = new THREE.MeshStandardMaterial({
+  color: '#ffffff',
+  map: gigaRoofDeckTex,
+  roughness: 0.86,
+  metalness: 0.08,
+  envMapIntensity: 0.28,
+});
+const flatCommercialRoofMat = new THREE.MeshStandardMaterial({
+  color: '#7a8ba4',
+  map: gigaRoofDeckTex,
+  roughness: 0.86,
+  metalness: 0.08,
+  envMapIntensity: 0.32,
+});
 const gigaSkylightMat = new THREE.MeshStandardMaterial({
-  color: '#1b2c46',
-  emissive: new THREE.Color('#a8dcff'),
-  emissiveIntensity: 0.85,
-  roughness: 0.12,
-  metalness: 0.45,
+  color: '#142640',
+  emissive: new THREE.Color('#3578b8'),
+  emissiveIntensity: 0.28,
+  roughness: 0.38,
+  metalness: 0.24,
+  envMapIntensity: 0.35,
 });
 const cottageWalls = cottageStyles.map(style => new THREE.MeshStandardMaterial({
   color: style.color,
@@ -79,12 +97,11 @@ const factoryWall = new THREE.MeshStandardMaterial({
   roughness: 0.46,
   metalness: 0.14,
 });
-const gigaSolarMat = new THREE.MeshPhysicalMaterial({
+const gigaSolarMat = new THREE.MeshStandardMaterial({
   map: gigaSolarTex,
-  roughness: 0.16,
-  metalness: 0.60,
-  clearcoat: 0.92,
-  clearcoatRoughness: 0.10,
+  roughness: 0.44,
+  metalness: 0.18,
+  envMapIntensity: 0.35,
 });
 const largeBuildingWallColors = ['#c8885a', '#b65b4a', '#d4ad74', '#4d6f8c', '#8e6c64'] as const;
 const largeWallPlasterMat = new THREE.MeshStandardMaterial({
@@ -709,8 +726,8 @@ export function updateChristmasMapAtmosphere(
     wMat.emissive.copy(windowEmissive);
     wMat.emissiveIntensity = windowIntensity;
   }
-  gigaSkylightMat.emissive.set(theme === 'cyber2099' ? '#5ef2ff' : '#a8dcff');
-  gigaSkylightMat.emissiveIntensity = (0.06 + nightFactor * 0.88) * (1 + beat * 0.18 + lightShow * 0.45);
+  gigaSkylightMat.emissive.set(theme === 'cyber2099' ? '#1ec4dc' : '#3578b8');
+  gigaSkylightMat.emissiveIntensity = (0.06 + nightFactor * 0.26) * (1 + beat * 0.12 + lightShow * 0.28);
 
   lightPool.opacity = 0.04 + nightFactor * 0.45;
   const orbScale = 0.38 + nightFactor * 0.68 + lightShow * 0.25;
@@ -1239,7 +1256,7 @@ export class ChristmasMap {
       const roofShapePoly = roofExpanded ? outline(roofFootprint) : shape;
       const profile = roofProjection(roofFootprint, roofShape, roofPitch, church ? 6.5 : 5.8);
       const roof = roofGeometry(roofShapePoly, profile);
-      const roofSurfaceMat = isGiga ? gigaRoofDeckMat : home || church || roofPitch > 0 ? roofCap : snow;
+      const roofSurfaceMat = isGiga ? gigaRoofDeckMat : home || church || roofPitch > 0 ? roofCap : flatCommercialRoofMat;
       this.jobBatchGeometry(job, roof.snowCap.translate(0, height + base, 0), roofSurfaceMat);
       this.jobBatchGeometry(job, roof.gables.translate(0, height + base, 0), wall, wallTint);
 
@@ -1293,7 +1310,7 @@ export class ChristmasMap {
         buildingTopY = base + spireBase + spireH + 1.1;
       }
 
-      if (isGiga && b.widthM >= 8 && b.depthM >= 8) {
+      if (isGiga && b.widthM >= 5 && b.depthM >= 5) {
         let bestLen = 0;
         let uX = 1;
         let uZ = 0;
@@ -1335,8 +1352,9 @@ export class ChristmasMap {
 
         const rectInside = (cx: number, cz: number, hw: number, hd: number) => {
           if (!clearance.inside({ x: cx, z: cz }, b.footprint)) return false;
-          for (const su of [-1, 1]) {
-            for (const sv of [-1, 1]) {
+          for (const su of [-1, 0, 1]) {
+            for (const sv of [-1, 0, 1]) {
+              if (su === 0 && sv === 0) continue;
               const px = cx + uX * (su * hw) + vX * (sv * hd);
               const pz = cz + uZ * (su * hw) + vZ * (sv * hd);
               if (!clearance.inside({ x: px, z: pz }, b.footprint)) return false;
@@ -1345,86 +1363,121 @@ export class ChristmasMap {
           return true;
         };
 
+        // Build candidate centers: OBB center, footprint center, largest interior triangles & 3x3 OBB grid (for L/U/concave roofs)
+        const candidateCenters: OsmPoint2D[] = [];
+        if (clearance.inside({ x: obbCx, z: obbCz }, b.footprint)) candidateCenters.push({ x: obbCx, z: obbCz });
+        if (clearance.inside({ x: b.centerX, z: b.centerZ }, b.footprint)) candidateCenters.push({ x: b.centerX, z: b.centerZ });
+        const triFaces = THREE.ShapeUtils.triangulateShape(corners, []);
+        const triScored = triFaces.map(tri => {
+          const p0 = corners[tri[0]], p1 = corners[tri[1]], p2 = corners[tri[2]];
+          const area = Math.abs((p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y)) * 0.5;
+          return { x: (p0.x + p1.x + p2.x) / 3, z: -(p0.y + p1.y + p2.y) / 3, area };
+        }).sort((a, c) => c.area - a.area);
+        for (let t = 0; t < Math.min(4, triScored.length); t++) {
+          if (clearance.inside(triScored[t], b.footprint)) candidateCenters.push(triScored[t]);
+        }
+        for (const fu of [0.28, 0.5, 0.72]) {
+          for (const fv of [0.28, 0.5, 0.72]) {
+            const gu = minU + spanU * fu;
+            const gv = minV + spanV * fv;
+            const gx = gu * uX + gv * vX;
+            const gz = gu * uZ + gv * vZ;
+            if (clearance.inside({ x: gx, z: gz }, b.footprint)) candidateCenters.push({ x: gx, z: gz });
+          }
+        }
+
         // Pick largest clean inset solar array fitting completely inside the OSM roof polygon
+        // Reserve a dark mechanical service apron at the ends on larger roofs for 3D gunmetal HVAC chillers
         let solarW = 0;
         let solarD = 0;
-        const centerPt = clearance.inside({ x: obbCx, z: obbCz }, b.footprint)
-          ? { x: obbCx, z: obbCz }
-          : { x: b.centerX, z: b.centerZ };
-        for (const frac of [0.80, 0.68, 0.56, 0.44]) {
-          const candW = Math.min(48, Math.max(6.4, (spanU - 2.4) * frac));
-          const candD = Math.min(26, Math.max(4.0, (spanV - 2.6) * frac));
-          if (rectInside(centerPt.x, centerPt.z, candW * 0.5 + 0.25, candD * 0.5 + 0.25)) {
-            solarW = candW;
-            solarD = candD;
-            break;
+        let centerPt: OsmPoint2D = candidateCenters[0] ?? { x: b.centerX, z: b.centerZ };
+        const endMargin = spanU >= 15 ? 3.2 : 1.1;
+        const sideMargin = spanV >= 12 ? 1.8 : 1.1;
+        const maxSolarW = Math.min(72, Math.max(3.8, spanU - endMargin));
+        const maxSolarD = Math.min(40, Math.max(2.4, spanV - sideMargin));
+        const fracs = [0.94, 0.86, 0.78, 0.70, 0.62, 0.54, 0.46, 0.38, 0.30];
+        for (const cand of candidateCenters) {
+          for (const frac of fracs) {
+            const candW = Math.max(3.8, maxSolarW * frac);
+            const candD = Math.max(2.4, maxSolarD * frac);
+            if (candW * candD <= solarW * solarD) break;
+            if (rectInside(cand.x, cand.z, candW * 0.5 + 0.18, candD * 0.5 + 0.18)) {
+              solarW = candW;
+              solarD = candD;
+              centerPt = cand;
+              break;
+            }
+          }
+          // Fast exit if primary center already fits >= 78% of full span
+          if (solarW >= maxSolarW * 0.78 && solarD >= maxSolarD * 0.78) break;
+        }
+        // Final compact fallback so even narrow or highly irregular Gigafactories still get a crisp PV array
+        if (solarW === 0 && candidateCenters.length > 0) {
+          const fallbackPt = candidateCenters[0];
+          for (const side of [6.0, 4.4, 3.2, 2.2]) {
+            if (rectInside(fallbackPt.x, fallbackPt.z, side * 0.5, side * 0.34)) {
+              solarW = side;
+              solarD = side * 0.68;
+              centerPt = fallbackPt;
+              break;
+            }
           }
         }
 
         if (solarW > 0 && solarD > 0) {
-          // Dark anodized mounting rack plinth + glossy photovoltaic solar array sitting cleanly ABOVE roofDeckY
-          this.jobAddDetail(job, gigaCanopyDarkMat, centerPt.x, roofDeckY + 0.045, centerPt.z, roofYaw, solarW + 0.36, 0.09, solarD + 0.36, 0, base);
+          // Elevated dark anodized racking plinth + glare-controlled photovoltaic solar array proud of parapet rim
+          this.jobAddDetail(job, gigaCanopyDarkMat, centerPt.x, roofDeckY + 0.14, centerPt.z, roofYaw, solarW + 0.42, 0.28, solarD + 0.42, 0, base);
           const solarGeo = new THREE.PlaneGeometry(solarW, solarD).rotateX(-Math.PI * 0.5);
           const solarMesh = new THREE.Mesh(solarGeo, gigaSolarMat);
-          solarMesh.position.set(centerPt.x, base + roofDeckY + 0.11, centerPt.z);
+          solarMesh.position.set(centerPt.x, base + roofDeckY + 0.30, centerPt.z);
           solarMesh.rotation.y = roofYaw;
           solarMesh.receiveShadow = true;
           job.group.add(solarMesh);
           job.resources.geometries.push(solarGeo);
 
-          // Linear architectural rooftop skylight clerestory strips flanking the solar array
-          const skylightOffsetV = solarD * 0.5 + 1.05;
-          const skylightLen = Math.min(solarW * 0.72, 22);
-          if (skylightLen >= 4.5) {
+          // Linear architectural rooftop skylight clerestory strips flanking the solar array (tinted glass, never blown-out white)
+          const skylightOffsetV = solarD * 0.5 + 0.78;
+          const skylightLen = Math.min(solarW * 0.68, 22);
+          if (skylightLen >= 4.2) {
             for (const side of [-1, 1]) {
               const skX = centerPt.x + vX * (side * skylightOffsetV);
               const skZ = centerPt.z + vZ * (side * skylightOffsetV);
-              if (rectInside(skX, skZ, skylightLen * 0.5, 0.55)) {
-                this.jobAddDetail(job, gigaCanopyDarkMat, skX, roofDeckY + 0.14, skZ, roofYaw, skylightLen + 0.24, 0.28, 1.05, 0, base);
-                this.jobAddDetail(job, gigaSkylightMat, skX, roofDeckY + 0.30, skZ, roofYaw, skylightLen, 0.08, 0.82, 0, base);
+              if (rectInside(skX, skZ, skylightLen * 0.5, 0.42)) {
+                this.jobAddDetail(job, gigaCanopyDarkMat, skX, roofDeckY + 0.22, skZ, roofYaw, skylightLen + 0.20, 0.34, 0.68, 0, base);
+                this.jobAddDetail(job, gigaSkylightMat, skX, roofDeckY + 0.41, skZ, roofYaw, skylightLen, 0.06, 0.48, 0, base);
               }
             }
           }
 
-          // Industrial HVAC chiller banks & mechanical penthouse tucked along solar array ends
-          const mechOffsetU = solarW * 0.5 + 1.45;
+          // Dark gunmetal industrial HVAC chiller banks & mechanical penthouse tucked along solar array ends
+          const mechOffsetU = solarW * 0.5 + 1.05;
+          let starX = centerPt.x;
+          let starZ = centerPt.z;
           for (const endSign of [-1, 1]) {
             const bankX = centerPt.x + uX * (endSign * mechOffsetU);
             const bankZ = centerPt.z + uZ * (endSign * mechOffsetU);
-            if (rectInside(bankX, bankZ, 1.05, Math.min(3.4, solarD * 0.42))) {
-              const unitCount = solarD >= 11 ? 3 : 2;
+            if (rectInside(bankX, bankZ, 0.78, Math.min(3.2, solarD * 0.40))) {
+              const unitCount = solarD >= 9.5 ? 3 : 2;
               for (let u = 0; u < unitCount; u++) {
                 const vOff = THREE.MathUtils.lerp(-solarD * 0.28, solarD * 0.28, u / (unitCount - 1));
                 const ux = bankX + vX * vOff;
                 const uz = bankZ + vZ * vOff;
                 if (!clearance.inside({ x: ux, z: uz }, b.footprint)) continue;
-                this.jobAddDetail(job, gigaRibMat, ux, roofDeckY + 0.42, uz, roofYaw, 1.55, 0.84, 1.35, 0, base);
-                this.jobAddDetail(job, gigaDockMat, ux, roofDeckY + 0.88, uz, roofYaw, 1.25, 0.09, 1.05, 0, base);
-                this.jobAddDetail(job, roofSnow, ux + uX * (endSign * 0.22), roofDeckY + 0.87, uz + uZ * (endSign * 0.22), roofYaw, 0.55, 0.08, 1.25, 0, base);
+                this.jobAddDetail(job, gigaHvacMat, ux, roofDeckY + 0.48, uz, roofYaw, 1.32, 0.92, 1.18, 0, base);
+                this.jobAddDetail(job, gigaDockMat, ux, roofDeckY + 0.98, uz, roofYaw, 1.06, 0.08, 0.92, 0, base);
               }
               // Subtle crimson LED status strip on primary mechanical penthouse side
               if (endSign === 1) {
-                this.jobAddDetail(job, gigaRedLedMat, bankX, roofDeckY + 0.72, bankZ, roofYaw, 1.62, 0.08, 0.10, 0, base);
+                this.jobAddDetail(job, gigaRedLedMat, bankX, roofDeckY + 0.78, bankZ, roofYaw, 1.38, 0.08, 0.10, 0, base);
+                starX = bankX;
+                starZ = bankZ;
               }
             }
           }
 
-          // Partial snow drifts tucked softly inside the roof corners (leaving solar arrays crisp and dark)
-          const driftU = Math.min(spanU * 0.44, solarW * 0.5 + 1.1);
-          const driftV = Math.min(spanV * 0.44, solarD * 0.5 + 1.1);
-          for (const su of [-1, 1]) {
-            for (const sv of [-1, 1]) {
-              const dx = centerPt.x + uX * (su * driftU) + vX * (sv * driftV);
-              const dz = centerPt.z + uZ * (su * driftU) + vZ * (sv * driftV);
-              if (clearance.inside({ x: dx, z: dz }, b.footprint)) {
-                this.jobAddDetail(job, powder, dx, roofDeckY + 0.04, dz, roofYaw + (su * sv) * 0.4, 1.45, 0.22, 1.05, 0, base);
-              }
-            }
-          }
-
-          this.jobAddDetail(job, starGold, centerPt.x, roofDeckY + 1.75, centerPt.z, 0, 0.85, 0.85, 0.85, 0, base);
-          this.jobAddDetail(job, starGold, centerPt.x, roofDeckY + 1.75, centerPt.z, Math.PI * 0.5, 0.85, 0.85, 0.85, 0, base);
-          buildingTopY = Math.max(buildingTopY, base + roofDeckY + 2.35);
+          this.jobAddDetail(job, starGold, starX, roofDeckY + 1.85, starZ, 0, 0.78, 0.78, 0.78, 0, base);
+          this.jobAddDetail(job, starGold, starX, roofDeckY + 1.85, starZ, Math.PI * 0.5, 0.78, 0.78, 0.78, 0, base);
+          buildingTopY = Math.max(buildingTopY, base + roofDeckY + 2.45);
         }
       }
 
@@ -1486,19 +1539,13 @@ export class ChristmasMap {
           }
         }
         if (isGiga && length >= 3.5) {
-          // Authentic minimalist white Giga Texas facade + dark metallic parapet coping + partial corner snow drifts + crimson LED line
+          // Authentic minimalist white Giga Texas facade + bold dark anodized parapet coping + crimson LED line (no tall white roof rim)
           detail(gigaDockMat, 0.5, 0.45, length + 0.10, 0.90, 0.22, 0.04);
-          detail(gigaParapetMat, 0.5, height + 0.30, length + 0.24, 0.72, 0.30, 0.06);
-          detail(gigaCanopyDarkMat, 0.5, height + 0.69, length + 0.30, 0.09, 0.36, 0.06);
-          // Partial snow ledges tucked near parapet corners rather than blanketing the full roofline
-          const cornerSnowW = Math.min(3.4, length * 0.24);
-          if (cornerSnowW >= 1.0) {
-            detail(roofSnow, 0.14, height + 0.76, cornerSnowW, 0.11, 0.32, 0.04);
-            detail(roofSnow, 0.86, height + 0.76, cornerSnowW, 0.11, 0.32, 0.04);
-          }
+          detail(gigaParapetMat, 0.5, height + 0.16, length + 0.22, 0.36, 0.28, 0.05);
+          detail(gigaCanopyDarkMat, 0.5, height + 0.41, length + 0.30, 0.16, 0.38, 0.06);
           detail(gigaRedLedMat, 0.5, height - 0.16, length + 0.28, 0.24, 0.14, 0.16);
           if (i === mainFace) {
-            detail(gigaRedLedMat, 0.5, height + 0.62, length * 0.64, 0.09, 0.10, 0.22);
+            detail(gigaRedLedMat, 0.5, height + 0.43, length * 0.64, 0.08, 0.10, 0.23);
           }
           if (length >= 6) {
             detail(lightPool, 0.5, 0.07, Math.min(length, 28), 8.5, 1, 2.8);
@@ -2292,9 +2339,9 @@ export class ChristmasMap {
           }
           if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         }
-        mesh.castShadow = [churchWall, spireMat, gigaParapetMat, gigaCanopyDarkMat].includes(material as THREE.MeshStandardMaterial);
+        mesh.castShadow = [churchWall, spireMat, gigaParapetMat, gigaCanopyDarkMat, gigaHvacMat].includes(material as THREE.MeshStandardMaterial);
         mesh.receiveShadow = material !== aoShadowMat && material !== lightPool && material !== zebraMat &&
-          (mesh.castShadow || [powder, snowmanSnow, hat, lampIronMat, marketRed, graniteMat, fenceWoodMat, cottageTrimMat, shutterMat, scarfMat].includes(material as THREE.MeshStandardMaterial));
+          (mesh.castShadow || [powder, snowmanSnow, hat, lampIronMat, marketRed, graniteMat, fenceWoodMat, cottageTrimMat, shutterMat, scarfMat, gigaDockMat].includes(material as THREE.MeshStandardMaterial));
         job.resources.instances.push(mesh);
         job.group.add(mesh);
       }
