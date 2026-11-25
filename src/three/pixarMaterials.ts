@@ -134,7 +134,10 @@ export function getStarSpriteTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+let cachedSnowTextures: { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } | null = null;
+
 export function createSnowTextures(): { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  if (cachedSnowTextures) return cachedSnowTextures;
   const size = 256;
   const bumpCanvas = document.createElement('canvas');
   bumpCanvas.width = size;
@@ -165,39 +168,47 @@ export function createSnowTextures(): { bumpMap: THREE.CanvasTexture; roughnessM
     bCtx.fill();
   }
 
-  for (let i = 0; i < 520; i++) {
+  // Soft snow-crystal micro-roughness variation (avoids harsh 2x2 aliased dots)
+  for (let i = 0; i < 420; i++) {
     const x = Math.random() * size;
     const y = Math.random() * size;
-    rCtx.fillStyle = Math.random() > 0.35 ? '#1c1c1c' : '#555555';
-    rCtx.fillRect(x, y, 2, 2);
+    const r = 1.6 + Math.random() * 2.4;
+    const rg = rCtx.createRadialGradient(x, y, 0.2, x, y, r);
+    const tone = Math.random() > 0.4 ? 110 : 155;
+    rg.addColorStop(0, `rgba(${tone},${tone},${tone},0.72)`);
+    rg.addColorStop(1, 'rgba(212,212,212,0)');
+    rCtx.fillStyle = rg;
+    rCtx.beginPath();
+    rCtx.arc(x, y, r, 0, Math.PI * 2);
+    rCtx.fill();
   }
 
   const bumpMap = new THREE.CanvasTexture(bumpCanvas);
   bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
   bumpMap.repeat.set(16, 16);
+  bumpMap.anisotropy = 4;
 
   const roughnessMap = new THREE.CanvasTexture(roughCanvas);
   roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
   roughnessMap.repeat.set(22, 22);
+  roughnessMap.anisotropy = 4;
 
-  return { bumpMap, roughnessMap };
+  cachedSnowTextures = { bumpMap, roughnessMap };
+  return cachedSnowTextures;
 }
 
 export function createSparklingSnowMaterial(tint = '#94b0d8'): THREE.MeshPhysicalMaterial {
   const { bumpMap, roughnessMap } = createSnowTextures();
-  return new THREE.MeshPhysicalMaterial({
+  // Runtime MeshStandardMaterial (avoids costly MeshPhysicalMaterial clearcoat/sheen branches
+  // across bulk snow geometry) while keeping the exported return type compatible with existing callers.
+  return new THREE.MeshStandardMaterial({
     color: tint,
-    roughness: 0.82,
-    metalness: 0.02,
-    clearcoat: 0.14,
-    clearcoatRoughness: 0.48,
+    roughness: 0.78,
+    metalness: 0.04,
     bumpMap,
     bumpScale: 0.16,
     roughnessMap,
-    sheen: 0.2,
-    sheenColor: new THREE.Color('#9ec0ee'),
-    sheenRoughness: 0.7,
-  });
+  }) as unknown as THREE.MeshPhysicalMaterial;
 }
 
 export function createTimberWallTexture(baseHex = '#7c1a28'): THREE.CanvasTexture {
@@ -236,6 +247,7 @@ export function createTimberWallTexture(baseHex = '#7c1a28'): THREE.CanvasTextur
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }
 
@@ -578,8 +590,10 @@ export function createClapboardTextures(): { map: THREE.CanvasTexture; bumpMap: 
   const map = new THREE.CanvasTexture(mapC);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
   const bumpMap = new THREE.CanvasTexture(bumpC);
   bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.anisotropy = 4;
   cachedClapboard = { map, bumpMap };
   return cachedClapboard;
 }
@@ -628,8 +642,10 @@ export function createPlasterBrickTextures(): { map: THREE.CanvasTexture; bumpMa
   const map = new THREE.CanvasTexture(mapC);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
   const bumpMap = new THREE.CanvasTexture(bumpC);
   bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.anisotropy = 4;
   cachedPlasterBrick = { map, bumpMap };
   return cachedPlasterBrick;
 }
@@ -688,8 +704,10 @@ export function createShingleRoofTextures(): { map: THREE.CanvasTexture; bumpMap
   const map = new THREE.CanvasTexture(mapC);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
   const bumpMap = new THREE.CanvasTexture(bumpC);
   bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.anisotropy = 4;
   cachedShingleRoof = { map, bumpMap };
   return cachedShingleRoof;
 }
@@ -745,6 +763,7 @@ export function createGigafactoryWallTexture(): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   cachedGigaWall = tex;
   return tex;
 }
@@ -984,17 +1003,21 @@ export function createVolumetricBeamMaterial(colorHex = '#ffdf9e', opacity = 0.2
       varying vec3 vNormalView;
       varying vec3 vViewPos;
       void main() {
-        vec3 viewDir = normalize(vViewPos);
-        float edge = pow(abs(dot(vNormalView, viewDir)), 1.65);
-        float verticalFade = smoothstep(0.0, 0.72, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
-        float alpha = edge * verticalFade * uOpacity;
+        float viewDist = length(vViewPos);
+        vec3 viewDir = vViewPos / max(viewDist, 0.0001);
+        float ndotv = clamp(dot(normalize(vNormalView), viewDir), 0.0, 1.0);
+        float edge = pow(ndotv, 1.9);
+        float nearFade = smoothstep(1.2, 4.2, viewDist);
+        float axialFade = smoothstep(0.0, 0.62, vUv.y) * smoothstep(1.0, 0.84, vUv.y);
+        float coreBoost = 1.0 + smoothstep(0.55, 0.92, vUv.y) * 0.35;
+        float alpha = edge * nearFade * axialFade * coreBoost * uOpacity;
         gl_FragColor = vec4(uColor, alpha);
       }
     `,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
   });
 }
 
@@ -1017,10 +1040,32 @@ const PIXAR_SKY_FRAG = `
   uniform vec3 uMidColor;
   uniform vec3 uHorizonColor;
 
-  float hash21(vec2 p) {
-    p = fract(p * vec2(234.34, 435.345));
-    p += dot(p, p + 34.23);
-    return fract(p.x * p.y);
+  float hash31(vec3 p) {
+    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  vec3 hash33(vec3 p) {
+    p = fract(p * vec3(443.897, 441.423, 437.195));
+    p += dot(p, p.yxz + 19.19);
+    return fract((p.xxy + p.yxx) * p.zyx);
+  }
+
+  vec3 sampleStarOctave(vec3 dir, float scale, float threshold, float size, float time) {
+    vec3 p = dir * scale;
+    vec3 cell = floor(p);
+    vec3 f = fract(p) - 0.5;
+    float rnd = hash31(cell);
+    if (rnd <= threshold) return vec3(0.0);
+    vec3 jitter = (hash33(cell) - 0.5) * 0.52;
+    float d = length(f - jitter);
+    float star = smoothstep(size, 0.0, d);
+    float tw = 0.58 + 0.42 * sin(time * (1.6 + rnd * 4.2) + rnd * 62.83);
+    vec3 sCol = rnd > threshold + (1.0 - threshold) * 0.65
+      ? vec3(1.24, 1.08, 0.84)
+      : (rnd > threshold + (1.0 - threshold) * 0.3 ? vec3(0.95, 1.06, 1.26) : vec3(0.84, 0.94, 1.15));
+    return sCol * star * tw;
   }
 
   void main() {
@@ -1032,11 +1077,11 @@ const PIXAR_SKY_FRAG = `
     col = mix(col, uTopColor, smoothstep(0.28, 0.92, h));
 
     float nightVis = 1.0 - clamp(uDaylight * 1.15, 0.0, 0.92);
-    float horizonGlow = exp(-abs(y - 0.03) * 10.5);
+    float horizonGlow = exp(-abs(y - 0.025) * 9.5);
     vec3 glowTint = uThemeMode > 1.5
       ? vec3(0.75, 0.14, 0.56)
-      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : mix(vec3(0.48, 0.21, 0.14), vec3(0.95, 0.72, 0.48), uDaylight));
-    col += glowTint * horizonGlow * 0.58;
+      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : mix(vec3(0.46, 0.24, 0.18), vec3(0.95, 0.76, 0.54), uDaylight));
+    col += glowTint * horizonGlow * 0.54;
 
     // Soft Milky Way diagonal stardust band across upper zenith in winter night
     if (y > 0.06 && nightVis > 0.08) {
@@ -1068,19 +1113,24 @@ const PIXAR_SKY_FRAG = `
     col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost * nightVis);
     col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost * nightVis);
 
-    if (y > 0.04 && nightVis > 0.08) {
-      vec2 starGrid = vec2(az * 38.0, y * 74.0);
-      vec2 cell = floor(starGrid);
-      vec2 f = fract(starGrid) - 0.5;
-      float rnd = hash21(cell);
-      if (rnd > 0.925) {
-        float d = length(f);
-        float star = smoothstep(0.24, 0.0, d);
-        float tw = 0.55 + 0.45 * sin(uTime * (1.8 + rnd * 4.5) + rnd * 62.0);
-        vec3 sCol = rnd > 0.97 ? vec3(1.25, 1.08, 0.82) : vec3(0.95, 1.05, 1.25);
-        col += sCol * star * tw * smoothstep(0.04, 0.22, y) * 1.15 * nightVis;
-      }
+    // Seam-free 3D unit-direction starfield (zero zenith pinching or +-PI seam)
+    if (y > 0.03 && nightVis > 0.06) {
+      float starFade = smoothstep(0.03, 0.20, y) * nightVis;
+      vec3 stars = sampleStarOctave(dir, 72.0, 0.945, 0.21, uTime) * 1.18
+                 + sampleStarOctave(dir, 148.0, 0.962, 0.23, uTime * 0.75 + 2.1) * 0.55;
+      col += stars * starFade;
     }
+
+    // Soft atmospheric horizon mist & lunar Mie scatter for seamless mountain/sky blend
+    float mistBand = exp(-max(0.0, y) * 7.2) * smoothstep(-0.18, 0.01, y);
+    vec3 mistCol = mix(uHorizonColor * 1.12, vec3(0.78, 0.86, 0.96), uDaylight * 0.55);
+    col = mix(col, mistCol, mistBand * 0.34);
+
+    vec3 scatterDir = normalize(vec3(-0.29, 0.22, -0.93));
+    float moonCos = max(0.0, dot(dir, scatterDir));
+    float moonScatter = pow(moonCos, 5.5) * 0.16 + pow(moonCos, 24.0) * 0.18;
+    vec3 scatterTint = uThemeMode > 1.5 ? vec3(0.52, 0.62, 1.0) : vec3(0.58, 0.74, 1.0);
+    col += scatterTint * moonScatter * (0.25 + 0.75 * nightVis) * smoothstep(-0.04, 0.14, y);
 
     gl_FragColor = vec4(col, 1.0);
   }

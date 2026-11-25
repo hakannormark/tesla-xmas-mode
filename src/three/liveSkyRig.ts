@@ -149,14 +149,13 @@ export class LiveSkyRig {
     this.group.add(this.issGroup);
 
     // 3. 4 Towering Alpine Advent Candles along distant mountain skyline
-    const waxMat = new THREE.MeshStandardMaterial({
+    const waxMat = new THREE.MeshLambertMaterial({
       color: '#fff5df',
-      roughness: 0.45,
       emissive: '#381e06',
       emissiveIntensity: 0.35,
       fog: false,
     });
-    const collarMat = new THREE.MeshStandardMaterial({ color: '#8f1224', roughness: 0.5, fog: false });
+    const collarMat = new THREE.MeshLambertMaterial({ color: '#8f1224', fog: false });
     const flameMat = new THREE.MeshBasicMaterial({ color: '#ffcf5c', toneMapped: false, fog: false });
 
     const candleXs = [-48, -19, 19, 48];
@@ -190,10 +189,10 @@ export class LiveSkyRig {
     this.group.add(this.adventGroup);
 
     // 4. Dec 13 3D Luciatåg Procession (Lucia + 4 attendants holding candle wands)
-    const robeMat = new THREE.MeshStandardMaterial({ color: '#f7faff', roughness: 0.65 });
-    const sashMat = new THREE.MeshStandardMaterial({ color: '#cf1530', roughness: 0.5 });
+    const robeMat = new THREE.MeshLambertMaterial({ color: '#f7faff' });
+    const sashMat = new THREE.MeshLambertMaterial({ color: '#cf1530' });
     const goldCrownMat = new THREE.MeshBasicMaterial({ color: '#ffd866', toneMapped: false });
-    const skinMat = new THREE.MeshStandardMaterial({ color: '#ffd9be', roughness: 0.65 });
+    const skinMat = new THREE.MeshLambertMaterial({ color: '#ffd9be' });
 
     for (let i = 0; i < 5; i++) {
       const fig = new THREE.Group();
@@ -339,7 +338,7 @@ export class LiveSkyRig {
     }
 
     // 6. SpaceX Live Launch Countdown Roadside Gantry
-    const postMat = new THREE.MeshStandardMaterial({ color: '#1b2234', metalness: 0.7, roughness: 0.35 });
+    const postMat = new THREE.MeshLambertMaterial({ color: '#263048' });
     for (const px of [-2.4, 2.4]) {
       const p = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 6.2, 8), postMat);
       p.position.set(px, 3.1, 0);
