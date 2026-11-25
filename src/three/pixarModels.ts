@@ -500,6 +500,7 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
   const reindeerRigs: ReindeerAnim[] = [];
   let rudolphNoseHalo: THREE.Sprite | null = null;
+  let rudolphGroundGlow: THREE.Mesh | null = null;
   let rudolphGroundGlowMat: THREE.MeshBasicMaterial | null = null;
   const hoofSparkles: THREE.Sprite[] = [];
 
@@ -653,7 +654,7 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
-      const rudolphGroundGlow = new THREE.Mesh(
+      rudolphGroundGlow = new THREE.Mesh(
         new THREE.PlaneGeometry(4.8, 6.2).rotateX(-Math.PI * 0.5),
         rudolphGroundGlowMat
       );
@@ -841,11 +842,14 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       giftPackGroup.position.y = 1.56 + Math.abs(Math.sin(gallopAccum * 0.5)) * (0.04 + speedNorm * 0.07);
 
       const turboBoost = Math.max(0, (speedNorm - 0.55) / 0.45) + (giftTimer > 0 ? 0.5 : 0);
-      if (rudolphNoseHalo && rudolphGroundGlowMat) {
+      if (rudolphNoseHalo && rudolphGroundGlow && rudolphGroundGlowMat) {
         const pulse = 1 + Math.sin(time * 9) * 0.15 + turboBoost * 1.15;
         rudolphNoseHalo.scale.setScalar(1.05 * pulse);
         rudolphNoseHalo.material.opacity = Math.min(0.96, 0.58 + turboBoost * 0.36);
-        rudolphGroundGlowMat.opacity = Math.min(0.74, 0.28 + turboBoost * 0.32 + Math.sin(time * 9) * 0.05);
+        rudolphGroundGlow.position.y = 0.08 - root.position.y;
+        const liftFade = Math.max(0.2, 1 - root.position.y * 0.22);
+        rudolphGroundGlowMat.opacity =
+          Math.min(0.74, (0.28 + turboBoost * 0.32 + Math.sin(time * 9) * 0.05) * liftFade);
       }
       hoofSparkles.forEach((hg, idx) => {
         hg.material.opacity = turboBoost > 0.2 ? (0.3 + 0.25 * Math.sin(time * 12 + idx)) * Math.min(1, turboBoost) : 0;

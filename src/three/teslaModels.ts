@@ -1266,7 +1266,7 @@ export function createAccurateStarmanRoadster(options?: { forSky?: boolean }): S
     const beamMat = createVolumetricBeamMaterial('#fff2d2', 0.18);
     for (const lz of [-0.62, 0.62]) {
       const beam = new THREE.Mesh(new THREE.ConeGeometry(1.55, 9.5, 14, 1, true), beamMat);
-      beam.rotation.z = -Math.PI * 0.5;
+      beam.rotation.z = Math.PI * 0.5;
       beam.position.set(6.7, 0.46, lz);
       group.add(beam);
     }
