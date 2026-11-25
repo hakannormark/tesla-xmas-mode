@@ -88,9 +88,12 @@ if (!stage) {
   let gpsLatBias = 0;
   let steerLaneSway = 0;
   let liveState = live.getState();
+  let lastFlightStateSec = performance.now() / 1000;
   let activeFlights: LiveFlight[] = [];
+  const flightTargetPos = new THREE.Vector3();
   let demoPrevHeading = 0;
   let demoHasInit = false;
+  let horizonY = 0;
 
   const avatar = new THREE.Group();
   avatar.name = 'GPS vehicle';
@@ -104,6 +107,27 @@ if (!stage) {
     cybertruck: truck.group,
     starman: roadster,
   };
+
+  function enableVehicleShadows(rootObj: THREE.Object3D): void {
+    rootObj.traverse((obj) => {
+      if (!(obj as THREE.Mesh).isMesh) return;
+      const mesh = obj as THREE.Mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const isTransparentOrFx = mats.some(
+        (m) =>
+          !m ||
+          m.depthWrite === false ||
+          m.blending === THREE.AdditiveBlending ||
+          (m.transparent && m.opacity < 0.75)
+      );
+      if (!isTransparentOrFx) {
+        mesh.castShadow = true;
+      }
+    });
+  }
+  for (const model of Object.values(vehicles)) {
+    enableVehicleShadows(model);
+  }
   avatar.add(...Object.values(vehicles), vehicleLighting.group);
 
   function selectVehicle(selected: VehicleKind): void {
@@ -119,7 +143,7 @@ if (!stage) {
       map: getSoftGlowTexture(),
       color: '#394b69',
       transparent: true,
-      opacity: 0.52,
+      opacity: 0.34,
       depthWrite: false,
     })
   );
@@ -194,16 +218,14 @@ if (!stage) {
     snowfall.group
   );
 
-  const warm = new THREE.DirectionalLight('#ffd4ba', 1.18);
-  warm.castShadow = true;
-  warm.shadow.mapSize.set(1024, 1024);
-  warm.shadow.camera.left = warm.shadow.camera.bottom = -60;
-  warm.shadow.camera.right = warm.shadow.camera.top = 60;
-  warm.shadow.camera.far = 165;
-  warm.shadow.normalBias = 0.1;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  scene.add(warm, warm.target);
+  // Unified shadow-casting key light (collapses 4 global lights to 3 across the whole scene)
+  stage.enableKeyShadow({
+    mapSize: 1024,
+    extent: 60,
+    far: 165,
+    normalBias: 0.08,
+    bias: -0.0004,
+  });
 
   const orbit = new OrbitControls(camera, renderer.domElement);
   orbit.enableDamping = true;
@@ -282,6 +304,7 @@ if (!stage) {
     gpsLatBias = 0;
     steerLaneSway = 0;
     demoHasInit = false;
+    horizonY = 0;
     avatar.position.set(0, 0, 0);
     avatar.rotation.set(0, 0, 0);
     lastUi = -1000;
@@ -375,7 +398,56 @@ if (!stage) {
   scene.add(flightsRoot);
   const projection = new THREE.Vector3();
 
-  const flightTemplate = createAccurateStarmanRoadster({ forSky: true });
+  // Lightweight 5-mesh Starman sky-glider proxy (nose along +X) to save ~57 draw calls per live ADS-B flight
+  function createSkyFlightProxy(): THREE.Group {
+    const proxy = new THREE.Group();
+    const bodyMat = new THREE.MeshLambertMaterial({ color: '#e31937', emissive: '#3a0610', fog: false });
+    const wingMat = new THREE.MeshLambertMaterial({ color: '#e4eefc', emissive: '#1e2c44', fog: false });
+    const visorMat = new THREE.MeshBasicMaterial({ color: '#f4f8ff', fog: false });
+    const thrusterMat = new THREE.MeshBasicMaterial({ color: '#ffcf72', toneMapped: false, fog: false });
+
+    const fuselageGeo = new THREE.ConeGeometry(0.62, 4.4, 8);
+    fuselageGeo.rotateZ(-Math.PI * 0.5);
+    const fuselage = new THREE.Mesh(fuselageGeo, bodyMat);
+    fuselage.scale.set(1, 0.55, 1.15);
+
+    const wingGeo = new THREE.BoxGeometry(1.15, 0.12, 3.6);
+    const wings = new THREE.Mesh(wingGeo, wingMat);
+    wings.position.set(-0.25, 0.02, 0);
+
+    const tailFinGeo = new THREE.BoxGeometry(0.65, 0.65, 0.12);
+    const tailFin = new THREE.Mesh(tailFinGeo, bodyMat);
+    tailFin.position.set(-1.65, 0.34, 0);
+
+    const helmetGeo = new THREE.SphereGeometry(0.28, 8, 6);
+    const helmet = new THREE.Mesh(helmetGeo, visorMat);
+    helmet.position.set(0.28, 0.42, 0);
+
+    const exhaustGeo = new THREE.ConeGeometry(0.32, 1.35, 6);
+    exhaustGeo.rotateZ(Math.PI * 0.5);
+    const exhaust = new THREE.Mesh(exhaustGeo, thrusterMat);
+    exhaust.position.set(-2.55, 0, 0);
+
+    const beacon = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: getSoftGlowTexture(),
+        color: '#ffe099',
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false,
+      })
+    );
+    beacon.scale.set(3.4, 3.4, 1);
+    beacon.position.set(-2.1, 0.1, 0);
+
+    proxy.add(fuselage, wings, tailFin, helmet, exhaust, beacon);
+    return proxy;
+  }
+
+  const flightTemplate = createSkyFlightProxy();
   const flightBounds = new THREE.Box3().setFromObject(flightTemplate);
   const corners: THREE.Vector3[] = [];
   for (const x of [flightBounds.min.x, flightBounds.max.x]) {
@@ -718,8 +790,6 @@ if (!stage) {
     const lightShow = festivities.getLightShowIntensity();
     stage!.setQuality(env.quality);
     stage!.setAtmosphere(env.daylightFactor, env.blueHourFactor, env.fogColor);
-    warm.intensity = 1.12 + env.daylightFactor * 0.45 + env.blueHourFactor * 0.14;
-    warm.color.set(env.daylightFactor > 0.65 ? '#fff0d8' : '#ffd4ba');
 
     const airspeed = frame.isMoving && fix ? frame.speedKmh : 0;
     flightSpeed = THREE.MathUtils.damp(flightSpeed, airspeed, 2.6, dt);
@@ -735,7 +805,7 @@ if (!stage) {
       sleigh.update(dt, flightSpeed, frame.turnRate, frame.acceleration, time);
     }
     shadow.scale.setScalar(flying ? 1.08 + 0.28 * lift : 1);
-    shadow.material.opacity = flying ? 0.44 - 0.16 * lift : 0.52;
+    shadow.material.opacity = flying ? 0.28 - 0.12 * lift : 0.34;
     wheelPhase += frame.speedKmh * dt;
     if (semi.group.visible) semi.update(dt, wheelPhase, frame.isBraking, beat * 0.65, time);
     if (truck.group.visible) truck.update(wheelPhase, time);
@@ -840,14 +910,15 @@ if (!stage) {
     updateWinterGround(groundMaterial, time, env.daylightFactor, avatar.position, heading, headlightFactor, env.theme);
     updateChristmasMapAtmosphere(time, env.daylightFactor, avatar.position, heading, brakeFactor, headlightFactor, env.theme, beat, lightShow);
     map.animate(time, avatar.position);
-    warm.target.position.copy(orbit.target);
-    warm.position.copy(warm.target.position).add(shadowOffset);
+    stage!.updateKeyShadowFocus(orbit.target, shadowOffset);
 
     sky.mesh.position.copy(camera.position);
     sky.material.uniforms.uTime.value = time;
     applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor, lightShow);
 
-    horizon.group.position.set(camera.position.x, trial ? terrainFloor : 0, camera.position.z);
+    const targetHorizonY = trial ? terrainFloor : activeElevation ? avatar.position.y : 0;
+    horizonY = !hasPosition || rebase ? targetHorizonY : THREE.MathUtils.damp(horizonY, targetHorizonY, 3.2, dt);
+    horizon.group.position.set(camera.position.x, horizonY, camera.position.z);
     horizon.update(time, env);
 
     snowfall.group.position.copy(avatar.position);
@@ -865,6 +936,7 @@ if (!stage) {
       lastUi = now;
       live.update(frame.latitude, frame.longitude, !demo && !trial, fix);
       liveState = live.getState();
+      lastFlightStateSec = time;
       activeFlights = trial ? [] : liveState.flights;
       if (trial) {
         const inclination = Math.round(100 * Math.tan(avatar.rotation.x));
@@ -910,23 +982,51 @@ if (!stage) {
       });
     }
 
+    const flightSubDt = Math.min(0.35, Math.max(0, time - lastFlightStateSec));
     for (const [fIdx, flight] of activeFlights.entries()) {
-      const model = aircraftModels.get(flight.hex || flight.callsign)!;
-      // Fixed world compass azimuth (never rotates when the sleigh turns) flying high in the winter sky
-      const azimuth = (flight.bearingDeg * Math.PI) / 180;
-      const radius = THREE.MathUtils.clamp(flight.distanceKm * 5.8, 115, 185);
+      const id = flight.hex || flight.callsign;
+      const model = aircraftModels.get(id)!;
+      // Smooth 60fps sub-poll dead-reckoning along true compass heading & groundspeed
+      const baseAz = (flight.bearingDeg * Math.PI) / 180;
+      const headRad = (flight.headingDeg * Math.PI) / 180;
+      const stepKm = flight.groundspeedKts > 5 ? (flight.groundspeedKts * 0.514444 * flightSubDt) / 1000 : 0;
+      const eastKm = Math.sin(baseAz) * flight.distanceKm + Math.sin(headRad) * stepKm;
+      const northKm = Math.cos(baseAz) * flight.distanceKm + Math.cos(headRad) * stepKm;
+      const liveDistKm = Math.max(2, Math.hypot(eastKm, northKm));
+      const azimuth = Math.atan2(eastKm, northKm);
+      const radius = THREE.MathUtils.clamp(liveDistKm * 5.8, 115, 185);
+
+      // Stable per-aircraft elevation slot (keyed by ID hash, not list index, preventing vertical jumps)
+      let idHash = 0;
+      for (let c = 0; c < id.length; c++) idHash = (idHash * 31 + id.charCodeAt(c)) | 0;
+      const slotOffset = (Math.abs(idHash) % 3) * 0.032;
       const elevation = THREE.MathUtils.clamp(
-        0.19 + (fIdx % 3) * 0.032 + Math.atan2(flight.altitudeM, Math.max(8000, flight.distanceKm * 1000)) * 0.14,
+        0.19 + slotOffset + Math.atan2(flight.altitudeM, Math.max(8000, liveDistKm * 1000)) * 0.14,
         0.19,
-        0.27
+        0.28
       );
+      const relX = Math.sin(azimuth) * radius;
+      const relY = Math.tan(elevation) * radius;
+      const relZ = -Math.cos(azimuth) * radius;
+      flightTargetPos.set(relX, relY, relZ);
+      let relPos = model.userData.flightRel as THREE.Vector3 | undefined;
+      if (!relPos || rebase || relPos.distanceToSquared(flightTargetPos) > 45 * 45) {
+        if (!relPos) {
+          relPos = new THREE.Vector3();
+          model.userData.flightRel = relPos;
+        }
+        relPos.copy(flightTargetPos);
+      } else {
+        // Smoothly damp any 15s ADS-B poll track/wind correction in avatar-relative sky space
+        relPos.lerp(flightTargetPos, 1 - Math.exp(-dt * 4.5));
+      }
       model.position.set(
-        avatar.position.x + Math.sin(azimuth) * radius,
-        avatar.position.y + Math.tan(elevation) * radius,
-        avatar.position.z - Math.cos(azimuth) * radius
+        avatar.position.x + relPos.x,
+        avatar.position.y + relPos.y,
+        avatar.position.z + relPos.z
       );
       model.rotation.order = 'YXZ';
-      model.rotation.y = Math.PI / 2 - (flight.headingDeg * Math.PI) / 180;
+      model.rotation.y = Math.PI / 2 - headRad;
       model.rotation.x = Math.sin(time * 0.9 + fIdx) * 0.06;
       model.scale.setScalar(1.95 + radius / 90);
     }

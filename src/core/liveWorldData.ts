@@ -89,6 +89,32 @@ function bearingDegBetween(lat1: number, lon1: number, lat2: number, lon2: numbe
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
+/**
+ * Dead-reckons an aircraft's geographic coordinates forward from its last ADS-B fix
+ * using its reported track (degrees true) and groundspeed (knots).
+ */
+function deadReckonLatLon(
+  lat: number,
+  lon: number,
+  trackDeg: number,
+  groundspeedKts: number,
+  elapsedSec: number
+): { lat: number; lon: number } {
+  const clampedSec = Math.max(0, Math.min(45, elapsedSec));
+  if (clampedSec <= 0 || groundspeedKts <= 5 || !Number.isFinite(trackDeg)) {
+    return { lat, lon };
+  }
+  const distM = groundspeedKts * 0.514444 * clampedSec;
+  const rad = (trackDeg * Math.PI) / 180;
+  const dNorthM = Math.cos(rad) * distM;
+  const dEastM = Math.sin(rad) * distM;
+  const cosLat = Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+  return {
+    lat: lat + dNorthM / 111320,
+    lon: lon + dEastM / (111320 * cosLat),
+  };
+}
+
 function formatAirport(a?: AdsbDbAirport): string {
   if (!a) return 'Okänd';
   const city = a.municipality || a.name;
@@ -188,6 +214,7 @@ export class LiveWorldDataManager {
   private spaceXLive = false;
 
   private aircraft: AircraftReport[] = [];
+  private flightsFetchedAtMs = 0;
   private gpsFlights = false;
   private flightRequest = 0;
   private flightsLive = false;
@@ -317,7 +344,7 @@ export class LiveWorldDataManager {
   }
 
   private refreshFlights(now: number): void {
-    if (now - this.lastFlightsFetchMs < 20000) return;
+    if (now - this.lastFlightsFetchMs < 15000) return;
     this.lastFlightsFetchMs = now;
     const request = ++this.flightRequest;
     const url = `https://api.adsb.lol/v2/lat/${this.lastLat.toFixed(3)}/lon/${this.lastLon.toFixed(3)}/dist/60`;
@@ -325,6 +352,7 @@ export class LiveWorldDataManager {
       if (request !== this.flightRequest) return;
       this.flightsLive = Array.isArray(data?.ac);
       this.aircraft = data?.ac ?? [];
+      this.flightsFetchedAtMs = Date.now();
     });
   }
 
@@ -332,6 +360,7 @@ export class LiveWorldDataManager {
     if (this.gpsFlights !== gps) {
       this.flightRequest++;
       this.lastFlightsFetchMs = 0;
+      this.flightsFetchedAtMs = 0;
       this.aircraft = [];
       this.flightsLive = false;
     }
@@ -356,11 +385,17 @@ export class LiveWorldDataManager {
 
     const cd = formatCountdown(this.nextSpaceXNetIso);
 
+    const nowMs = Date.now();
+    const pollAgeSec = this.flightsFetchedAtMs > 0 ? Math.max(0, (nowMs - this.flightsFetchedAtMs) / 1000) : 0;
     const nearby: LiveFlight[] = [];
     for (const p of this.aircraft) {
       if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon) || typeof p.alt_baro !== 'number' ||
           !p.hex || (p.seen_pos ?? 0) > 60) continue;
-      const distanceKm = haversineKm(lat, lon, p.lat!, p.lon!);
+      const gsKts = p.gs ?? 0;
+      const trackDeg = p.track ?? 0;
+      const elapsedSec = pollAgeSec + Math.min(20, Math.max(0, p.seen_pos ?? 0));
+      const pos = deadReckonLatLon(p.lat!, p.lon!, trackDeg, gsKts, elapsedSec);
+      const distanceKm = haversineKm(lat, lon, pos.lat, pos.lon);
       if (distanceKm > 111.2) continue;
       nearby.push({
         callsign: p.flight?.trim() || p.r || p.hex,
@@ -368,18 +403,34 @@ export class LiveWorldDataManager {
         aircraft: p.t,
         registration: p.r,
         altitudeM: Math.round(p.alt_baro * 0.3048),
-        groundspeedKts: p.gs ?? 0,
-        headingDeg: p.track ?? 0,
-        bearingDeg: bearingDegBetween(lat, lon, p.lat!, p.lon!),
+        groundspeedKts: gsKts,
+        headingDeg: trackDeg,
+        bearingDeg: bearingDegBetween(lat, lon, pos.lat, pos.lon),
         distanceKm,
         isLive: true,
       });
     }
 
-    const t = Date.now() / 1000;
+    const t = nowMs / 1000;
     const regionalFlights: LiveFlight[] = this.regionalSeeds.map((s, idx) => {
-      // Gentle slow orbital sky transit strictly in fixed world compass degrees (never swings with vehicle heading)
-      const drift = Math.sin(t * 0.012 + idx * 1.4) * 10;
+      // Physically accurate straight-line transit along each aircraft's true headingDeg & groundspeedKts
+      // across a 64 km sky corridor (no pendulum wobble or flying sideways/backwards).
+      const speedKmS = (s.groundspeedKts * 0.514444) / 1000;
+      const baseRad = (s.baseBearing * Math.PI) / 180;
+      const baseEastKm = Math.sin(baseRad) * s.distanceKm;
+      const baseNorthKm = Math.cos(baseRad) * s.distanceKm;
+      const headRad = (s.headingDeg * Math.PI) / 180;
+      const dirEast = Math.sin(headRad);
+      const dirNorth = Math.cos(headRad);
+      const baseAlong = baseEastKm * dirEast + baseNorthKm * dirNorth;
+      const perpEast = baseEastKm - dirEast * baseAlong;
+      const perpNorth = baseNorthKm - dirNorth * baseAlong;
+      const corridorKm = 64;
+      const alongKm = (((t * speedKmS + idx * 17.3) % corridorKm) + corridorKm) % corridorKm - corridorKm * 0.5;
+      const curEastKm = perpEast + dirEast * alongKm;
+      const curNorthKm = perpNorth + dirNorth * alongKm;
+      const bearingDeg = ((Math.atan2(curEastKm, curNorthKm) * 180) / Math.PI + 360) % 360;
+      const distanceKm = Math.max(4, Math.hypot(curEastKm, curNorthKm));
       return {
         callsign: s.callsign,
         aircraft: s.aircraft,
@@ -390,8 +441,8 @@ export class LiveWorldDataManager {
         altitudeM: s.altitudeM,
         groundspeedKts: s.groundspeedKts,
         headingDeg: s.headingDeg,
-        bearingDeg: (s.baseBearing + drift + 360) % 360,
-        distanceKm: s.distanceKm,
+        bearingDeg,
+        distanceKm,
         isLive: s.resolved,
       };
     });
