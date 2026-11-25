@@ -16,13 +16,13 @@ import {
 } from './pixarMaterials';
 import { streetGeometry, roadJunctions, junctionGeometry, snowbankGeometry } from './mappedRoads';
 import { mapClearance } from './mapClearance';
-import { createWinterRoad, updateWinterRoad } from './winterSurfaces';
+import { createWinterGround, createWinterRoad, updateWinterGround, updateWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
 import { buildCottageBay } from './cottageBay';
 import { VillageLights } from './VillageLights';
 
 const asphalt = createWinterRoad();
-const verge = new THREE.MeshStandardMaterial({color: '#d3e6ed', roughness: 0.96});
+const verge = createWinterGround('#b6cbe8', 0.94);
 const snowTexture = createSnowTextures().bumpMap;
 snowTexture.wrapS = snowTexture.wrapT = THREE.RepeatWrapping;
 const snow = new THREE.MeshStandardMaterial({color: '#fff8f4', roughness: 0.83, bumpMap: snowTexture, bumpScale: 0.12});
@@ -47,6 +47,7 @@ const plasterTex = createPlasterBrickTextures();
 const gigaWallTex = createGigafactoryWallTexture();
 gigaWallTex.repeat.set(0.14, 0.22);
 const gigaSolarTex = createGigaSolarRoofTexture();
+gigaSolarTex.anisotropy = 4;
 const gigaAtriumMat = new THREE.MeshBasicMaterial({ map: createGigaAtriumGlassTexture(), toneMapped: false });
 const gigaSignMat = new THREE.MeshBasicMaterial({ map: createGigaSignTexture(), toneMapped: false });
 const gigaRedLedMat = new THREE.MeshBasicMaterial({ color: '#ff1e3e', toneMapped: false });
@@ -54,6 +55,14 @@ const gigaParapetMat = new THREE.MeshStandardMaterial({ color: '#f4f7fc', roughn
 const gigaRibMat = new THREE.MeshStandardMaterial({ color: '#d5deeb', roughness: 0.45, metalness: 0.18 });
 const gigaDockMat = new THREE.MeshStandardMaterial({ color: '#1b2434', roughness: 0.55, metalness: 0.45 });
 const gigaCanopyDarkMat = new THREE.MeshStandardMaterial({ color: '#141d2c', roughness: 0.42, metalness: 0.52 });
+const gigaRoofDeckMat = new THREE.MeshStandardMaterial({ color: '#222d40', roughness: 0.58, metalness: 0.24 });
+const gigaSkylightMat = new THREE.MeshStandardMaterial({
+  color: '#1b2c46',
+  emissive: new THREE.Color('#a8dcff'),
+  emissiveIntensity: 0.85,
+  roughness: 0.12,
+  metalness: 0.45,
+});
 const cottageWalls = cottageStyles.map(style => new THREE.MeshStandardMaterial({
   color: style.color,
   map: style.finish === 'plaster' ? plasterTex.map : style.finish === 'boards' ? clapboardTex.map : timber,
@@ -61,7 +70,8 @@ const cottageWalls = cottageStyles.map(style => new THREE.MeshStandardMaterial({
   bumpScale: style.finish === 'plaster' ? 0.14 : 0.16,
   roughness: 0.84,
 }));
-const cottageTrim = cottageStyles.map(style => new THREE.MeshStandardMaterial({color:style.trim,roughness:0.82}));
+const cottageTrimMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.82 });
+const defaultTrimHex = '#f4d9af';
 const foundationStone = new THREE.MeshStandardMaterial({color:'#6f667a', map: plasterTex.map, bumpMap: plasterTex.bumpMap, bumpScale: 0.16, roughness:0.94});
 const factoryWall = new THREE.MeshStandardMaterial({
   color: '#f2f6fc',
@@ -69,41 +79,53 @@ const factoryWall = new THREE.MeshStandardMaterial({
   roughness: 0.46,
   metalness: 0.14,
 });
-const gigaSolarMat = new THREE.MeshStandardMaterial({
+const gigaSolarMat = new THREE.MeshPhysicalMaterial({
   map: gigaSolarTex,
-  roughness: 0.24,
-  metalness: 0.68,
+  roughness: 0.16,
+  metalness: 0.60,
+  clearcoat: 0.92,
+  clearcoatRoughness: 0.10,
 });
-const largeBuildingWalls = ['#c8885a', '#b65b4a', '#d4ad74', '#4d6f8c', '#8e6c64'].map((color, idx) =>
-  new THREE.MeshStandardMaterial({
-    color,
-    map: idx % 2 === 0 ? plasterTex.map : clapboardTex.map,
-    bumpMap: idx % 2 === 0 ? plasterTex.bumpMap : clapboardTex.bumpMap,
-    bumpScale: 0.16,
-    roughness: 0.82,
-  })
-);
+const largeBuildingWallColors = ['#c8885a', '#b65b4a', '#d4ad74', '#4d6f8c', '#8e6c64'] as const;
+const largeWallPlasterMat = new THREE.MeshStandardMaterial({
+  color: '#ffffff',
+  vertexColors: true,
+  map: plasterTex.map,
+  bumpMap: plasterTex.bumpMap,
+  bumpScale: 0.16,
+  roughness: 0.82,
+});
+const largeWallClapboardMat = new THREE.MeshStandardMaterial({
+  color: '#ffffff',
+  vertexColors: true,
+  map: clapboardTex.map,
+  bumpMap: clapboardTex.bumpMap,
+  bumpScale: 0.16,
+  roughness: 0.82,
+});
 const churchWall = new THREE.MeshStandardMaterial({color:'#e4dccd', map: plasterTex.map, bumpMap: plasterTex.bumpMap, bumpScale: 0.14, roughness:0.84});
 const spireMat = new THREE.MeshStandardMaterial({color:'#263550', roughness:0.55, metalness:0.28});
 const graniteMat = new THREE.MeshStandardMaterial({color:'#4c5566', bumpMap: plasterTex.bumpMap, bumpScale: 0.22, roughness:0.90});
 const fenceWoodMat = new THREE.MeshStandardMaterial({color:'#6d472e', roughness:0.90});
 const graniteRock = new THREE.DodecahedronGeometry(1, 0);
 const brick = new THREE.MeshStandardMaterial({color:'#683b43', map: plasterTex.map, bumpMap: plasterTex.bumpMap, bumpScale: 0.18, roughness:0.88});
-const trim = new THREE.MeshStandardMaterial({color:'#f4d9af',roughness:0.81});
 const eave = new THREE.MeshStandardMaterial({color:'#402b39',roughness:0.83});
 const roofSnow = new THREE.MeshStandardMaterial({color:'#f2edff',roughness:0.84});
 const cedar = new THREE.MeshStandardMaterial({color:'#603a30',roughness:0.83});
-const shutters = cottageStyles.map(style => new THREE.MeshStandardMaterial({
-  color:style.door,map:clapboardTex.map,roughness:0.82,
-}));
+const shutterMat = new THREE.MeshStandardMaterial({
+  color: '#ffffff',
+  map: clapboardTex.map,
+  roughness: 0.82,
+});
 const lightStringPalette = ['#ffe4a8', '#e84366', '#6cf6dd', '#b692ff', '#ffca57'];
 const lightStrings = lightStringPalette.map(color => new THREE.MeshBasicMaterial({color, toneMapped: false}));
-const powder = new THREE.MeshStandardMaterial({color:'#e4ecf7',roughness:0.84});
+const powder = createWinterGround('#ccddf2', 0.86);
 const snowmanSnow = new THREE.MeshStandardMaterial({color:'#fff4ea',roughness:0.76});
 const coal = new THREE.MeshStandardMaterial({color:'#342d3c',roughness:0.78});
 const hat = coal.clone();
 const carrot = new THREE.MeshStandardMaterial({color:'#eb7a43',roughness:0.68});
-const scarves = ['#ba344a','#3b8072','#6c5593'].map(color => new THREE.MeshStandardMaterial({color,roughness:0.82}));
+const scarfColors = ['#ba344a', '#3b8072', '#6c5593'] as const;
+const scarfMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.82 });
 const drift = new THREE.SphereGeometry(1,14,7);
 const snowBall = new THREE.SphereGeometry(1,12,8);
 const topHat = new THREE.CylinderGeometry(1,1,1,10);
@@ -132,6 +154,7 @@ const lampIronMat = new THREE.MeshStandardMaterial({ color: '#1b2638', metalness
 const lampOrbMat = new THREE.MeshBasicMaterial({ color: '#ffd98a', toneMapped: false });
 const signalHousingMat = new THREE.MeshStandardMaterial({ color: '#17202d', metalness: 0.5, roughness: 0.45 });
 const signalLensGeo = new THREE.SphereGeometry(0.11, 8, 8);
+const signalLensMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false });
 const starShape = new THREE.Shape();
 for (let i = 0; i < 10; i++) {
   const angle = Math.PI/2 + i*Math.PI/5;
@@ -161,33 +184,81 @@ const canopyWood = cedar.clone();
 const canopySnow = roofSnow.clone();
 
 
-function illustratedPanel(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
+function illustratedDoorPanel(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   draw(canvas.getContext('2d')!);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshBasicMaterial({map:texture, transparent:true, alphaTest:0.3});
+  return new THREE.MeshStandardMaterial({
+    map: texture,
+    transparent: true,
+    alphaTest: 0.3,
+    roughness: 0.65,
+    metalness: 0.08,
+  });
 }
 
-const cottageDoors = cottageStyles.map(style => illustratedPanel(64,96,ctx => {
-  ctx.fillStyle=style.trim; ctx.fillRect(0,0,64,96);
-  ctx.fillStyle=style.door; ctx.fillRect(5,5,54,91);
-  ctx.strokeStyle='#a95c5a'; ctx.lineWidth=2; ctx.strokeRect(10,11,44,77);
-  ctx.strokeRect(14,15,36,34); ctx.strokeRect(14,58,36,22);
-  ctx.fillStyle='#ffdc80'; ctx.beginPath(); ctx.arc(46,63,3,0,Math.PI*2); ctx.fill();
+function illustratedWindowPanel(
+  width: number,
+  height: number,
+  draw: (ctx: CanvasRenderingContext2D, eCtx: CanvasRenderingContext2D) => void
+) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const emCanvas = document.createElement('canvas');
+  emCanvas.width = width;
+  emCanvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  const eCtx = emCanvas.getContext('2d')!;
+  eCtx.fillStyle = '#000000';
+  eCtx.fillRect(0, 0, width, height);
+  draw(ctx, eCtx);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const emissiveMap = new THREE.CanvasTexture(emCanvas);
+  emissiveMap.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshStandardMaterial({
+    map,
+    emissiveMap,
+    emissive: new THREE.Color('#ffcf86'),
+    emissiveIntensity: 1.0,
+    transparent: true,
+    alphaTest: 0.3,
+    roughness: 0.18,
+    metalness: 0.30,
+  });
+}
+
+const cottageDoors = cottageStyles.map(style => illustratedDoorPanel(64, 96, ctx => {
+  ctx.fillStyle = style.trim; ctx.fillRect(0, 0, 64, 96);
+  ctx.fillStyle = style.door; ctx.fillRect(5, 5, 54, 91);
+  ctx.fillStyle = 'rgba(10, 12, 18, 0.25)'; ctx.fillRect(5, 5, 54, 5); ctx.fillRect(5, 5, 4, 91);
+  ctx.strokeStyle = '#a95c5a'; ctx.lineWidth = 2; ctx.strokeRect(10, 11, 44, 77);
+  ctx.strokeRect(14, 15, 36, 34); ctx.strokeRect(14, 58, 36, 22);
+  ctx.fillStyle = '#ffdc80'; ctx.beginPath(); ctx.arc(46, 63, 3, 0, Math.PI * 2); ctx.fill();
 }));
-const windowRound = illustratedPanel(72,72,ctx => {
-  ctx.fillStyle='#eedbb9'; ctx.beginPath(); ctx.arc(36,36,35,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#eab166'; ctx.beginPath(); ctx.arc(36,36,26,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#6a403a'; ctx.lineWidth=5;
-  ctx.beginPath(); ctx.moveTo(36,10); ctx.lineTo(36,62); ctx.moveTo(10,36); ctx.lineTo(62,36); ctx.stroke();
+const windowRound = illustratedWindowPanel(72, 72, (ctx, eCtx) => {
+  ctx.fillStyle = '#eedbb9'; ctx.beginPath(); ctx.arc(36, 36, 35, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#25324a'; ctx.beginPath(); ctx.arc(36, 36, 27, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(165, 200, 238, 0.26)';
+  ctx.beginPath(); ctx.arc(32, 30, 18, Math.PI * 1.05, Math.PI * 1.85); ctx.fill();
+  eCtx.fillStyle = '#f2b866'; eCtx.beginPath(); eCtx.arc(36, 36, 25, 0, Math.PI * 2); eCtx.fill();
+  for (const t of [ctx, eCtx]) {
+    t.strokeStyle = t === ctx ? '#6a403a' : '#000000';
+    t.lineWidth = 5;
+    t.beginPath(); t.moveTo(36, 9); t.lineTo(36, 63); t.moveTo(9, 36); t.lineTo(63, 36); t.stroke();
+  }
 });
-const windowArch = illustratedPanel(72,88,ctx => {
-  ctx.fillStyle='#f2dbb3'; ctx.beginPath(); ctx.arc(36,33,34,Math.PI,0); ctx.lineTo(70,86); ctx.lineTo(2,86); ctx.closePath(); ctx.fill();
-  ctx.fillStyle='#ffd08b'; ctx.beginPath(); ctx.arc(36,36,26,Math.PI,0); ctx.lineTo(62,78); ctx.lineTo(10,78); ctx.closePath(); ctx.fill();
-  ctx.fillStyle='#785049'; ctx.fillRect(33,10,6,68); ctx.fillRect(10,52,52,5);
+const windowArch = illustratedWindowPanel(72, 88, (ctx, eCtx) => {
+  ctx.fillStyle = '#f2dbb3'; ctx.beginPath(); ctx.arc(36, 33, 34, Math.PI, 0); ctx.lineTo(70, 86); ctx.lineTo(2, 86); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#24324c'; ctx.beginPath(); ctx.arc(36, 36, 26, Math.PI, 0); ctx.lineTo(62, 78); ctx.lineTo(10, 78); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(165, 200, 238, 0.22)'; ctx.fillRect(14, 24, 18, 22);
+  eCtx.fillStyle = '#ffd08b'; eCtx.beginPath(); eCtx.arc(36, 36, 25, Math.PI, 0); eCtx.lineTo(61, 77); eCtx.lineTo(11, 77); eCtx.closePath(); eCtx.fill();
+  ctx.fillStyle = '#785049'; ctx.fillRect(33, 10, 6, 68); ctx.fillRect(10, 52, 52, 5);
+  eCtx.fillStyle = '#000000'; eCtx.fillRect(33, 10, 6, 68); eCtx.fillRect(10, 52, 52, 5);
 });
 const roofLedge = new THREE.MeshStandardMaterial({color:'#b7becb',metalness:0.2,roughness:0.68});
 const cable = new THREE.MeshStandardMaterial({color:'#353f3c', roughness:0.95});
@@ -232,70 +303,109 @@ const pine = new THREE.MeshStandardMaterial({color: '#21584c', roughness: 0.88})
 const walls = ['#ae4951','#e1a379','#4a7776','#9d756b','#d1b19a'].map(color =>
   new THREE.MeshStandardMaterial({color, map:timber, roughness: 0.84}));
 
-function createFestiveWindowMaterial(ornament: 'plain' | 'star' | 'candles' | 'tree'): THREE.MeshBasicMaterial {
+function createFestiveWindowMaterial(ornament: 'plain' | 'star' | 'candles' | 'tree'): THREE.MeshStandardMaterial {
   const windowCanvas = document.createElement('canvas');
   windowCanvas.width = windowCanvas.height = 128;
   const paint = windowCanvas.getContext('2d')!;
-  paint.fillStyle = '#3d2228';
+
+  const emCanvas = document.createElement('canvas');
+  emCanvas.width = emCanvas.height = 128;
+  const ePaint = emCanvas.getContext('2d')!;
+  ePaint.fillStyle = '#000000';
+  ePaint.fillRect(0, 0, 128, 128);
+
+  // Dark recessed exterior frame casing
+  paint.fillStyle = '#2d1c22';
   paint.fillRect(0, 0, 128, 128);
 
-  const glow = paint.createRadialGradient(64, 52, 8, 64, 62, 86);
-  glow.addColorStop(0, '#fff9d8');
-  glow.addColorStop(0.55, '#ffc86e');
-  glow.addColorStop(1, '#c45b24');
-  paint.fillStyle = glow;
+  // Daytime dark reflective winter glass base (sky reflection diagonal streak)
+  const dayGlass = paint.createLinearGradient(12, 12, 116, 116);
+  dayGlass.addColorStop(0, '#2c4160');
+  dayGlass.addColorStop(0.45, '#1b2b44');
+  dayGlass.addColorStop(1, '#121c2e');
+  paint.fillStyle = dayGlass;
   paint.fillRect(12, 12, 104, 104);
-
-  // Cozy crimson draped curtains
-  paint.fillStyle = '#9e1c2e';
+  paint.fillStyle = 'rgba(182, 214, 248, 0.16)';
   paint.beginPath();
-  paint.moveTo(12, 12); paint.lineTo(38, 12); paint.quadraticCurveTo(34, 64, 12, 92);
-  paint.moveTo(116, 12); paint.lineTo(90, 12); paint.quadraticCurveTo(94, 64, 116, 92);
+  paint.moveTo(14, 14); paint.lineTo(66, 14); paint.lineTo(14, 72); paint.closePath();
   paint.fill();
 
+  // Warm interior emissive glow (visible at twilight/night, dims in daytime)
+  const glow = ePaint.createRadialGradient(64, 52, 8, 64, 62, 86);
+  glow.addColorStop(0, '#fff9d8');
+  glow.addColorStop(0.55, '#ffc86e');
+  glow.addColorStop(1, '#b8501e');
+  ePaint.fillStyle = glow;
+  ePaint.fillRect(12, 12, 104, 104);
+
+  // Cozy crimson draped curtains (visible in albedo, dark silhouette in emissive)
+  for (const t of [paint, ePaint]) {
+    t.fillStyle = t === paint ? '#8c1a2a' : '#2a070d';
+    t.beginPath();
+    t.moveTo(12, 12); t.lineTo(38, 12); t.quadraticCurveTo(34, 64, 12, 92);
+    t.moveTo(116, 12); t.lineTo(90, 12); t.quadraticCurveTo(94, 64, 116, 92);
+    t.fill();
+  }
+
+  // Subtle recessed inner frame shadow around top & sides for 3D depth
+  paint.fillStyle = 'rgba(8, 10, 16, 0.55)';
+  paint.fillRect(12, 12, 104, 7);
+  paint.fillRect(12, 12, 6, 104);
+  ePaint.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ePaint.fillRect(12, 12, 104, 7);
+  ePaint.fillRect(12, 12, 6, 104);
+
   if (ornament === 'star') {
-    paint.fillStyle = '#fffef0';
-    paint.beginPath();
-    for (let p = 0; p < 10; p++) {
-      const ang = (p / 10) * Math.PI * 2 - Math.PI * 0.5;
-      const rad = p % 2 === 0 ? 22 : 9.2;
-      const px = 64 + Math.cos(ang) * rad;
-      const py = 46 + Math.sin(ang) * rad;
-      if (p === 0) paint.moveTo(px, py);
-      else paint.lineTo(px, py);
+    for (const t of [paint, ePaint]) {
+      t.fillStyle = t === paint ? '#e8d8b0' : '#fffef2';
+      t.beginPath();
+      for (let p = 0; p < 10; p++) {
+        const ang = (p / 10) * Math.PI * 2 - Math.PI * 0.5;
+        const rad = p % 2 === 0 ? 22 : 9.2;
+        const px = 64 + Math.cos(ang) * rad;
+        const py = 46 + Math.sin(ang) * rad;
+        if (p === 0) t.moveTo(px, py);
+        else t.lineTo(px, py);
+      }
+      t.closePath();
+      t.fill();
     }
-    paint.closePath();
-    paint.fill();
   } else if (ornament === 'candles') {
-    paint.fillStyle = '#7e1c28';
-    paint.beginPath();
-    paint.moveTo(30, 110);
-    paint.lineTo(64, 68);
-    paint.lineTo(98, 110);
-    paint.closePath();
-    paint.fill();
+    for (const t of [paint, ePaint]) {
+      t.fillStyle = t === paint ? '#7e1c28' : '#28080c';
+      t.beginPath();
+      t.moveTo(30, 110);
+      t.lineTo(64, 68);
+      t.lineTo(98, 110);
+      t.closePath();
+      t.fill();
+    }
     for (let k = -3; k <= 3; k++) {
       const cx = 64 + k * 9.5;
       const cy = 104 - (3 - Math.abs(k)) * 10;
-      paint.fillStyle = '#fff9eb';
+      paint.fillStyle = '#f2ebdc';
       paint.fillRect(cx - 2.4, cy - 6, 4.8, 11);
-      paint.fillStyle = '#fffaaf';
-      paint.beginPath();
-      paint.arc(cx, cy - 10, 4.4, 0, Math.PI * 2);
-      paint.fill();
+      ePaint.fillStyle = '#fff5cc';
+      ePaint.fillRect(cx - 2.2, cy - 6, 4.4, 11);
+      ePaint.fillStyle = '#fffcb8';
+      ePaint.beginPath();
+      ePaint.arc(cx, cy - 10, 4.4, 0, Math.PI * 2);
+      ePaint.fill();
     }
   } else if (ornament === 'tree') {
-    paint.fillStyle = '#144c3a';
-    paint.beginPath();
-    paint.moveTo(64, 24); paint.lineTo(94, 108); paint.lineTo(34, 108);
-    paint.closePath();
-    paint.fill();
+    for (const t of [paint, ePaint]) {
+      t.fillStyle = t === paint ? '#144c3a' : '#082018';
+      t.beginPath();
+      t.moveTo(64, 24); t.lineTo(94, 108); t.lineTo(34, 108);
+      t.closePath();
+      t.fill();
+    }
     const dotCols = ['#ffe880', '#ff4058', '#68f0ff'];
     for (let d = 0; d < 7; d++) {
-      paint.fillStyle = dotCols[d % 3];
-      paint.beginPath();
-      paint.arc(64 + ((d % 3) - 1) * 11, 46 + d * 8, 3.6, 0, Math.PI * 2);
-      paint.fill();
+      ePaint.fillStyle = dotCols[d % 3];
+      ePaint.beginPath();
+      ePaint.arc(64 + ((d % 3) - 1) * 11, 46 + d * 8, 3.6, 0, Math.PI * 2);
+      ePaint.fill();
     }
   }
 
@@ -305,21 +415,113 @@ function createFestiveWindowMaterial(ornament: 'plain' | 'star' | 'candles' | 't
   paint.fillRect(12, 62, 104, 8);
   paint.fillStyle = '#ffffff';
   paint.fillRect(0, 114, 128, 14);
+  ePaint.fillStyle = '#000000';
+  ePaint.fillRect(60, 12, 8, 104);
+  ePaint.fillRect(12, 62, 104, 8);
+  ePaint.fillRect(0, 114, 128, 14);
+
   const windowTexture = new THREE.CanvasTexture(windowCanvas);
   windowTexture.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshBasicMaterial({ map: windowTexture, toneMapped: false });
+  const emissiveTexture = new THREE.CanvasTexture(emCanvas);
+  emissiveTexture.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshStandardMaterial({
+    map: windowTexture,
+    emissiveMap: emissiveTexture,
+    emissive: new THREE.Color('#ffcf86'),
+    emissiveIntensity: 1.0,
+    roughness: 0.14,
+    metalness: 0.35,
+  });
 }
 
 const glass = createFestiveWindowMaterial('plain');
 const glassStar = createFestiveWindowMaterial('star');
 const glassCandles = createFestiveWindowMaterial('candles');
 const glassTree = createFestiveWindowMaterial('tree');
+const festiveWindowMats: THREE.MeshStandardMaterial[] = [
+  glass,
+  glassStar,
+  glassCandles,
+  glassTree,
+  windowRound,
+  windowArch,
+];
 const pane = new THREE.PlaneGeometry(1, 1);
 const icicle = new THREE.ConeGeometry(1,1,5).rotateZ(Math.PI);
-const trunk = new THREE.CylinderGeometry(0.68,1,1,7);
+const trunk = new THREE.CylinderGeometry(0.68,1,1,7,1,true);
 const bark = new THREE.MeshStandardMaterial({color:'#524145',roughness:0.95});
 const icicleMaterial = new THREE.MeshStandardMaterial({color:'#c6e7f1',roughness:0.32,metalness:0.06});
 const lantern = new THREE.MeshBasicMaterial({color:'#ffbe66', toneMapped: false});
+
+function createBirchBarkTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, '#f4f7fb');
+  grad.addColorStop(0.76, '#e7edf3');
+  grad.addColorStop(0.92, '#5c6066');
+  grad.addColorStop(1, '#2b2d32');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 128);
+  for (let i = 0; i < 28; i++) {
+    const y = (i * 19 + 7) % 108;
+    const x = (i * 23) % 52;
+    const w = 8 + (i % 5) * 4;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(34, 38, 44, 0.78)' : 'rgba(72, 76, 84, 0.52)';
+    ctx.fillRect(x, y, w, i % 4 === 0 ? 3 : 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const birchBarkMat = new THREE.MeshStandardMaterial({
+  color: '#f2f5f8',
+  map: createBirchBarkTexture(),
+  roughness: 0.86,
+});
+const birchCrownMat = new THREE.MeshStandardMaterial({
+  color: '#c2d4e8',
+  roughness: 0.90,
+});
+
+function buildBirchTrunkGeometry(): THREE.BufferGeometry {
+  const main = new THREE.CylinderGeometry(0.055, 0.145, 4.9, 6, 1, true).translate(0, 2.45, 0);
+  const limbA = new THREE.CylinderGeometry(0.025, 0.055, 2.2, 5, 1, true)
+    .rotateZ(-0.42)
+    .translate(0.42, 3.85, 0.08);
+  const limbB = new THREE.CylinderGeometry(0.024, 0.052, 2.0, 5, 1, true)
+    .rotateZ(0.38)
+    .rotateY(0.9)
+    .translate(-0.34, 3.65, -0.18);
+  const limbC = new THREE.CylinderGeometry(0.022, 0.044, 1.65, 5, 1, true)
+    .rotateX(0.36)
+    .translate(0.06, 4.35, 0.28);
+  const merged = mergeGeometries([main, limbA, limbB, limbC])!;
+  main.dispose();
+  limbA.dispose();
+  limbB.dispose();
+  limbC.dispose();
+  return merged;
+}
+
+function buildBirchCrownGeometry(): THREE.BufferGeometry {
+  const puffs = [
+    new THREE.IcosahedronGeometry(0.88, 0).scale(1.05, 1.25, 0.95).translate(0.02, 5.15, 0.04),
+    new THREE.IcosahedronGeometry(0.72, 0).scale(1.15, 0.95, 1.0).translate(0.82, 4.65, 0.14),
+    new THREE.IcosahedronGeometry(0.68, 0).scale(1.0, 1.05, 1.1).translate(-0.68, 4.42, -0.26),
+    new THREE.IcosahedronGeometry(0.60, 0).scale(0.95, 1.15, 0.95).translate(0.18, 5.05, 0.56),
+  ];
+  const merged = mergeGeometries(puffs)!;
+  puffs.forEach(p => p.dispose());
+  return merged;
+}
+
+const birchTrunkGeo = buildBirchTrunkGeometry();
+const birchCrownGeo = buildBirchCrownGeometry();
 
 function createLandmarkLabelMesh(text: string, isGiga: boolean): { mesh: THREE.Mesh; texture: THREE.CanvasTexture; material: THREE.MeshBasicMaterial } {
   const w = 512, h = 112;
@@ -360,13 +562,13 @@ function createLandmarkLabelMesh(text: string, isGiga: boolean): { mesh: THREE.M
 // Scallops give the snow cap the outline of individual laden branches.
 function spruceTier(snowCap: boolean): THREE.BufferGeometry {
   const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
-  const sides = 32;
+  const sides = 14;
   const rings = snowCap ? [{y:0.08,r:0.87},{y:0.25,r:0.82},{y:0.64,r:0.44},{y:0.99,r:0.025}]
     : [{y:0.0,r:0.22},{y:0.02,r:1.0},{y:0.24,r:0.82},{y:0.64,r:0.41},{y:1,r:0.021}];
   rings.forEach(({y,r}, ring) => {
     for (let i = 0; i <= sides; i++) {
       const angle = i / sides * Math.PI * 2;
-      const scallop = Math.cos(angle*8+0.48*Math.sin(angle*3)+0.45*y);
+      const scallop = Math.cos(angle*7+0.35*Math.sin(angle*3)+0.45*y);
       const radius = r*(1+scallop*(1-y)*0.21);
       positions.push(radius*Math.cos(angle),y-scallop*r*(snowCap ? 0.096 : 0.12),radius*Math.sin(angle));
       uvs.push(i/sides,y);
@@ -480,6 +682,10 @@ function roofGeometry(shape: THREE.Shape, profile: ReturnType<typeof roofProject
 const cyberStringPalette = ['#5cf2ff', '#ff5cc8', '#ffe49e', '#74ffca', '#b88aff'];
 const showStringPalette = ['#ff2442', '#ffd84d', '#24ff9c', '#4de8ff', '#ff5ce8'];
 const workColor = new THREE.Color();
+const lampOrbBaseColor = new THREE.Color('#ffd98a');
+const lanternBaseColor = new THREE.Color('#ffbe66');
+const windowEmissiveClassic = new THREE.Color('#ffcf86');
+const windowEmissiveCyber = new THREE.Color('#ffd4a8');
 
 export function updateChristmasMapAtmosphere(
   time: number,
@@ -493,13 +699,32 @@ export function updateChristmasMapAtmosphere(
   lightShow = 0
 ): void {
   updateWinterRoad(asphalt, time, daylight, vehiclePos, heading, braking, headlight, theme, beat);
+  updateWinterGround(verge, time, daylight, vehiclePos, heading, headlight, theme);
+  updateWinterGround(powder, time, daylight, vehiclePos, heading, headlight, theme);
+
+  const nightFactor = Math.max(0.06, 1 - daylight * 0.90);
+  const windowEmissive = theme === 'cyber2099' ? windowEmissiveCyber : windowEmissiveClassic;
+  const windowIntensity = (0.07 + nightFactor * 1.15) * (1 + beat * 0.14 + lightShow * 0.32);
+  for (const wMat of festiveWindowMats) {
+    wMat.emissive.copy(windowEmissive);
+    wMat.emissiveIntensity = windowIntensity;
+  }
+  gigaSkylightMat.emissive.set(theme === 'cyber2099' ? '#5ef2ff' : '#a8dcff');
+  gigaSkylightMat.emissiveIntensity = (0.06 + nightFactor * 0.88) * (1 + beat * 0.18 + lightShow * 0.45);
+
+  lightPool.opacity = 0.04 + nightFactor * 0.45;
+  const orbScale = 0.38 + nightFactor * 0.68 + lightShow * 0.25;
+  lampOrbMat.color.copy(lampOrbBaseColor).multiplyScalar(orbScale);
+  lantern.color.copy(lanternBaseColor).multiplyScalar(orbScale);
+
   const palette = lightShow > 0.05 ? showStringPalette : theme === 'cyber2099' ? cyberStringPalette : lightStringPalette;
   const shiftIdx = lightShow > 0.05 ? Math.floor(time * 5.5) : 0;
+  const stringDayScale = 0.30 + nightFactor * 0.78;
   for (let i = 0; i < lightStrings.length; i++) {
     workColor.set(palette[(i + shiftIdx) % palette.length]);
     if (lightShow <= 0.05 && theme === 'nordic' && i === 1) workColor.set('#7fd8ff');
     const showPulse = lightShow > 0.01 ? lightShow * (0.8 + 0.9 * Math.sin(time * 14 + i * 1.4)) : 0;
-    workColor.multiplyScalar(Math.max(0.45, 1 + beat * 0.28 + showPulse));
+    workColor.multiplyScalar(Math.max(0.28, stringDayScale * (1 + beat * 0.28) + showPulse));
     lightStrings[i].color.copy(workColor);
   }
 }
@@ -581,6 +806,17 @@ interface RoadSeg {
   widthM: number;
 }
 
+interface SignalLensEntry {
+  matrix: THREE.Matrix4;
+  role: 'red' | 'amber' | 'green';
+  phase: number;
+}
+
+interface DetailBucket {
+  matrices: THREE.Matrix4[];
+  colors?: string[];
+}
+
 interface MapBuildJob {
   key: string;
   snapshot: OsmMapSnapshot;
@@ -599,8 +835,9 @@ interface MapBuildJob {
   lanterns: THREE.Vector3[];
   vents: THREE.Vector3[];
   buildingTargets: ChristmasBuildingTarget[];
-  signalNodes: Array<{ red: THREE.MeshBasicMaterial; amber: THREE.MeshBasicMaterial; green: THREE.MeshBasicMaterial; phase: number }>;
-  details: Map<THREE.Material, THREE.Matrix4[]>;
+  signalLensEntries: SignalLensEntry[];
+  signalLenses?: THREE.InstancedMesh;
+  details: Map<THREE.Material, DetailBucket>;
   batches: Map<THREE.Material, THREE.BufferGeometry[]>;
   buildingIndex: number;
   gigaCount: number;
@@ -614,6 +851,13 @@ interface MapBuildJob {
 }
 
 const detailTransform = new THREE.Object3D();
+const batchTintColor = new THREE.Color();
+const sigGreenOn = new THREE.Color(0x38f28c);
+const sigGreenOff = new THREE.Color(0x0a2e1a);
+const sigAmberOn = new THREE.Color(0xffb838);
+const sigAmberOff = new THREE.Color(0x332008);
+const sigRedOn = new THREE.Color(0xff3b52);
+const sigRedOff = new THREE.Color(0x320c13);
 
 export class ChristmasMap {
   readonly group = new THREE.Group();
@@ -624,6 +868,7 @@ export class ChristmasMap {
   private retiringResources: ResourceBag | null = null;
   private pendingJob: MapBuildJob | null = null;
   private readonly celebrationGroup = new THREE.Group();
+  private readonly animCenter = new THREE.Vector3();
   private celebrationNodes: Array<{ star: THREE.Mesh; halo: THREE.Sprite; baseY: number; phase: number }> = [];
   private celebrated = new Set<string>();
   private buildingTargets: ChristmasBuildingTarget[] = [];
@@ -631,7 +876,8 @@ export class ChristmasMap {
   private vents: THREE.Vector3[] = [];
   private smoke?: THREE.Points;
   private crossings = new Map<OsmRoadRibbon, CrossingEntry[]>();
-  private signalNodes: Array<{ red: THREE.MeshBasicMaterial; amber: THREE.MeshBasicMaterial; green: THREE.MeshBasicMaterial; phase: number }> = [];
+  private signalLenses?: THREE.InstancedMesh;
+  private signalLensMeta: Array<{ role: 'red' | 'amber' | 'green'; phase: number }> = [];
 
   constructor() {
     this.activeContent.add(this.celebrationGroup);
@@ -650,27 +896,32 @@ export class ChristmasMap {
   }
 
   animate(time: number, center: THREE.Vector3): void {
-    const localCenter = center.clone().sub(this.activeContent.position);
-    this.villageLights.update(time, localCenter);
+    this.animCenter.copy(center).sub(this.activeContent.position);
+    this.villageLights.update(time, this.animCenter);
     for (const node of this.celebrationNodes) {
       node.star.rotation.y = time * 2.2 + node.phase;
       node.star.position.y = node.baseY + Math.sin(time * 3.4 + node.phase) * 0.16;
       node.halo.material.opacity = 0.62 + 0.18 * Math.sin(time * 4.0 + node.phase);
     }
-    for (const sig of this.signalNodes) {
-      const cyc = (time + sig.phase) % 12;
-      const isGreen = cyc < 5.5;
-      const isAmber = cyc >= 5.5 && cyc < 7.0;
-      const isRed = cyc >= 7.0;
-      sig.green.color.setHex(isGreen ? 0x38f28c : 0x0a2e1a);
-      sig.amber.color.setHex(isAmber ? 0xffb838 : 0x332008);
-      sig.red.color.setHex(isRed ? 0xff3b52 : 0x320c13);
+    if (this.signalLenses && this.signalLensMeta.length) {
+      for (let i = 0; i < this.signalLensMeta.length; i++) {
+        const meta = this.signalLensMeta[i];
+        const cyc = (time + meta.phase) % 12;
+        if (meta.role === 'green') {
+          this.signalLenses.setColorAt(i, cyc < 5.5 ? sigGreenOn : sigGreenOff);
+        } else if (meta.role === 'amber') {
+          this.signalLenses.setColorAt(i, cyc >= 5.5 && cyc < 7.0 ? sigAmberOn : sigAmberOff);
+        } else {
+          this.signalLenses.setColorAt(i, cyc >= 7.0 ? sigRedOn : sigRedOff);
+        }
+      }
+      if (this.signalLenses.instanceColor) this.signalLenses.instanceColor.needsUpdate = true;
     }
     if (!this.smoke) return;
     const position = this.smoke.geometry.attributes.position;
     let used = 0;
     for (const [id, vent] of this.vents.entries()) {
-      if (Math.hypot(vent.x - localCenter.x, vent.z - localCenter.z) > 155) continue;
+      if (Math.hypot(vent.x - this.animCenter.x, vent.z - this.animCenter.z) > 155) continue;
       for (let i = 0; i < 4; i++) {
         const age = (time * 0.27 + i * 0.25 + id * 0.43) % 1;
         position.setXYZ(used++, vent.x + age * age * 3.1, vent.y + age * 4.1,
@@ -759,7 +1010,8 @@ export class ChristmasMap {
     this.flushRetiringResources();
     disposeResourceBag(this.activeResources);
     this.celebrationNodes = [];
-    this.signalNodes = [];
+    this.signalLenses = undefined;
+    this.signalLensMeta = [];
     this.celebrationGroup.clear();
     this.activeContent.clear();
     this.group.clear();
@@ -776,7 +1028,8 @@ export class ChristmasMap {
     height: number,
     depth = 1,
     tilt = 0,
-    base?: number
+    base?: number,
+    color?: string
   ): void {
     const gy = base ?? (job.elevation?.(x, z) ?? 0);
     detailTransform.position.set(x, y + gy, z);
@@ -784,15 +1037,23 @@ export class ChristmasMap {
     if (material === lightPool || material === aoShadowMat || material === zebraMat) detailTransform.scale.set(width, 1, height);
     else detailTransform.scale.set(width, height, depth);
     detailTransform.updateMatrix();
-    let matrices = job.details.get(material);
-    if (!matrices) {
-      matrices = [];
-      job.details.set(material, matrices);
+    let bucket = job.details.get(material);
+    if (!bucket) {
+      bucket = { matrices: [] };
+      job.details.set(material, bucket);
     }
-    matrices.push(detailTransform.matrix.clone());
+    if (color !== undefined) {
+      if (!bucket.colors) {
+        bucket.colors = new Array(bucket.matrices.length).fill('#ffffff');
+      }
+      bucket.colors.push(color);
+    } else if (bucket.colors) {
+      bucket.colors.push('#ffffff');
+    }
+    bucket.matrices.push(detailTransform.matrix.clone());
   }
 
-  private jobBatchGeometry(job: MapBuildJob, geometry: THREE.BufferGeometry, material: THREE.Material): void {
+  private jobBatchGeometry(job: MapBuildJob, geometry: THREE.BufferGeometry, material: THREE.Material, tintHex?: string): void {
     const position = geometry.attributes.position;
     const normal = geometry.attributes.normal;
     const uv: number[] = [];
@@ -802,6 +1063,16 @@ export class ChristmasMap {
         Math.abs(normal.getY(i)) > 0.55 ? z * 0.48 : y * 0.48);
     }
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    if (tintHex !== undefined) {
+      batchTintColor.set(tintHex);
+      const colors = new Float32Array(position.count * 3);
+      for (let i = 0; i < position.count; i++) {
+        colors[i * 3] = batchTintColor.r;
+        colors[i * 3 + 1] = batchTintColor.g;
+        colors[i * 3 + 2] = batchTintColor.b;
+      }
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    }
     let geometries = job.batches.get(material);
     if (!geometries) {
       geometries = [];
@@ -938,15 +1209,28 @@ export class ChristmasMap {
       const highest = levels[levels.length - 1];
       const base = Math.max(levels[Math.floor(levels.length / 2)], highest - 0.8);
       const foundation = levels[0] - 0.3;
-      const largeWallIdx = Math.abs(Math.round(b.centerX * 3 + b.centerZ * 5)) % largeBuildingWalls.length;
-      const wall = cottage ? cottageWalls[cottage.index] : church ? churchWall : isGiga ? factoryWall : factory ? largeBuildingWalls[largeWallIdx] : walls[0];
-      const frame = cottage ? cottageTrim[cottage.index] : trim;
+      const nearDetail = b.centerX * b.centerX + b.centerZ * b.centerZ <= 140 * 140;
+      const largeWallIdx = Math.abs(Math.round(b.centerX * 3 + b.centerZ * 5)) % largeBuildingWallColors.length;
+      const wall = cottage
+        ? cottageWalls[cottage.index]
+        : church
+          ? churchWall
+          : isGiga
+            ? factoryWall
+            : factory
+              ? largeWallIdx % 2 === 0
+                ? largeWallPlasterMat
+                : largeWallClapboardMat
+              : walls[0];
+      const wallTint = factory ? largeBuildingWallColors[largeWallIdx] : undefined;
+      const frame = cottageTrimMat;
+      const frameColor = cottage ? cottage.style.trim : defaultTrimHex;
       if (elevation) {
         const stone = new THREE.ExtrudeGeometry(shape, { depth: base - foundation + 0.06, bevelEnabled: false });
         this.jobBatchGeometry(job, stone.rotateX(-Math.PI / 2).translate(0, foundation, 0), foundationStone);
       }
       const body = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
-      this.jobBatchGeometry(job, body.rotateX(-Math.PI / 2).translate(0, base, 0), wall);
+      this.jobBatchGeometry(job, body.rotateX(-Math.PI / 2).translate(0, base, 0), wall, wallTint);
       const gambrelLarge = [[0, 0], [0.22, 0.72], [0.5, 1], [0.78, 0.72], [1, 0]] as const;
       const roofShape = church ? ([[0, 0], [0.5, 1], [1, 0]] as const) : cottage ? cottage.roof : (!isGiga && b.widthM < 42 && b.depthM < 42 ? gambrelLarge : [[0, 0], [1, 0]] as const);
       const roofPitch = church ? 0.48 : cottage ? cottage.style.pitch : (!isGiga && b.widthM < 42 && b.depthM < 42 ? 0.34 : 0);
@@ -955,8 +1239,9 @@ export class ChristmasMap {
       const roofShapePoly = roofExpanded ? outline(roofFootprint) : shape;
       const profile = roofProjection(roofFootprint, roofShape, roofPitch, church ? 6.5 : 5.8);
       const roof = roofGeometry(roofShapePoly, profile);
-      this.jobBatchGeometry(job, roof.snowCap.translate(0, height + base, 0), home || church || roofPitch > 0 ? roofCap : snow);
-      this.jobBatchGeometry(job, roof.gables.translate(0, height + base, 0), wall);
+      const roofSurfaceMat = isGiga ? gigaRoofDeckMat : home || church || roofPitch > 0 ? roofCap : snow;
+      this.jobBatchGeometry(job, roof.snowCap.translate(0, height + base, 0), roofSurfaceMat);
+      this.jobBatchGeometry(job, roof.gables.translate(0, height + base, 0), wall, wallTint);
 
       let buildingTopY = base + height + profile.rise;
       const corners = shape.getPoints();
@@ -1010,39 +1295,136 @@ export class ChristmasMap {
 
       if (isGiga && b.widthM >= 8 && b.depthM >= 8) {
         let bestLen = 0;
-        let bestYaw = 0;
+        let uX = 1;
+        let uZ = 0;
         for (let i = 0; i < b.footprint.length; i++) {
           const p0 = b.footprint[i], p1 = b.footprint[(i + 1) % b.footprint.length];
-          const len = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+          const dx = p1.x - p0.x, dz = p1.z - p0.z;
+          const len = Math.hypot(dx, dz);
           if (len > bestLen) {
             bestLen = len;
-            bestYaw = Math.atan2(p1.x - p0.x, p1.z - p0.z);
+            uX = dx / len;
+            uZ = dz / len;
           }
         }
-        const solarW = Math.min(26, Math.max(7.2, bestLen * 0.72));
-        const perp = b.areaM2 / Math.max(bestLen, 1);
-        const solarD = Math.min(14, Math.max(4.5, perp * 0.66));
-        if (clearance.inside({ x: b.centerX, z: b.centerZ }, b.footprint)) {
+        let vX = -uZ;
+        let vZ = uX;
+        let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+        for (const pt of b.footprint) {
+          const pu = pt.x * uX + pt.z * uZ;
+          const pv = pt.x * vX + pt.z * vZ;
+          if (pu < minU) minU = pu;
+          if (pu > maxU) maxU = pu;
+          if (pv < minV) minV = pv;
+          if (pv > maxV) maxV = pv;
+        }
+        let spanU = maxU - minU;
+        let spanV = maxV - minV;
+        // Keep uAxis as the longest roof span so TESLA solar lettering reads along the primary axis
+        if (spanV > spanU) {
+          const tmpX = uX, tmpZ = uZ, tmpMin = minU, tmpMax = maxU, tmpSpan = spanU;
+          uX = vX; uZ = vZ; minU = minV; maxU = maxV; spanU = spanV;
+          vX = -tmpX; vZ = -tmpZ; minV = -tmpMax; maxV = -tmpMin; spanV = tmpSpan;
+        }
+        const midU = (minU + maxU) * 0.5;
+        const midV = (minV + maxV) * 0.5;
+        const obbCx = midU * uX + midV * vX;
+        const obbCz = midU * uZ + midV * vZ;
+        const roofYaw = Math.atan2(-uZ, uX);
+        const roofDeckY = height + 0.24;
+
+        const rectInside = (cx: number, cz: number, hw: number, hd: number) => {
+          if (!clearance.inside({ x: cx, z: cz }, b.footprint)) return false;
+          for (const su of [-1, 1]) {
+            for (const sv of [-1, 1]) {
+              const px = cx + uX * (su * hw) + vX * (sv * hd);
+              const pz = cz + uZ * (su * hw) + vZ * (sv * hd);
+              if (!clearance.inside({ x: px, z: pz }, b.footprint)) return false;
+            }
+          }
+          return true;
+        };
+
+        // Pick largest clean inset solar array fitting completely inside the OSM roof polygon
+        let solarW = 0;
+        let solarD = 0;
+        const centerPt = clearance.inside({ x: obbCx, z: obbCz }, b.footprint)
+          ? { x: obbCx, z: obbCz }
+          : { x: b.centerX, z: b.centerZ };
+        for (const frac of [0.80, 0.68, 0.56, 0.44]) {
+          const candW = Math.min(48, Math.max(6.4, (spanU - 2.4) * frac));
+          const candD = Math.min(26, Math.max(4.0, (spanV - 2.6) * frac));
+          if (rectInside(centerPt.x, centerPt.z, candW * 0.5 + 0.25, candD * 0.5 + 0.25)) {
+            solarW = candW;
+            solarD = candD;
+            break;
+          }
+        }
+
+        if (solarW > 0 && solarD > 0) {
+          // Dark anodized mounting rack plinth + glossy photovoltaic solar array sitting cleanly ABOVE roofDeckY
+          this.jobAddDetail(job, gigaCanopyDarkMat, centerPt.x, roofDeckY + 0.045, centerPt.z, roofYaw, solarW + 0.36, 0.09, solarD + 0.36, 0, base);
           const solarGeo = new THREE.PlaneGeometry(solarW, solarD).rotateX(-Math.PI * 0.5);
           const solarMesh = new THREE.Mesh(solarGeo, gigaSolarMat);
-          solarMesh.position.set(b.centerX, base + height + 0.14, b.centerZ);
-          solarMesh.rotation.y = bestYaw - Math.PI * 0.5;
+          solarMesh.position.set(centerPt.x, base + roofDeckY + 0.11, centerPt.z);
+          solarMesh.rotation.y = roofYaw;
           solarMesh.receiveShadow = true;
           job.group.add(solarMesh);
           job.resources.geometries.push(solarGeo);
 
-          if (solarW >= 10 && solarD >= 6) {
-            const hvacX = b.centerX + Math.sin(bestYaw) * (solarD * 0.34);
-            const hvacZ = b.centerZ + Math.cos(bestYaw) * (solarD * 0.34);
-            if (clearance.inside({ x: hvacX, z: hvacZ }, b.footprint)) {
-              this.jobAddDetail(job, gigaRibMat, hvacX, height + 0.48, hvacZ, bestYaw, 1.8, 0.76, 1.4, 0, base);
-              this.jobAddDetail(job, roofSnow, hvacX, height + 0.90, hvacZ, bestYaw, 1.9, 0.10, 1.5, 0, base);
+          // Linear architectural rooftop skylight clerestory strips flanking the solar array
+          const skylightOffsetV = solarD * 0.5 + 1.05;
+          const skylightLen = Math.min(solarW * 0.72, 22);
+          if (skylightLen >= 4.5) {
+            for (const side of [-1, 1]) {
+              const skX = centerPt.x + vX * (side * skylightOffsetV);
+              const skZ = centerPt.z + vZ * (side * skylightOffsetV);
+              if (rectInside(skX, skZ, skylightLen * 0.5, 0.55)) {
+                this.jobAddDetail(job, gigaCanopyDarkMat, skX, roofDeckY + 0.14, skZ, roofYaw, skylightLen + 0.24, 0.28, 1.05, 0, base);
+                this.jobAddDetail(job, gigaSkylightMat, skX, roofDeckY + 0.30, skZ, roofYaw, skylightLen, 0.08, 0.82, 0, base);
+              }
             }
           }
 
-          this.jobAddDetail(job, starGold, b.centerX, height + 1.85, b.centerZ, 0, 0.85, 0.85, 0.85, 0, base);
-          this.jobAddDetail(job, starGold, b.centerX, height + 1.85, b.centerZ, Math.PI * 0.5, 0.85, 0.85, 0.85, 0, base);
-          buildingTopY = Math.max(buildingTopY, base + height + 2.45);
+          // Industrial HVAC chiller banks & mechanical penthouse tucked along solar array ends
+          const mechOffsetU = solarW * 0.5 + 1.45;
+          for (const endSign of [-1, 1]) {
+            const bankX = centerPt.x + uX * (endSign * mechOffsetU);
+            const bankZ = centerPt.z + uZ * (endSign * mechOffsetU);
+            if (rectInside(bankX, bankZ, 1.05, Math.min(3.4, solarD * 0.42))) {
+              const unitCount = solarD >= 11 ? 3 : 2;
+              for (let u = 0; u < unitCount; u++) {
+                const vOff = THREE.MathUtils.lerp(-solarD * 0.28, solarD * 0.28, u / (unitCount - 1));
+                const ux = bankX + vX * vOff;
+                const uz = bankZ + vZ * vOff;
+                if (!clearance.inside({ x: ux, z: uz }, b.footprint)) continue;
+                this.jobAddDetail(job, gigaRibMat, ux, roofDeckY + 0.42, uz, roofYaw, 1.55, 0.84, 1.35, 0, base);
+                this.jobAddDetail(job, gigaDockMat, ux, roofDeckY + 0.88, uz, roofYaw, 1.25, 0.09, 1.05, 0, base);
+                this.jobAddDetail(job, roofSnow, ux + uX * (endSign * 0.22), roofDeckY + 0.87, uz + uZ * (endSign * 0.22), roofYaw, 0.55, 0.08, 1.25, 0, base);
+              }
+              // Subtle crimson LED status strip on primary mechanical penthouse side
+              if (endSign === 1) {
+                this.jobAddDetail(job, gigaRedLedMat, bankX, roofDeckY + 0.72, bankZ, roofYaw, 1.62, 0.08, 0.10, 0, base);
+              }
+            }
+          }
+
+          // Partial snow drifts tucked softly inside the roof corners (leaving solar arrays crisp and dark)
+          const driftU = Math.min(spanU * 0.44, solarW * 0.5 + 1.1);
+          const driftV = Math.min(spanV * 0.44, solarD * 0.5 + 1.1);
+          for (const su of [-1, 1]) {
+            for (const sv of [-1, 1]) {
+              const dx = centerPt.x + uX * (su * driftU) + vX * (sv * driftV);
+              const dz = centerPt.z + uZ * (su * driftU) + vZ * (sv * driftV);
+              if (clearance.inside({ x: dx, z: dz }, b.footprint)) {
+                this.jobAddDetail(job, powder, dx, roofDeckY + 0.04, dz, roofYaw + (su * sv) * 0.4, 1.45, 0.22, 1.05, 0, base);
+              }
+            }
+          }
+
+          this.jobAddDetail(job, starGold, centerPt.x, roofDeckY + 1.75, centerPt.z, 0, 0.85, 0.85, 0.85, 0, base);
+          this.jobAddDetail(job, starGold, centerPt.x, roofDeckY + 1.75, centerPt.z, Math.PI * 0.5, 0.85, 0.85, 0.85, 0, base);
+          buildingTopY = Math.max(buildingTopY, base + roofDeckY + 2.35);
         }
       }
 
@@ -1083,9 +1465,10 @@ export class ChristmasMap {
         if (length < 0.3) continue;
         const nx = winding * dz / length, nz = -winding * dx / length;
         const yaw = Math.atan2(nx, nz);
-        const detail = (material: THREE.Material, t: number, y: number, width: number, tall: number, depth = 1, inset = 0.05) => {
+        const detail = (material: THREE.Material, t: number, y: number, width: number, tall: number, depth = 1, inset = 0.05, color?: string) => {
+          const resolvedColor = color ?? (material === frame ? frameColor : undefined);
           this.jobAddDetail(job, material, a.x + dx * t + nx * inset, y, a.z + dz * t + nz * inset, yaw, width, tall, depth, 0,
-            material === lightPool ? undefined : base);
+            material === lightPool ? undefined : base, resolvedColor);
         };
         if (!home && !isGiga) {
           detail(eave, 0.5, height - 0.14, length + 0.4, 0.34, 0.32);
@@ -1095,7 +1478,7 @@ export class ChristmasMap {
           detail(home && cottage.style.finish === 'plaster' ? cedar : frame, 0.015, height / 2, 0.22, height, 0.20);
         }
         if (home) detail(cottage.style.finish === 'plaster' ? cedar : frame, 0.985, height / 2, 0.22, height, 0.20);
-        if (cottage?.style.finish === 'logs' && length > 1) {
+        if (nearDetail && cottage?.style.finish === 'logs' && length > 1) {
           const courses = Math.round(height / 0.29);
           for (let k = 0; k < courses; k++) {
             detail(logWood, 0.5, height * (k + 0.5) / courses, length + (k % 2 ? 0.15 : 0.05),
@@ -1103,11 +1486,20 @@ export class ChristmasMap {
           }
         }
         if (isGiga && length >= 3.5) {
-          // Authentic minimalist windowless white Giga Texas facade + glowing red LED roofline parapet
+          // Authentic minimalist white Giga Texas facade + dark metallic parapet coping + partial corner snow drifts + crimson LED line
           detail(gigaDockMat, 0.5, 0.45, length + 0.10, 0.90, 0.22, 0.04);
-          detail(gigaParapetMat, 0.5, height + 0.24, length + 0.24, 0.68, 0.28, 0.06);
-          detail(roofSnow, 0.5, height + 0.62, length + 0.34, 0.16, 0.38, 0.06);
-          detail(gigaRedLedMat, 0.5, height - 0.18, length + 0.28, 0.24, 0.14, 0.16);
+          detail(gigaParapetMat, 0.5, height + 0.30, length + 0.24, 0.72, 0.30, 0.06);
+          detail(gigaCanopyDarkMat, 0.5, height + 0.69, length + 0.30, 0.09, 0.36, 0.06);
+          // Partial snow ledges tucked near parapet corners rather than blanketing the full roofline
+          const cornerSnowW = Math.min(3.4, length * 0.24);
+          if (cornerSnowW >= 1.0) {
+            detail(roofSnow, 0.14, height + 0.76, cornerSnowW, 0.11, 0.32, 0.04);
+            detail(roofSnow, 0.86, height + 0.76, cornerSnowW, 0.11, 0.32, 0.04);
+          }
+          detail(gigaRedLedMat, 0.5, height - 0.16, length + 0.28, 0.24, 0.14, 0.16);
+          if (i === mainFace) {
+            detail(gigaRedLedMat, 0.5, height + 0.62, length * 0.64, 0.09, 0.10, 0.22);
+          }
           if (length >= 6) {
             detail(lightPool, 0.5, 0.07, Math.min(length, 28), 8.5, 1, 2.8);
           }
@@ -1170,7 +1562,7 @@ export class ChristmasMap {
               detail(gigaDockMat, dtPos, 1.50, 2.6, 3.0, 0.14, 0.06);
               detail(gigaCanopyDarkMat, dtPos, 3.12, 3.0, 0.18, 1.15, 0.62);
               detail(roofSnow, dtPos, 3.24, 3.1, 0.12, 1.22, 0.62);
-              if (d % 2 === 0 && height >= 4.5) {
+              if (nearDetail && d % 2 === 0 && height >= 4.5) {
                 detail(firWreath, dtPos, 3.65, 0.28, 0.28, 0.18, 0.14);
                 detail(berries, dtPos, 3.44, 0.10, 0.08, 0.06, 0.19);
               }
@@ -1223,8 +1615,10 @@ export class ChristmasMap {
             detail(canopyWood, doorT, 2.13 + pitch / 2, 1.65, pitch, depth, depth * 0.46);
             detail(canopySnow, doorT, 2.23 + pitch / 2, 1.78, pitch, depth + 0.13, depth * 0.46);
             detail(greenGarland, doorT, 2.03, 1.56, 0.14, 0.22, depth * 0.82);
-            for (let k = -3; k <= 3; k++) {
-              detail(lightStrings[k % 2 ? 1 : 0], doorT + k * 0.21 / length, 2.01, 0.065, 0.078, 0.065, depth + 0.03);
+            if (nearDetail) {
+              for (let k = -3; k <= 3; k++) {
+                detail(lightStrings[k % 2 ? 1 : 0], doorT + k * 0.21 / length, 2.01, 0.065, 0.078, 0.065, depth + 0.03);
+              }
             }
           }
           if (porch === 'porch') {
@@ -1234,7 +1628,7 @@ export class ChristmasMap {
           }
           detail(lightPool, doorT, 0.073, 5.6, 4.2, 1, 1.25);
           detail(firWreath, doorT, 1.26, 0.19, 0.19, 0.15, 0.15);
-          detail(berries, doorT, 1.06, 0.095, 0.06, 0.044, 0.19);
+          if (nearDetail) detail(berries, doorT, 1.06, 0.095, 0.06, 0.044, 0.19);
           const lampT = doorT + 0.82 / length;
           detail(cedar, lampT, 1.74, 0.26, 0.36, 0.24, 0.16);
           detail(lantern, lampT, 1.74, 0.2, 0.23, 0.23, 0.19);
@@ -1257,12 +1651,13 @@ export class ChristmasMap {
             const slope = -winding * Math.atan2(dy, run);
             const x = a.x + dx * t, z = a.z + dz * t, y = (y1 + y2) * 0.5;
             this.jobAddDetail(job, cedar, x + nx * eaveOut, y - 0.14, z + nz * eaveOut, yaw, edgeLength + 0.55, 0.26, 0.44, slope, base);
-            this.jobAddDetail(job, frame, x + nx * (eaveOut + 0.16), y - 0.15, z + nz * (eaveOut + 0.16), yaw, edgeLength + 0.58, 0.14, 0.12, slope, base);
+            this.jobAddDetail(job, frame, x + nx * (eaveOut + 0.16), y - 0.15, z + nz * (eaveOut + 0.16), yaw, edgeLength + 0.58, 0.14, 0.12, slope, base, frameColor);
             this.jobAddDetail(job, roofSnow, x + nx * eaveOut, y + 0.06, z + nz * eaveOut, yaw, edgeLength + 0.68, 0.28, 0.52, slope, base);
             if (length < 2.5) continue;
             if (i === mainFace || Math.abs(dy) > 0.3) {
               this.jobAddDetail(job, greenGarland, x + nx * (eaveOut + 0.18), y - 0.29, z + nz * (eaveOut + 0.18), yaw, edgeLength + 0.3, 0.17, 0.17, slope, base);
             }
+            if (!nearDetail) continue;
             const lamps = Math.min(12, Math.ceil(edgeLength * 1.15));
             for (let k = 0; k < lamps; k++) {
               const u = (k + 0.5) / lamps;
@@ -1348,9 +1743,9 @@ export class ChristmasMap {
               if (cottage.style.finish !== 'plaster') {
                 for (const side of [-1, 1]) {
                   detail(frame, t + side * (wide * 0.5 + 0.06) / length, y, 0.12, 1.22, 0.14);
-                  if (cottage.style.finish === 'boards' && length > 4.5) {
+                  if (nearDetail && cottage.style.finish === 'boards' && length > 4.5) {
                     const offset = t + side * (wide * 0.5 + 0.26) / length;
-                    detail(shutters[cottage.index], offset, y, 0.30, 0.98, 0.11, 0.095);
+                    detail(shutterMat, offset, y, 0.30, 0.98, 0.11, 0.095, cottage.style.door);
                     for (const yOffset of [-0.25, 0.25]) {
                       detail(frame, offset, y + yOffset, 0.26, 0.044, 0.034, 0.16);
                     }
@@ -1358,10 +1753,12 @@ export class ChristmasMap {
                 }
               }
               if (i === mainFace || (cottage.style.finish === 'plaster' && length > 4)) {
-                detail(cedar, t, y - 0.70, wide * 0.92, 0.18, 0.28, 0.19);
-                detail(greenGarland, t, y - 0.59, wide * 0.91, 0.16, 0.25, 0.28);
-                for (const offset of [-0.28, 0, 0.28]) {
-                  detail(berries, t + offset * wide / length, y - 0.54, 0.056, 0.06, 0.056, 0.39);
+                if (nearDetail) {
+                  detail(cedar, t, y - 0.70, wide * 0.92, 0.18, 0.28, 0.19);
+                  detail(greenGarland, t, y - 0.59, wide * 0.91, 0.16, 0.25, 0.28);
+                  for (const offset of [-0.28, 0, 0.28]) {
+                    detail(berries, t + offset * wide / length, y - 0.54, 0.056, 0.06, 0.056, 0.39);
+                  }
                 }
                 detail(lightPool, t, 0.063, 4.2, 3.4, 1, 1.25);
               }
@@ -1383,7 +1780,7 @@ export class ChristmasMap {
           detail(foundationStone, 0.5, 0.24, length + 0.12, 0.48, 0.20);
           continue;
         }
-        if (isGiga) continue;
+        if (isGiga || !nearDetail) continue;
         if (length > 1) detail(cable, 0.5, height - 0.27, length, 0.03, 0.03, 0.14);
         const ornaments = Math.min(20, Math.floor(length / 0.85));
         for (let j = 0; j < ornaments; j++) {
@@ -1538,41 +1935,26 @@ export class ChristmasMap {
         signalSpots.push({ x: px, z: pz });
         const inX = hit.cx - px, inZ = hit.cz - pz;
         const inLen = Math.hypot(inX, inZ) || 1;
-        const yaw = Math.atan2(inX / inLen, inZ / inLen);
-        const sigGroup = new THREE.Group();
-        sigGroup.position.set(px, groundY(px, pz), pz);
-        sigGroup.rotation.y = yaw;
-        const mast = new THREE.Mesh(boxUnit, lampIronMat);
-        mast.scale.set(0.14, 4.7, 0.14);
-        mast.position.y = 2.35;
-        mast.castShadow = true;
-        const arm = new THREE.Mesh(boxUnit, lampIronMat);
-        arm.scale.set(0.10, 0.10, 1.85);
-        arm.position.set(0, 4.58, 0.87);
-        const housing = new THREE.Mesh(boxUnit, signalHousingMat);
-        housing.scale.set(0.32, 0.94, 0.28);
-        housing.position.set(0, 4.35, 1.72);
-        const wreath = new THREE.Mesh(fir, firWreath);
-        wreath.scale.setScalar(0.24);
-        wreath.position.set(0, 3.25, 0.08);
-        const bow = new THREE.Mesh(starGeometry, starGold);
-        bow.scale.setScalar(0.14);
-        bow.position.set(0, 3.49, 0.12);
-        const redMat = new THREE.MeshBasicMaterial({ color: 0x320c13, toneMapped: false });
-        const amberMat = new THREE.MeshBasicMaterial({ color: 0x332008, toneMapped: false });
-        const greenMat = new THREE.MeshBasicMaterial({ color: 0x38f28c, toneMapped: false });
-        job.resources.dynamicAssets.push({ material: redMat }, { material: amberMat }, { material: greenMat });
-        job.signalNodes.push({ red: redMat, amber: amberMat, green: greenMat, phase: (signalSpots.length - 1) * 6.0 });
-        const lensDefs: Array<[THREE.MeshBasicMaterial, number]> = [[redMat, 4.63], [amberMat, 4.35], [greenMat, 4.07]];
-        for (const [lMat, ly] of lensDefs) {
+        const dirX = inX / inLen, dirZ = inZ / inLen;
+        const yaw = Math.atan2(dirX, dirZ);
+        const gy = groundY(px, pz);
+        this.jobAddDetail(job, lampIronMat, px, 2.35, pz, yaw, 0.14, 4.7, 0.14, 0, gy);
+        this.jobAddDetail(job, lampIronMat, px + dirX * 0.87, 4.58, pz + dirZ * 0.87, yaw, 0.10, 0.10, 1.85, 0, gy);
+        this.jobAddDetail(job, signalHousingMat, px + dirX * 1.72, 4.35, pz + dirZ * 1.72, yaw, 0.32, 0.94, 0.28, 0, gy);
+        this.jobAddDetail(job, firWreath, px + dirX * 0.08, 3.25, pz + dirZ * 0.08, yaw, 0.24, 0.24, 0.24, 0, gy);
+        this.jobAddDetail(job, starGold, px + dirX * 0.12, 3.49, pz + dirZ * 0.12, yaw, 0.14, 0.14, 0.14, 0, gy);
+        const sigPhase = (signalSpots.length - 1) * 6.0;
+        const lensDefs: Array<['red' | 'amber' | 'green', number]> = [['red', 4.63], ['amber', 4.35], ['green', 4.07]];
+        for (const [role, ly] of lensDefs) {
           for (const sideZ of [-0.145, 0.145]) {
-            const lens = new THREE.Mesh(signalLensGeo, lMat);
-            lens.position.set(0, ly, 1.72 + sideZ);
-            sigGroup.add(lens);
+            const dist = 1.72 + sideZ;
+            detailTransform.position.set(px + dirX * dist, gy + ly, pz + dirZ * dist);
+            detailTransform.rotation.set(0, yaw, 0, 'YXZ');
+            detailTransform.scale.set(1, 1, 1);
+            detailTransform.updateMatrix();
+            job.signalLensEntries.push({ matrix: detailTransform.matrix.clone(), role, phase: sigPhase });
           }
         }
-        sigGroup.add(mast, arm, housing, wreath, bow);
-        job.group.add(sigGroup);
       }
       job.batchKeys = [...job.batches.keys()];
       job.batchMergeIdx = 0;
@@ -1647,12 +2029,14 @@ export class ChristmasMap {
 
     let marketStalls = 0;
     let snowLanterns = 0;
+    const plazaSpots: OsmPoint2D[] = [];
     for (const [wIdx, spot] of job.woodlands.entries()) {
       const hit = nearestRoadSeg(spot.x, spot.z, 60);
       const faceYaw = hit ? Math.atan2(hit.cx - spot.x, hit.cz - spot.z) : wIdx * 0.8;
       if (wIdx % 2 === 0 && marketStalls < 8 && clearance.clear(spot, 1.8) &&
         !planted.some(t => Math.hypot(t.x - spot.x, t.z - spot.z) < 3.2)) {
         marketStalls++;
+        plazaSpots.push({ x: spot.x, z: spot.z });
         const sx = spot.x, sz = spot.z;
         const cosY = Math.cos(faceYaw), sinY = Math.sin(faceYaw);
         this.jobAddDetail(job, aoShadowMat, sx, 0.021, sz, faceYaw, 3.6, 2.5);
@@ -1697,7 +2081,7 @@ export class ChristmasMap {
       this.jobAddDetail(job, snowmanSnow, x, 0.42 * scale, z, yaw, 0.46 * scale, 0.44 * scale, 0.46 * scale);
       this.jobAddDetail(job, snowmanSnow, x, 0.99 * scale, z, yaw, 0.34 * scale, 0.36 * scale, 0.34 * scale);
       this.jobAddDetail(job, snowmanSnow, x, 1.46 * scale, z, yaw, 0.28 * scale, 0.27 * scale, 0.28 * scale);
-      this.jobAddDetail(job, scarves[index % scarves.length], x, 1.25 * scale, z, yaw, 0.26 * scale, 0.19 * scale, 0.26 * scale);
+      this.jobAddDetail(job, scarfMat, x, 1.25 * scale, z, yaw, 0.26 * scale, 0.19 * scale, 0.26 * scale, 0, undefined, scarfColors[index % scarfColors.length]);
       this.jobAddDetail(job, hat, x, 1.67 * scale, z, yaw, 0.34 * scale, 0.07 * scale, 0.32 * scale);
       this.jobAddDetail(job, hat, x, 1.81 * scale, z, yaw, 0.21 * scale, 0.29 * scale, 0.21 * scale);
       this.jobAddDetail(job, carrot, x + frontX * 0.32 * scale, 1.44 * scale, z + frontZ * 0.32 * scale, yaw, 0.063 * scale, 0.23 * scale, 0.063 * scale);
@@ -1758,9 +2142,9 @@ export class ChristmasMap {
     }
 
     let boulderClusters = 0;
-    let birchCount = 0;
+    const birches: OsmPoint2D[] = [];
     let gazebos = 0;
-    for (let ring = 14; ring <= 215 && (boulderClusters < 28 || birchCount < 32); ring += 18) {
+    for (let ring = 14; ring <= 215 && (boulderClusters < 28 || birches.length < 32); ring += 18) {
       for (let step = 0; step < 12; step++) {
         const ang = (step / 12) * Math.PI * 2 + ring * 0.17;
         const px = Math.cos(ang) * ring;
@@ -1770,6 +2154,7 @@ export class ChristmasMap {
 
         if (gazebos < 4 && ring >= 26 && ring <= 145 && hash > 0.84) {
           gazebos++;
+          plazaSpots.push({ x: px, z: pz });
           landscapeOccupied.push({ x: px, z: pz });
           this.jobAddDetail(job, aoShadowMat, px, 0.022, pz, 0, 5.2, 5.2);
           for (const [cx, cz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) {
@@ -1780,10 +2165,9 @@ export class ChristmasMap {
           this.jobAddDetail(job, lampOrbMat, px, 2.42, pz, 0, 0.24, 0.24, 0.24);
           this.jobAddDetail(job, lightPool, px, 0.068, pz, 0, 7.2, 7.2);
           this.jobAddDetail(job, starGold, px, 3.68, pz, 0, 0.42, 0.42, 0.42);
-        } else if (birchCount < 28 && hash > 0.45) {
-          birchCount++;
+        } else if (birches.length < 28 && hash > 0.45) {
           landscapeOccupied.push({ x: px, z: pz });
-          planted.push({ x: px, z: pz });
+          birches.push({ x: px, z: pz });
         } else if (boulderClusters < 24) {
           boulderClusters++;
           landscapeOccupied.push({ x: px, z: pz });
@@ -1802,36 +2186,43 @@ export class ChristmasMap {
     const trunks = new THREE.InstancedMesh(trunk, bark, planted.length);
     const foliage = new THREE.InstancedMesh(spruce, pine, planted.length * tiers.length);
     const caps = new THREE.InstancedMesh(spruceSnow, snow, planted.length * tiers.length);
+    let festiveTrees = 0;
     planted.forEach((p, i) => {
       const scale = treeScale(p);
       const yaw = (p.x + p.z) * 0.7;
+      const gy = groundY(p.x, p.z);
       this.jobAddDetail(job, aoShadowMat, p.x, 0.021, p.z, 0, 3.8 * scale, 3.8 * scale);
-      detailTransform.position.set(p.x, groundY(p.x, p.z) + 0.65 * scale, p.z);
+      detailTransform.position.set(p.x, gy + 0.65 * scale, p.z);
       detailTransform.rotation.set(0, yaw, 0);
       detailTransform.scale.set(0.15 * scale, 1.3 * scale, 0.15 * scale);
       detailTransform.updateMatrix();
       trunks.setMatrixAt(i, detailTransform.matrix);
-      const festive = i % 2 === 0;
+      const nearRoad = !!clearance.nearestStreet(p, 18);
+      const nearPlaza = plazaSpots.some(q => Math.hypot(p.x - q.x, p.z - q.z) < 22);
+      const festive = (nearRoad || nearPlaza) && i % 2 === 0 && festiveTrees < 28;
       if (festive) {
+        festiveTrees++;
         this.jobAddDetail(job, starGold, p.x, 5.38 * scale, p.z, 0, 0.42 * scale, 0.42 * scale);
         this.jobAddDetail(job, starGold, p.x, 5.38 * scale, p.z, Math.PI / 2, 0.42 * scale, 0.42 * scale);
         this.jobAddDetail(job, lightPool, p.x, 0.068, p.z, 0, 7.5 * scale, 7.5 * scale);
-        this.jobAddDetail(job, marketRed, p.x + 0.9 * scale, 0.26, p.z + 0.6 * scale, yaw + 0.4, 0.48, 0.46, 0.48);
-        this.jobAddDetail(job, marketCream, p.x - 0.85 * scale, 0.22, p.z + 0.75 * scale, yaw - 0.3, 0.42, 0.38, 0.42);
-        for (const [tier, { y, r }] of tiers.entries()) {
-          const bulbs = 11 - tier * 2;
-          for (let k = 0; k < bulbs; k++) {
-            const angle = k / bulbs * Math.PI * 2 + yaw + tier * 0.24;
-            const width = (k % 3 === 0 ? 0.14 : 0.083) * scale;
-            this.jobAddDetail(job, lightStrings[(k + tier) % lightStrings.length],
-              p.x + Math.cos(angle) * r * scale * 0.9, (y + 0.36 + 0.13 * Math.sin(angle * 3)) * scale,
-              p.z + Math.sin(angle) * r * scale * 0.9, 0, width, width, width);
+        if (p.x * p.x + p.z * p.z <= 140 * 140) {
+          this.jobAddDetail(job, marketRed, p.x + 0.9 * scale, 0.26, p.z + 0.6 * scale, yaw + 0.4, 0.48, 0.46, 0.48);
+          this.jobAddDetail(job, marketCream, p.x - 0.85 * scale, 0.22, p.z + 0.75 * scale, yaw - 0.3, 0.42, 0.38, 0.42);
+          for (const [tier, { y, r }] of tiers.entries()) {
+            const bulbs = 11 - tier * 2;
+            for (let k = 0; k < bulbs; k++) {
+              const angle = k / bulbs * Math.PI * 2 + yaw + tier * 0.24;
+              const width = (k % 3 === 0 ? 0.14 : 0.083) * scale;
+              this.jobAddDetail(job, lightStrings[(k + tier) % lightStrings.length],
+                p.x + Math.cos(angle) * r * scale * 0.9, (y + 0.36 + 0.13 * Math.sin(angle * 3)) * scale,
+                p.z + Math.sin(angle) * r * scale * 0.9, 0, width, width, width);
+            }
           }
         }
       }
       tiers.forEach(({ y, r, h }, j) => {
-        detailTransform.position.set(p.x, groundY(p.x, p.z) + y * scale, p.z);
-        detailTransform.rotation.y = yaw + j * 0.24;
+        detailTransform.position.set(p.x, gy + y * scale, p.z);
+        detailTransform.rotation.set(0, yaw + j * 0.24, 0);
         detailTransform.scale.set(r * scale, h * scale, r * scale);
         detailTransform.updateMatrix();
         const index = i * tiers.length + j;
@@ -1843,11 +2234,36 @@ export class ChristmasMap {
         caps.setMatrixAt(index, detailTransform.matrix);
       });
     });
+    trunks.castShadow = true;
+    foliage.castShadow = true;
+    caps.castShadow = false;
     for (const mesh of [trunks, foliage, caps]) {
-      mesh.castShadow = true;
       mesh.receiveShadow = true;
       job.resources.instances.push(mesh);
       job.group.add(mesh);
+    }
+
+    if (birches.length) {
+      const birchTrunks = new THREE.InstancedMesh(birchTrunkGeo, birchBarkMat, birches.length);
+      const birchCrowns = new THREE.InstancedMesh(birchCrownGeo, birchCrownMat, birches.length);
+      birches.forEach((p, i) => {
+        const scale = 0.85 + Math.abs(Math.sin(p.x * 11.3 + p.z * 7.7)) * 0.42;
+        const yaw = (p.x * 0.5 + p.z * 0.9);
+        const gy = groundY(p.x, p.z);
+        this.jobAddDetail(job, aoShadowMat, p.x, 0.021, p.z, 0, 2.6 * scale, 2.6 * scale);
+        detailTransform.position.set(p.x, gy, p.z);
+        detailTransform.rotation.set(0, yaw, Math.sin(p.x + p.z) * 0.04);
+        detailTransform.scale.set(scale, scale * 1.08, scale);
+        detailTransform.updateMatrix();
+        birchTrunks.setMatrixAt(i, detailTransform.matrix);
+        birchCrowns.setMatrixAt(i, detailTransform.matrix);
+      });
+      birchTrunks.castShadow = true;
+      birchTrunks.receiveShadow = true;
+      birchCrowns.castShadow = false;
+      birchCrowns.receiveShadow = true;
+      job.resources.instances.push(birchTrunks, birchCrowns);
+      job.group.add(birchTrunks, birchCrowns);
     }
 
     job.detailKeys = [...job.details.keys()];
@@ -1860,22 +2276,41 @@ export class ChristmasMap {
     const keys = job.detailKeys ?? [];
     while (job.detailIdx < keys.length) {
       const material = keys[job.detailIdx++];
-      const matrices = job.details.get(material);
-      if (matrices?.length) {
+      const bucket = job.details.get(material);
+      if (bucket?.matrices.length) {
         const geometry = material === logWood ? logBeam : material === bayWood ? bayGeometry : material === powder ? drift : material === hat ? topHat : material === graniteMat ? graniteRock : material === snowmanSnow || material === coal ? snowBall :
-          material === carrot ? nose : scarves.includes(material as THREE.MeshStandardMaterial) ? scarf : material === starGold ? starGeometry : [lightPool, aoShadowMat, zebraMat].includes(material as THREE.MeshBasicMaterial) ? floorPlane :
+          material === carrot ? nose : material === scarfMat ? scarf : material === starGold ? starGeometry : [lightPool, aoShadowMat, zebraMat].includes(material as THREE.MeshBasicMaterial) ? floorPlane :
           material === canopyWood || material === canopySnow ? canopyGeometry : material === firWreath ? fir :
           material === spireMat ? spireCone :
           material === icicleMaterial ? icicle : [lampOrbMat, berries, ...lightStrings].includes(material as THREE.MeshBasicMaterial) ? bulb :
-          [glass, glassStar, glassCandles, glassTree, windowRound, windowArch, gigaAtriumMat, gigaSignMat, ...cottageDoors].includes(material as THREE.MeshBasicMaterial) ? pane : boxUnit;
-        const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
-        matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
-        mesh.castShadow = [powder, snowmanSnow, hat, churchWall, spireMat, lampIronMat, marketRed, graniteMat, fenceWoodMat, gigaParapetMat, gigaCanopyDarkMat].includes(material as THREE.MeshStandardMaterial);
-        mesh.receiveShadow = material !== aoShadowMat && mesh.castShadow;
+          ([glass, glassStar, glassCandles, glassTree, windowRound, windowArch, gigaAtriumMat, gigaSignMat, ...cottageDoors] as THREE.Material[]).includes(material) ? pane : boxUnit;
+        const mesh = new THREE.InstancedMesh(geometry, material, bucket.matrices.length);
+        bucket.matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
+        if (bucket.colors) {
+          for (let index = 0; index < bucket.colors.length; index++) {
+            mesh.setColorAt(index, workColor.set(bucket.colors[index]));
+          }
+          if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        }
+        mesh.castShadow = [churchWall, spireMat, gigaParapetMat, gigaCanopyDarkMat].includes(material as THREE.MeshStandardMaterial);
+        mesh.receiveShadow = material !== aoShadowMat && material !== lightPool && material !== zebraMat &&
+          (mesh.castShadow || [powder, snowmanSnow, hat, lampIronMat, marketRed, graniteMat, fenceWoodMat, cottageTrimMat, shutterMat, scarfMat].includes(material as THREE.MeshStandardMaterial));
         job.resources.instances.push(mesh);
         job.group.add(mesh);
       }
       if (job.detailIdx % 6 === 0 && performance.now() - tStart >= budgetMs) return false;
+    }
+
+    if (job.signalLensEntries.length) {
+      const lenses = new THREE.InstancedMesh(signalLensGeo, signalLensMat, job.signalLensEntries.length);
+      for (let i = 0; i < job.signalLensEntries.length; i++) {
+        lenses.setMatrixAt(i, job.signalLensEntries[i].matrix);
+        lenses.setColorAt(i, sigGreenOff);
+      }
+      if (lenses.instanceColor) lenses.instanceColor.needsUpdate = true;
+      job.resources.instances.push(lenses);
+      job.group.add(lenses);
+      job.signalLenses = lenses;
     }
 
     if (job.vents.length) {
@@ -1911,7 +2346,8 @@ export class ChristmasMap {
     this.vents = job.vents;
     this.smoke = job.smoke;
     this.buildingTargets = job.buildingTargets;
-    this.signalNodes = job.signalNodes;
+    this.signalLenses = job.signalLenses;
+    this.signalLensMeta = job.signalLensEntries.map(({ role, phase }) => ({ role, phase }));
     this.mapData.snapshot = job.snapshot;
     this.mapData.clearance = job.clearance;
     this.mapData.churches = job.churches;
@@ -1974,7 +2410,7 @@ export class ChristmasMap {
         lanterns: [],
         vents: [],
         buildingTargets: [],
-        signalNodes: [],
+        signalLensEntries: [],
         details: new Map(),
         batches: new Map(),
         buildingIndex: 0,
