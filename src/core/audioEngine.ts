@@ -359,6 +359,8 @@ export class HolidayAudioEngine {
   private lastChurchBellMs = 0;
 
   private wavDataUri: string | null = null;
+  private santaVoiceBuf: AudioBuffer | null = null;
+  private santaVoiceLoading = false;
 
   constructor() {
     try {
@@ -524,6 +526,28 @@ export class HolidayAudioEngine {
     if (this.routing === 'media' && this.mediaAudioEl) {
       this.mediaAudioEl.play().catch(() => {});
     }
+    this.preloadSantaVoice();
+  }
+
+  private santaAudioUrl(): string {
+    return new URL('audio/santa-hohoho.mp3?v=2', document.baseURI).href;
+  }
+
+  private preloadSantaVoice(): void {
+    if (this.santaVoiceBuf || this.santaVoiceLoading || !this.ctx) return;
+    this.santaVoiceLoading = true;
+    fetch(this.santaAudioUrl())
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error('Santa audio unavailable'))))
+      .then((arr) => (this.ctx ? this.ctx.decodeAudioData(arr) : Promise.reject(new Error('No audio ctx'))))
+      .then((decoded) => {
+        this.santaVoiceBuf = decoded;
+      })
+      .catch(() => {
+        // Fallback path in playHoHoHo handles offline or slow decode
+      })
+      .finally(() => {
+        this.santaVoiceLoading = false;
+      });
   }
 
   private reconnectOutput(): void {
@@ -892,13 +916,21 @@ export class HolidayAudioEngine {
   playLightWaveChime(): void {
     this.unlock();
     if (!this.ctx || this.mixMode === 'muted') return;
-    const notes = [392.0, 493.88, 587.33, 739.99, 987.77, 1174.66];
+    // Cascading 10-note Tesla Holiday Light Show arpeggio + syncopated sleigh bells
+    const notes = [392.0, 493.88, 587.33, 739.99, 783.99, 987.77, 1174.66, 1479.98, 1567.98, 1975.53];
     notes.forEach((n, idx) => {
       setTimeout(() => {
-        if (this.ctx && this.ctx.state === 'running') {
-          this.playCelestaNote(n, 0.1, 1.05);
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(n, 0.11, 1.15);
         }
-      }, idx * 75);
+      }, idx * 85);
+    });
+    [0, 170, 340, 510, 680, 920].forEach((ms, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.triggerSleighBell(0.75, (idx % 2 === 0 ? -1 : 1) * 0.45);
+        }
+      }, ms);
     });
   }
 
@@ -919,46 +951,81 @@ export class HolidayAudioEngine {
     setTimeout(() => this.triggerSleighBell(0.45, 0.3), 90);
   }
 
+  private speakHoHoHoFallback(): void {
+    const fallbackEl = new Audio(this.santaAudioUrl());
+    fallbackEl.volume = Math.max(0.55, this.volume);
+    fallbackEl.play().catch(() => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance('Ho! Ho! Ho!');
+          utter.pitch = 0.55;
+          utter.rate = 0.85;
+          utter.volume = Math.max(0.55, this.volume);
+          window.speechSynthesis.speak(utter);
+        } catch {
+          // Ignore speech synthesis errors
+        }
+      }
+    });
+  }
+
   playHoHoHo(): void {
     this.unlock();
-    if (!this.ctx || this.mixMode === 'muted') return;
-    // Cheerful warm festive 3-pulse sleigh & brass-bell "Ho-Ho-Ho!" fanfare
-    const rootNotes = [196.0, 246.94, 293.66];
-    rootNotes.forEach((f, idx) => {
+    this.preloadSantaVoice();
+    if (this.mixMode === 'muted') return;
+
+    if (this.ctx && this.santaVoiceBuf && (this.dryBus || this.reverbBus)) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.santaVoiceBuf;
+      const g = this.ctx.createGain();
+      g.gain.value = 1.25;
+      src.connect(g);
+      if (this.dryBus) g.connect(this.dryBus);
+      if (this.reverbBus) g.connect(this.reverbBus);
+      src.start();
+    } else {
+      this.speakHoHoHoFallback();
+    }
+
+    // Rhythmic sleigh-bell jingles & sparkling C-major holiday celesta chord underneath Santa's booming voice
+    [0, 260, 520, 780].forEach((ms, idx) => {
       setTimeout(() => {
-        if (!this.ctx || this.ctx.state !== 'running') return;
-        const now = this.ctx.currentTime;
-        const osc = this.ctx.createOscillator();
-        const sub = this.ctx.createOscillator();
-        osc.type = 'triangle';
-        sub.type = 'sine';
-        osc.frequency.setValueAtTime(f * 0.92, now);
-        osc.frequency.exponentialRampToValueAtTime(f, now + 0.08);
-        sub.frequency.value = f * 0.5;
-
-        const lp = this.ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 950;
-
-        const g = this.ctx.createGain();
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(0.18, now + 0.03);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-
-        osc.connect(lp);
-        sub.connect(lp);
-        lp.connect(g);
-        if (this.dryBus) g.connect(this.dryBus);
-        if (this.reverbBus) g.connect(this.reverbBus);
-
-        osc.start(now);
-        sub.start(now);
-        osc.stop(now + 0.35);
-        sub.stop(now + 0.35);
-        this.triggerSleighBell(0.75, (idx - 1) * 0.3);
-      }, idx * 230);
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.triggerSleighBell(0.76, (idx % 2 === 0 ? -1 : 1) * 0.35);
+        }
+      }, ms);
     });
-    setTimeout(() => this.playSparkleChime(), 580);
+    const holidayChord = [523.25, 659.25, 783.99, 1046.5];
+    holidayChord.forEach((freq, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(freq, 0.085, 1.15);
+        }
+      }, 120 + idx * 45);
+    });
+  }
+
+  playSnowballSplat(): void {
+    this.unlock();
+    if (!this.ctx || !this.whiteNoiseBuf || this.mixMode === 'muted') return;
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.whiteNoiseBuf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1400, now);
+    bp.frequency.exponentialRampToValueAtTime(340, now + 0.14);
+    bp.Q.value = 1.6;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.24, now + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    src.connect(bp);
+    bp.connect(g);
+    if (this.dryBus) g.connect(this.dryBus);
+    src.start(now);
+    src.stop(now + 0.18);
   }
 
   playRocketRumble(): void {

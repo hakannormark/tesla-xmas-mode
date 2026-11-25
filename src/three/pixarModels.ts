@@ -63,7 +63,7 @@ interface ReindeerAnim {
   phaseOffset: number;
   blinkTimer: number;
   blinkVal: number;
-  breathPuffs: THREE.Mesh[];
+  breathPuffs: THREE.Sprite[];
   reinSegA: THREE.Mesh;
   reinSegB: THREE.Mesh;
 }
@@ -157,7 +157,21 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   const backrestMesh = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.82, 0.24), sleighHullMat);
   backrestMesh.position.set(0, 1.08, 1.72);
   backrestMesh.rotation.x = -0.24;
-  sleighBodyGroup.add(backrestMesh);
+  const backrestTrim = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 1.46, 6, 10), goldMat);
+  backrestTrim.rotation.z = Math.PI * 0.5;
+  backrestTrim.position.set(0, 1.50, 1.82);
+  sleighBodyGroup.add(backrestMesh, backrestTrim);
+
+  // Warm Crimson/Gold Rear Sleigh Tail Lanterns + Front Golden Bow Emblem
+  const rearSleighLampMat = new THREE.MeshBasicMaterial({ color: '#ff364c', toneMapped: false });
+  for (const side of [-0.74, 0.74]) {
+    const rLamp = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), rearSleighLampMat);
+    rLamp.position.set(side, 0.98, 1.92);
+    sleighBodyGroup.add(rLamp);
+  }
+  const bowOrb = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), goldMat);
+  bowOrb.position.set(0, 1.24, -0.78);
+  sleighBodyGroup.add(bowOrb);
 
   const seatCushion = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.92, 8, 12), velvetMat);
   seatCushion.rotation.z = Math.PI * 0.5;
@@ -173,17 +187,20 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   frontCowl.position.set(0, 1.05, -0.38);
   sleighBodyGroup.add(frontCowl);
 
-  // Curved Golden Runners via TubeGeometry splines
+  // Curved Golden Runners via TubeGeometry splines + ornate curled tips & filigree side rails
   for (const rx of [-0.82, 0.82]) {
     const runnerCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(rx, 0.16, 2.02),
+      new THREE.Vector3(rx, 0.18, 2.08),
       new THREE.Vector3(rx, 0.12, 0.95),
       new THREE.Vector3(rx, 0.12, -0.45),
-      new THREE.Vector3(rx, 0.42, -1.05),
-      new THREE.Vector3(rx, 0.85, -1.16),
-      new THREE.Vector3(rx, 0.98, -0.92),
+      new THREE.Vector3(rx, 0.44, -1.08),
+      new THREE.Vector3(rx, 0.90, -1.20),
+      new THREE.Vector3(rx, 1.04, -0.90),
     ]);
-    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(runnerCurve, 28, 0.055, 8, false), runnerTrimMat));
+    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(runnerCurve, 30, 0.058, 8, false), runnerTrimMat));
+    const curlTip = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), runnerTrimMat);
+    curlTip.position.set(rx, 1.04, -0.90);
+    sleighBodyGroup.add(curlTip);
 
     for (const sz of [1.4, 0.35, -0.45]) {
       const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.46, 8), runnerTrimMat);
@@ -196,7 +213,7 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       new THREE.Vector3(rx * 1.06, 1.08, 0.65),
       new THREE.Vector3(rx * 1.06, 1.4, -0.48),
     ]);
-    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(trimCurve, 20, 0.032, 6, false), runnerTrimMat));
+    sleighBodyGroup.add(new THREE.Mesh(new THREE.TubeGeometry(trimCurve, 20, 0.035, 6, false), runnerTrimMat));
   }
 
   // Spring-Physics Swinging Brass Bow Lantern
@@ -437,12 +454,24 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   const mugTrim = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.016, 6, 10), goldMat);
   mugTrim.rotation.x = Math.PI * 0.5;
   mugTrim.position.y = 0.08;
-  const steamOrb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.06, 6, 6),
-    new THREE.MeshBasicMaterial({ color: '#eef7ff', transparent: true, opacity: 0.48 })
-  );
-  steamOrb.position.y = 0.16;
-  gloggMug.add(mugBody, mugTrim, steamOrb);
+  const steamSprites: THREE.Sprite[] = [];
+  const softGlowTex = getSoftGlowTexture();
+  for (let s = 0; s < 2; s++) {
+    const wisp = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: softGlowTex,
+        color: '#eef7ff',
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+      })
+    );
+    wisp.scale.set(0.18, 0.18, 1);
+    wisp.position.y = 0.16 + s * 0.08;
+    gloggMug.add(wisp);
+    steamSprites.push(wisp);
+  }
+  gloggMug.add(mugBody, mugTrim);
   gloggMug.visible = false;
   rightArmPivot.add(rightArmMesh, rightMitten, gloggMug);
   santaTorsoPivot.add(rightArmPivot);
@@ -458,7 +487,6 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   const muzzleMat = new THREE.MeshPhysicalMaterial({ color: '#d8b490', roughness: 0.75 });
   const antlerMat = new THREE.MeshStandardMaterial({ color: '#e6caa2', roughness: 0.55 });
   const hoofMat = new THREE.MeshStandardMaterial({ color: '#1b1614', roughness: 0.35 });
-  const puffMat = new THREE.MeshBasicMaterial({ color: '#eef7ff', transparent: true, opacity: 0.42 });
 
   const reinSegGeo = new THREE.CylinderGeometry(0.015, 0.015, 1, 5);
   reinSegGeo.rotateX(Math.PI * 0.5);
@@ -472,7 +500,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
   const reindeerRigs: ReindeerAnim[] = [];
   let rudolphNoseHalo: THREE.Sprite | null = null;
-  let rudolphNoseLight: THREE.PointLight | null = null;
+  let rudolphGroundGlow: THREE.Mesh | null = null;
+  let rudolphGroundGlowMat: THREE.MeshBasicMaterial | null = null;
   const hoofSparkles: THREE.Sprite[] = [];
 
   for (const slot of deerSlots) {
@@ -605,21 +634,32 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
       rudolphNoseHalo = new THREE.Sprite(
         new THREE.SpriteMaterial({
-          map: getSoftGlowTexture(),
+          map: softGlowTex,
           color: '#ff364c',
           transparent: true,
-          opacity: 0.65,
+          opacity: 0.72,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         })
       );
-      rudolphNoseHalo.scale.set(0.95, 0.95, 1);
+      rudolphNoseHalo.scale.set(1.05, 1.05, 1);
       rudolphNoseHalo.position.set(0, 0.34, -0.54);
       headGroup.add(rudolphNoseHalo);
 
-      rudolphNoseLight = new THREE.PointLight('#ff3b4c', 5.5, 16);
-      rudolphNoseLight.position.set(0, 0.42, -0.82);
-      headGroup.add(rudolphNoseLight);
+      rudolphGroundGlowMat = new THREE.MeshBasicMaterial({
+        map: softGlowTex,
+        color: '#ff3248',
+        transparent: true,
+        opacity: 0.34,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      rudolphGroundGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(4.8, 6.2).rotateX(-Math.PI * 0.5),
+        rudolphGroundGlowMat
+      );
+      rudolphGroundGlow.position.set(slot.x, 0.08, slot.z - 1.55);
+      root.add(rudolphGroundGlow);
     } else {
       const darkNose = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), hoofMat);
       darkNose.position.set(0, 0.34, -0.47);
@@ -668,9 +708,17 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     const bl = makeLeg(-0.15, 0.32);
     const br = makeLeg(0.15, 0.32);
 
-    const breathPuffs: THREE.Mesh[] = [];
+    const breathPuffs: THREE.Sprite[] = [];
     for (let p = 0; p < 3; p++) {
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), puffMat.clone());
+      const puff = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: softGlowTex,
+          color: '#e8f5ff',
+          transparent: true,
+          opacity: 0.36,
+          depthWrite: false,
+        })
+      );
       puff.visible = false;
       headGroup.add(puff);
       breathPuffs.push(puff);
@@ -725,6 +773,8 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   let currentTheme: HolidayThemeId = 'classic';
 
   const windVec = new THREE.Vector3();
+  const scarfWindVec = new THREE.Vector3();
+  const hatWindVec = new THREE.Vector3();
   const hatAnchor = new THREE.Vector3(0, 0.22, 0);
   const scarfAnchor = new THREE.Vector3(0.16, 0.65, 0.06);
   const reinStart = new THREE.Vector3();
@@ -792,11 +842,14 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       giftPackGroup.position.y = 1.56 + Math.abs(Math.sin(gallopAccum * 0.5)) * (0.04 + speedNorm * 0.07);
 
       const turboBoost = Math.max(0, (speedNorm - 0.55) / 0.45) + (giftTimer > 0 ? 0.5 : 0);
-      if (rudolphNoseHalo && rudolphNoseLight) {
+      if (rudolphNoseHalo && rudolphGroundGlow && rudolphGroundGlowMat) {
         const pulse = 1 + Math.sin(time * 9) * 0.15 + turboBoost * 1.15;
-        rudolphNoseHalo.scale.setScalar(0.95 * pulse);
-        rudolphNoseHalo.material.opacity = Math.min(0.96, 0.52 + turboBoost * 0.38);
-        rudolphNoseLight.intensity = 5.5 + turboBoost * 9.0;
+        rudolphNoseHalo.scale.setScalar(1.05 * pulse);
+        rudolphNoseHalo.material.opacity = Math.min(0.96, 0.58 + turboBoost * 0.36);
+        rudolphGroundGlow.position.y = 0.08 - root.position.y;
+        const liftFade = Math.max(0.2, 1 - root.position.y * 0.22);
+        rudolphGroundGlowMat.opacity =
+          Math.min(0.74, (0.28 + turboBoost * 0.32 + Math.sin(time * 9) * 0.05) * liftFade);
       }
       hoofSparkles.forEach((hg, idx) => {
         hg.material.opacity = turboBoost > 0.2 ? (0.3 + 0.25 * Math.sin(time * 12 + idx)) * Math.min(1, turboBoost) : 0;
@@ -820,7 +873,14 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       if (isWavingAtRedLight) {
         rightArmPivot.rotation.z = -0.85 + Math.sin(time * 4.2) * 0.28;
         rightArmPivot.rotation.x = 0.65;
-        steamOrb.position.y = 0.14 + ((time * 0.45) % 0.16);
+        for (let s = 0; s < steamSprites.length; s++) {
+          const cyc = (time * 0.55 + s * 0.5) % 1;
+          const sp = steamSprites[s];
+          sp.position.set(Math.sin(cyc * 4 + s) * 0.025, 0.12 + cyc * 0.26, 0);
+          const sc = 0.14 + cyc * 0.22;
+          sp.scale.set(sc, sc, 1);
+          sp.material.opacity = Math.sin(cyc * Math.PI) * 0.45;
+        }
       } else {
         rightArmPivot.rotation.z += (0 - rightArmPivot.rotation.z) * Math.min(1, dt * 6);
         rightArmPivot.rotation.x += (0 - rightArmPivot.rotation.x) * Math.min(1, dt * 6);
@@ -860,15 +920,32 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       for (const eye of santaEyes) eye.scale.y = eyeSquash;
       for (const cheek of santaCheeks) cheek.position.y = -0.04 + smileW * 0.022;
 
-      // Secondary cloth/wind simulation for Hat Tail & Scarf!
+      // Secondary cloth/wind simulation for Hat Tail & Scarf (rotated into torso/head local space!)
       windVec.set(-turnRate * 4.5, 0.6 + speedNorm * 1.6, 3.2 + speedNorm * 14.0);
-      hatWindChain.update(dt, hatAnchor, windVec, -3.2);
+      const torsoYaw = santaTorsoPivot.rotation.y;
+      const cosT = Math.cos(-torsoYaw);
+      const sinT = Math.sin(-torsoYaw);
+      scarfWindVec.set(
+        windVec.x * cosT + windVec.z * sinT,
+        windVec.y,
+        -windVec.x * sinT + windVec.z * cosT
+      );
+      const headTotalYaw = torsoYaw + santaHeadPivot.rotation.y;
+      const cosH = Math.cos(-headTotalYaw);
+      const sinH = Math.sin(-headTotalYaw);
+      hatWindVec.set(
+        windVec.x * cosH + windVec.z * sinH,
+        windVec.y,
+        -windVec.x * sinH + windVec.z * cosH
+      );
+
+      hatWindChain.update(dt, hatAnchor, hatWindVec, -3.2, time);
       for (let i = 0; i < hatSegs.length; i++) {
         orientSegmentBetween(hatSegs[i], hatWindChain.points[i], hatWindChain.points[i + 1]);
       }
       pom.position.copy(hatWindChain.points[hatWindChain.points.length - 1]);
 
-      scarfWindChain.update(dt, scarfAnchor, windVec, -2.8);
+      scarfWindChain.update(dt, scarfAnchor, scarfWindVec, -2.8, time);
       for (let i = 0; i < scarfSegs.length; i++) {
         orientSegmentBetween(scarfSegs[i], scarfWindChain.points[i], scarfWindChain.points[i + 1]);
       }
@@ -932,10 +1009,10 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
           puff.visible = showBreath;
           if (!showBreath) return;
           const cyc = (time * 0.6 + r.phaseOffset + pIdx * 0.33) % 1;
-          puff.position.set(Math.sin(cyc * 4) * 0.05, 0.32 + cyc * 0.42, -0.52 - cyc * 0.48);
-          const sc = (0.65 + cyc * 1.85) * breathMul;
-          puff.scale.set(sc, sc, sc);
-          (puff.material as THREE.MeshBasicMaterial).opacity = Math.min(0.65, (1 - cyc) * 0.42 * breathMul);
+          puff.position.set(Math.sin(cyc * 4) * 0.05, 0.32 + cyc * 0.45, -0.52 - cyc * 0.52);
+          const sc = (0.20 + cyc * 0.52) * breathMul;
+          puff.scale.set(sc, sc, 1);
+          puff.material.opacity = Math.min(0.62, Math.sin(cyc * Math.PI) * 0.46 * breathMul);
         });
 
         // Dynamic sagging leather/gold reins connecting Santa's mittens to each reindeer's collar!
@@ -1001,12 +1078,19 @@ export function createPixarCottage(seed = 0): PixarCottageHandle {
   chim.position.set(1.05, 3.85, 0.65);
   group.add(chim);
 
-  const smokePuffs: THREE.Mesh[] = [];
+  const smokeTex = getSoftGlowTexture();
+  const smokePuffs: THREE.Sprite[] = [];
   for (let i = 0; i < 4; i++) {
-    const sm = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 8, 8),
-      new THREE.MeshBasicMaterial({ color: '#dbe8fa', transparent: true, opacity: 0.26 })
+    const sm = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: smokeTex,
+        color: '#dbe8fa',
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+      })
     );
+    sm.scale.set(0.7, 0.7, 1);
     group.add(sm);
     smokePuffs.push(sm);
   }
@@ -1098,13 +1182,13 @@ export function createPixarCottage(seed = 0): PixarCottageHandle {
       smokePuffs.forEach((puff, idx) => {
         const p = (time * 0.34 + idx * 0.25 + seed * 0.13) % 1;
         puff.position.set(
-          1.05 + Math.sin(p * 4 + seed) * 0.25 - p * 0.35,
-          4.6 + p * 2.4,
-          0.65 + Math.cos(p * 3) * 0.18
+          1.05 + Math.sin(p * 4 + seed) * 0.28 - p * 0.42,
+          4.65 + p * 2.55,
+          0.65 + Math.cos(p * 3) * 0.2
         );
-        const s = 0.7 + p * 2.0;
-        puff.scale.set(s, s, s);
-        (puff.material as THREE.MeshBasicMaterial).opacity = (1 - p) * 0.26;
+        const s = 0.55 + p * 1.65;
+        puff.scale.set(s, s, 1);
+        puff.material.opacity = Math.sin(p * Math.PI) * 0.36;
       });
     },
   };
@@ -1361,32 +1445,33 @@ export function createSwedishRoadSign(): SwedishRoadSignHandle {
   });
   const snowMat = createSparklingSnowMaterial('#b8cee8');
 
-  for (const px of [-1.45, 1.45]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.1, 8), poleMat);
-    pole.position.set(px, 2.05, 0);
+  for (const px of [-2.15, 2.15]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 5.1, 8), poleMat);
+    pole.position.set(px, 2.55, 0);
     group.add(pole);
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 224;
+  canvas.width = 1024;
+  canvas.height = 448;
   const ctx = canvas.getContext('2d')!;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
 
   const board = new THREE.Mesh(
-    new THREE.BoxGeometry(3.8, 1.68, 0.14),
+    new THREE.BoxGeometry(5.45, 2.42, 0.18),
     poleMat
   );
-  board.position.set(0, 3.2, 0);
-  const snowTop = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.16, 0.22), snowMat);
-  snowTop.position.set(0, 4.1, 0);
+  board.position.set(0, 3.85, 0);
+  const snowTop = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.2, 0.28), snowMat);
+  snowTop.position.set(0, 5.12, 0);
   group.add(board, snowTop);
 
   const faceMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
   for (const side of [-1, 1]) {
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(3.72, 1.6), faceMat);
-    face.position.set(0, 3.2, side * 0.08);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(5.32, 2.28), faceMat);
+    face.position.set(0, 3.85, side * 0.1);
     if (side < 0) face.rotation.y = Math.PI;
     group.add(face);
   }
@@ -1399,42 +1484,42 @@ export function createSwedishRoadSign(): SwedishRoadSignHandle {
     lastKey = key;
 
     // Trafikverket Motorway Blue + Crisp White Border
-    ctx.fillStyle = '#00529b';
+    ctx.fillStyle = '#004e98';
     ctx.beginPath();
-    ctx.roundRect(4, 4, 504, 216, 16);
+    ctx.roundRect(8, 8, 1008, 432, 28);
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 7;
-    ctx.strokeRect(10, 10, 492, 204);
+    ctx.lineWidth = 14;
+    ctx.strokeRect(18, 18, 988, 412);
 
-    // Yellow/Green European Route Badge top right (if road code like E4/255 found)
+    // Yellow/Green European Route Badge top right
     const routeMatch = roadName.match(/\b(E\d+|\d{2,3})\b/);
-    const badgeText = routeMatch ? routeMatch[1] : 'E4';
+    const badgeText = routeMatch ? routeMatch[1] : 'N';
     ctx.fillStyle = badgeText.startsWith('E') ? '#0b8a3a' : '#f2c12e';
     ctx.beginPath();
-    ctx.roundRect(418, 22, 68, 34, 6);
+    ctx.roundRect(840, 38, 136, 68, 12);
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 5;
     ctx.stroke();
     ctx.fillStyle = badgeText.startsWith('E') ? '#ffffff' : '#111827';
-    ctx.font = '800 20px Inter, sans-serif';
+    ctx.font = '800 40px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(badgeText, 452, 40);
+    ctx.fillText(badgeText, 908, 74);
 
-    // 3 Directional Lines
+    // 3 High-Contrast Oversized Directional Lines
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffffff';
-    ctx.font = '700 29px Inter, sans-serif';
-    ctx.fillText(`↑  Nordpolen  ${npRounded.toLocaleString()} km`, 26, 56, 382);
+    ctx.font = '800 84px Inter, sans-serif';
+    ctx.fillText(`↑ Nordpolen ${npRounded.toLocaleString('sv-SE')} km`, 46, 108, 770);
 
-    ctx.font = '700 28px Inter, sans-serif';
-    ctx.fillText(`→  ${placeName.slice(0, 16)}  2 km`, 26, 112, 456);
+    ctx.font = '800 82px Inter, sans-serif';
+    ctx.fillText(`→ ${placeName}`, 46, 224, 920);
 
-    ctx.fillStyle = '#ffe588';
-    ctx.font = '700 24px Inter, sans-serif';
-    ctx.fillText('🎅  Glögg & Pepparkakor  500 m', 26, 168, 456);
+    ctx.fillStyle = '#ffeb85';
+    ctx.font = '800 72px Inter, sans-serif';
+    ctx.fillText(roadName, 46, 342, 920);
 
     tex.needsUpdate = true;
   };
@@ -1457,43 +1542,44 @@ export function createHolidayRoadSign(): HolidayRoadSignHandle {
   const woodMat = new THREE.MeshStandardMaterial({ color: '#4d281a', roughness: 0.85 });
   const snowMat = createSparklingSnowMaterial('#b8cee8');
 
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 3.6, 8), woodMat);
-  post.position.y = 1.8;
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.21, 4.6, 8), woodMat);
+  post.position.y = 2.3;
   group.add(post);
 
-  const board = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.25, 0.18), woodMat);
-  board.position.set(0, 2.75, 0);
+  const board = new THREE.Mesh(new THREE.BoxGeometry(5.05, 1.92, 0.2), woodMat);
+  board.position.set(0, 3.45, 0);
   group.add(board);
 
   // Snow cap & mini glowing brass lantern on signpost top
-  const snowCap = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.16, 0.26), snowMat);
-  snowCap.position.set(0, 3.44, 0);
+  const snowCap = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.22, 0.32), snowMat);
+  snowCap.position.set(0, 4.5, 0);
   group.add(snowCap);
 
   const lantern = new THREE.Mesh(
-    new THREE.SphereGeometry(0.14, 8, 8),
+    new THREE.SphereGeometry(0.18, 8, 8),
     new THREE.MeshBasicMaterial({ color: '#ffe59c', toneMapped: false })
   );
-  lantern.position.set(-1.5, 3.62, 0.15);
+  lantern.position.set(-2.25, 4.72, 0.2);
   group.add(lantern);
 
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 192;
+  canvas.width = 1024;
+  canvas.height = 384;
   const ctx = canvas.getContext('2d')!;
   const signTex = new THREE.CanvasTexture(canvas);
   signTex.colorSpace = THREE.SRGBColorSpace;
+  signTex.anisotropy = 8;
 
   const signFaceMat = new THREE.MeshStandardMaterial({
     map: signTex,
     emissiveMap: signTex,
-    emissive: new THREE.Color('#ffd990'),
-    emissiveIntensity: 0.65,
-    roughness: 0.4,
+    emissive: new THREE.Color('#ffe09e'),
+    emissiveIntensity: 0.9,
+    roughness: 0.35,
   });
   for (const side of [-1, 1]) {
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.12), signFaceMat);
-    face.position.set(0, 2.75, side * 0.1);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(4.85, 1.78), signFaceMat);
+    face.position.set(0, 3.45, side * 0.12);
     if (side < 0) face.rotation.y = Math.PI;
     group.add(face);
   }
@@ -1504,24 +1590,24 @@ export function createHolidayRoadSign(): HolidayRoadSignHandle {
     if (key === lastKey) return;
     lastKey = key;
 
-    const grad = ctx.createLinearGradient(0, 0, 512, 192);
+    const grad = ctx.createLinearGradient(0, 0, 1024, 384);
     grad.addColorStop(0, '#5e1020');
     grad.addColorStop(1, '#360914');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 192);
+    ctx.fillRect(0, 0, 1024, 384);
     ctx.strokeStyle = '#f6cf78';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(10, 10, 492, 172);
+    ctx.lineWidth = 14;
+    ctx.strokeRect(18, 18, 988, 348);
 
     ctx.fillStyle = '#fff6df';
-    ctx.font = '700 40px "Cinzel", Georgia, serif';
+    ctx.font = '800 94px "Cinzel", Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(title.slice(0, 22), 256, 72, 468);
+    ctx.fillText(title.slice(0, 22), 512, 138, 920);
 
-    ctx.fillStyle = '#ffcf76';
-    ctx.font = '600 24px Inter, sans-serif';
-    ctx.fillText(subtitle.slice(0, 32), 256, 130, 468);
+    ctx.fillStyle = '#ffd982';
+    ctx.font = '800 72px Inter, sans-serif';
+    ctx.fillText(subtitle.slice(0, 30), 512, 266, 920);
     signTex.needsUpdate = true;
   };
 
@@ -1546,6 +1632,102 @@ export function createFrozenLakePlane(width = 80, length = 80): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, length), mat);
   mesh.rotation.x = -Math.PI * 0.5;
   return mesh;
+}
+
+export interface MagicalFloatingSignHandle {
+  group: THREE.Group;
+  setDirections(northPoleKm: number, placeName: string, roadName: string): void;
+}
+
+/**
+ * Compact, levitating frosted aurora-crystal holiday sign with golden filigree frame & zero street posts.
+ */
+export function createMagicalFloatingSign(): MagicalFloatingSignHandle {
+  const group = new THREE.Group();
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: '#ffd67a',
+    metalness: 0.85,
+    roughness: 0.2,
+    emissive: '#6e4a00',
+    emissiveIntensity: 0.45,
+  });
+  const crystalMat = new THREE.MeshBasicMaterial({
+    color: '#7ee8ff',
+    transparent: true,
+    opacity: 0.85,
+    toneMapped: false,
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 768;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+
+  const faceMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+
+  const panelW = 3.35;
+  const panelH = 1.12;
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), faceMat);
+  panel.position.y = 3.75;
+  group.add(panel);
+
+  // Delicate floating golden filigree frame bars (top & bottom) + tiny corner stars
+  for (const sy of [-panelH * 0.52, panelH * 0.52]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(panelW + 0.12, 0.05, 0.06), frameMat);
+    bar.position.set(0, 3.75 + sy, 0);
+    group.add(bar);
+  }
+  for (const sx of [-panelW * 0.52, panelW * 0.52]) {
+    const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), crystalMat);
+    star.position.set(sx, 3.75, 0);
+    group.add(star);
+  }
+
+  let lastKey = '';
+  const setDirections = (northPoleKm: number, placeName: string, roadName: string) => {
+    const npRounded = Math.round(northPoleKm);
+    const key = `${npRounded}|${placeName}|${roadName}`;
+    if (key === lastKey) return;
+    lastKey = key;
+
+    ctx.clearRect(0, 0, 768, 256);
+    const grad = ctx.createLinearGradient(0, 0, 768, 256);
+    grad.addColorStop(0, 'rgba(14, 28, 64, 0.84)');
+    grad.addColorStop(0.55, 'rgba(22, 52, 88, 0.80)');
+    grad.addColorStop(1, 'rgba(42, 20, 62, 0.84)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 748, 236, 40);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 222, 130, 0.92)';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff9e6';
+    ctx.font = '800 50px "Cinzel", Georgia, serif';
+    ctx.fillText(`✦ ${placeName.slice(0, 18)} · ${roadName.slice(0, 18)}`, 384, 92, 690);
+
+    ctx.fillStyle = '#8cf2ff';
+    ctx.font = '700 42px Inter, sans-serif';
+    ctx.fillText(`Nordpolen ${npRounded.toLocaleString('sv-SE')} km ✨`, 384, 174, 690);
+
+    tex.needsUpdate = true;
+  };
+
+  setDirections(3407, 'Djursholm', 'Lokevägen');
+  return { group, setDirections };
 }
 
 export interface PixarOptimusHandle {

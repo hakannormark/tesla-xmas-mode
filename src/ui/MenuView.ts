@@ -3,7 +3,7 @@ import { i18n, SceneId } from '../core/i18n';
 import { DriveSource } from '../core/telemetry';
 
 export interface MenuCallbacks {
-  onSelectMode: (id: SceneId) => void;
+  onSelectMode: (id: SceneId, winterLight?: boolean) => void;
   onDriveSourceChange: (source: DriveSource) => void;
   onAudioMixChange: (mix: AudioMixMode) => void;
   onSoundCheckOpen: () => void;
@@ -24,7 +24,7 @@ export class MenuView {
   private bgCanvas: HTMLCanvasElement;
   private bgCtx: CanvasRenderingContext2D;
   private safetyOverlay: HTMLElement;
-  private safetyAccepted = false;
+  private safetyAccepted = document.documentElement.hasAttribute('data-skip-intro');
 
   private thumbCanvases = new Map<SceneId, HTMLCanvasElement>();
   private snow: MenuSnow[] = [];
@@ -97,6 +97,7 @@ export class MenuView {
           </div>
         </div>
         <div class="menu-header-actions">
+          ${document.documentElement.hasAttribute('data-skip-intro') ? `<a class="pill-btn" href="./">${locale === 'sv' ? 'Till 3D-kartan' : 'Back to the 3D map'}</a>` : ''}
           <button type="button" class="pill-btn" data-action="sound-test">🔊 ${t.soundTestBtn}</button>
           <div class="segmented-sm" role="group" aria-label="${t.languageLabel}">
             <button type="button" class="${locale === 'sv' ? 'active' : ''}" data-lang="sv">SV</button>
@@ -105,6 +106,10 @@ export class MenuView {
         </div>
       </header>
 
+      <button type="button" class="winter-entry" data-winter-light>
+        <strong>${locale === 'sv' ? 'Vinterljus · Djursholm' : 'Winter Light · Djursholm'}</strong>
+        <span>North Pole Flight Deck · ${locale === 'sv' ? 'Filmisk prototyp' : 'Cinematic prototype'} →</span>
+      </button>
       <main class="mode-grid">
         ${MODE_ORDER.map((id) => {
           const m = t.modes[id];
@@ -152,6 +157,11 @@ export class MenuView {
     gallery.querySelectorAll<HTMLCanvasElement>('canvas[data-thumb]').forEach((c) => {
       const id = c.dataset.thumb as SceneId;
       this.thumbCanvases.set(id, c);
+    });
+
+    gallery.querySelector('[data-winter-light]')?.addEventListener('click', () => {
+      this.audio.unlock();
+      this.callbacks.onSelectMode('flight3d', true);
     });
 
     // Attach event handlers

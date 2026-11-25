@@ -1,5 +1,12 @@
 export interface LiveFlight {
   callsign: string;
+  hex?: string;
+  aircraft?: string;
+  registration?: string;
+  airline?: string;
+  originLabel?: string;
+  destinationLabel?: string;
+  routeResolved?: boolean;
   altitudeM: number;
   headingDeg: number;
   groundspeedKts: number;
@@ -32,6 +39,37 @@ export interface LiveWorldState {
   flightsLive: boolean;
 }
 
+interface AdsbDbAirport {
+  municipality?: string;
+  name?: string;
+  iata_code?: string;
+  icao_code?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+interface AdsbDbFlightRoute {
+  callsign?: string;
+  callsign_iata?: string;
+  airline?: { name?: string };
+  origin?: AdsbDbAirport;
+  destination?: AdsbDbAirport;
+}
+
+interface RegionalFlightSeed {
+  callsign: string;
+  airline: string;
+  aircraft: string;
+  originLabel: string;
+  destinationLabel: string;
+  altitudeM: number;
+  groundspeedKts: number;
+  baseBearing: number;
+  headingDeg: number;
+  distanceKm: number;
+  resolved: boolean;
+}
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -49,6 +87,39 @@ function bearingDegBetween(lat1: number, lon1: number, lat2: number, lon2: numbe
   const y = Math.sin(dLon) * Math.cos(phi2);
   const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Dead-reckons an aircraft's geographic coordinates forward from its last ADS-B fix
+ * using its reported track (degrees true) and groundspeed (knots).
+ */
+function deadReckonLatLon(
+  lat: number,
+  lon: number,
+  trackDeg: number,
+  groundspeedKts: number,
+  elapsedSec: number
+): { lat: number; lon: number } {
+  const clampedSec = Math.max(0, Math.min(45, elapsedSec));
+  if (clampedSec <= 0 || groundspeedKts <= 5 || !Number.isFinite(trackDeg)) {
+    return { lat, lon };
+  }
+  const distM = groundspeedKts * 0.514444 * clampedSec;
+  const rad = (trackDeg * Math.PI) / 180;
+  const dNorthM = Math.cos(rad) * distM;
+  const dEastM = Math.sin(rad) * distM;
+  const cosLat = Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+  return {
+    lat: lat + dNorthM / 111320,
+    lon: lon + dEastM / (111320 * cosLat),
+  };
+}
+
+function formatAirport(a?: AdsbDbAirport): string {
+  if (!a) return 'Okänd';
+  const city = a.municipality || a.name;
+  const code = a.iata_code || a.icao_code;
+  return [city, code].filter(Boolean).join(' · ') || 'Okänd';
 }
 
 function formatCountdown(netIso: string | null): { label: string; isToday: boolean } {
@@ -72,44 +143,63 @@ function formatCountdown(netIso: string | null): { label: string; isToday: boole
   return { label: `T-${hours}h ${String(mins).padStart(2, '0')}m`, isToday };
 }
 
-const FALLBACK_FLIGHTS: LiveFlight[] = [
-  {
-    callsign: 'SK142',
-    altitudeM: 9400,
-    headingDeg: 12,
-    groundspeedKts: 445,
-    bearingDeg: 325,
-    distanceKm: 18,
-    isLive: false,
-  },
-  {
-    callsign: 'DY4012',
-    altitudeM: 8100,
-    headingDeg: 295,
-    groundspeedKts: 410,
-    bearingDeg: 42,
-    distanceKm: 26,
-    isLive: false,
-  },
-];
+function pickRegionalSeeds(lat: number, lon: number): RegionalFlightSeed[] {
+  if (lat > 54 && lon > 4 && lon < 32) {
+    return [
+      { callsign: 'SAS403', airline: 'SAS', aircraft: 'Starman Roadster', originLabel: 'Stockholm · ARN', destinationLabel: 'Köpenhamn · CPH', altitudeM: 9600, groundspeedKts: 448, baseBearing: 124, headingDeg: 205, distanceKm: 18, resolved: false },
+      { callsign: 'SAS142', airline: 'SAS', aircraft: 'Starman Roadster', originLabel: 'Oslo · OSL', destinationLabel: 'Stockholm · ARN', altitudeM: 10200, groundspeedKts: 462, baseBearing: 162, headingDeg: 95, distanceKm: 21, resolved: false },
+      { callsign: 'FIN801', airline: 'Finnair', aircraft: 'Starman Roadster', originLabel: 'Helsingfors · HEL', destinationLabel: 'London · LHR', altitudeM: 10900, groundspeedKts: 485, baseBearing: 248, headingDeg: 245, distanceKm: 24, resolved: false },
+      { callsign: 'DLH801', airline: 'Lufthansa', aircraft: 'Starman Roadster', originLabel: 'Stockholm · ARN', destinationLabel: 'Frankfurt · FRA', altitudeM: 8800, groundspeedKts: 430, baseBearing: 22, headingDeg: 192, distanceKm: 19, resolved: false },
+    ];
+  }
+  if (lon > -15 && lon < 40 && lat > 34) {
+    return [
+      { callsign: 'BAW781', airline: 'British Airways', aircraft: 'Starman Roadster', originLabel: 'Stockholm · ARN', destinationLabel: 'London · LHR', altitudeM: 10100, groundspeedKts: 455, baseBearing: 126, headingDeg: 235, distanceKm: 18, resolved: false },
+      { callsign: 'KLM1109', airline: 'KLM', aircraft: 'Starman Roadster', originLabel: 'Amsterdam · AMS', destinationLabel: 'Stockholm · ARN', altitudeM: 9400, groundspeedKts: 442, baseBearing: 168, headingDeg: 45, distanceKm: 22, resolved: false },
+      { callsign: 'AFR1062', airline: 'Air France', aircraft: 'Starman Roadster', originLabel: 'Paris · CDG', destinationLabel: 'Stockholm · ARN', altitudeM: 10600, groundspeedKts: 450, baseBearing: 256, headingDeg: 35, distanceKm: 24, resolved: false },
+      { callsign: 'DLH400', airline: 'Lufthansa', aircraft: 'Starman Roadster', originLabel: 'Frankfurt · FRA', destinationLabel: 'New York · JFK', altitudeM: 11200, groundspeedKts: 492, baseBearing: 28, headingDeg: 295, distanceKm: 20, resolved: false },
+    ];
+  }
+  if (lon < -35) {
+    return [
+      { callsign: 'UAL1', airline: 'United Airlines', aircraft: 'Starman Roadster', originLabel: 'San Francisco · SFO', destinationLabel: 'Singapore · SIN', altitudeM: 10900, groundspeedKts: 495, baseBearing: 120, headingDeg: 290, distanceKm: 18, resolved: false },
+      { callsign: 'DAL40', airline: 'Delta Air Lines', aircraft: 'Starman Roadster', originLabel: 'Los Angeles · LAX', destinationLabel: 'Sydney · SYD', altitudeM: 10400, groundspeedKts: 488, baseBearing: 166, headingDeg: 235, distanceKm: 22, resolved: false },
+      { callsign: 'AAL100', airline: 'American Airlines', aircraft: 'Starman Roadster', originLabel: 'New York · JFK', destinationLabel: 'London · LHR', altitudeM: 11100, groundspeedKts: 505, baseBearing: 252, headingDeg: 55, distanceKm: 24, resolved: false },
+      { callsign: 'ACA872', airline: 'Air Canada', aircraft: 'Starman Roadster', originLabel: 'Toronto · YYZ', destinationLabel: 'Frankfurt · FRA', altitudeM: 10600, groundspeedKts: 480, baseBearing: 24, headingDeg: 50, distanceKm: 20, resolved: false },
+    ];
+  }
+  return [
+    { callsign: 'UAE1', airline: 'Emirates', aircraft: 'Starman Roadster', originLabel: 'Dubai · DXB', destinationLabel: 'London · LHR', altitudeM: 11200, groundspeedKts: 502, baseBearing: 122, headingDeg: 305, distanceKm: 19, resolved: false },
+    { callsign: 'SIA308', airline: 'Singapore Airlines', aircraft: 'Starman Roadster', originLabel: 'Singapore · SIN', destinationLabel: 'London · LHR', altitudeM: 10800, groundspeedKts: 490, baseBearing: 164, headingDeg: 315, distanceKm: 23, resolved: false },
+    { callsign: 'ANA211', airline: 'ANA', aircraft: 'Starman Roadster', originLabel: 'Tokyo · HND', destinationLabel: 'London · LHR', altitudeM: 10900, groundspeedKts: 486, baseBearing: 244, headingDeg: 335, distanceKm: 22, resolved: false },
+    { callsign: 'QFA1', airline: 'Qantas', aircraft: 'Starman Roadster', originLabel: 'Sydney · SYD', destinationLabel: 'London · LHR', altitudeM: 11500, groundspeedKts: 498, baseBearing: 26, headingDeg: 310, distanceKm: 20, resolved: false },
+  ];
+}
 
-interface RawPilot {
-  callsign?: string;
-  latitude?: number;
-  longitude?: number;
-  altitude?: number;
-  groundspeed?: number;
-  heading?: number;
+interface AircraftReport {
+  hex: string;
+  flight?: string;
+  lat?: number;
+  lon?: number;
+  alt_baro?: number | string;
+  gs?: number;
+  track?: number;
+  t?: string;
+  r?: string;
+  seen_pos?: number;
 }
 
 export class LiveWorldDataManager {
-  private lastLat = 59.3322;
-  private lastLon = 18.0815;
+  private lastLat = 59.3992;
+  private lastLon = 18.0894;
 
   private lastKpFetchMs = 0;
   private lastIssFetchMs = 0;
   private lastSpaceXFetchMs = 0;
   private lastFlightsFetchMs = 0;
+  private lastRouteSeedMs = 0;
+  private regionKey = '';
+  private regionalSeeds: RegionalFlightSeed[] = pickRegionalSeeds(59.3992, 18.0894);
 
   private kpIndex = 3.3;
   private kpLive = false;
@@ -123,7 +213,10 @@ export class LiveWorldDataManager {
   private nextSpaceXNetIso: string | null = null;
   private spaceXLive = false;
 
-  private rawPilots: RawPilot[] = [];
+  private aircraft: AircraftReport[] = [];
+  private flightsFetchedAtMs = 0;
+  private gpsFlights = false;
+  private flightRequest = 0;
   private flightsLive = false;
 
   private async fetchJson<T>(url: string, timeoutMs = 8000): Promise<T | null> {
@@ -209,28 +302,77 @@ export class LiveWorldDataManager {
     });
   }
 
-  private refreshFlights(now: number): void {
-    if (this.lastFlightsFetchMs !== 0 && now - this.lastFlightsFetchMs < 90 * 1000) return;
-    this.lastFlightsFetchMs = now;
+  private refreshRegionalRoutes(now: number): void {
+    const newRegionKey = `${Math.round(this.lastLat / 15)}:${Math.round(this.lastLon / 25)}`;
+    if (newRegionKey !== this.regionKey) {
+      this.regionKey = newRegionKey;
+      this.regionalSeeds = pickRegionalSeeds(this.lastLat, this.lastLon);
+      this.lastRouteSeedMs = 0;
+    }
+    if (this.lastRouteSeedMs !== 0 && now - this.lastRouteSeedMs < 10 * 60 * 1000) return;
+    this.lastRouteSeedMs = now;
 
-    void this.fetchJson<{ pilots?: RawPilot[] }>(
-      'https://data.vatsim.net/v3/vatsim-data.json',
-      11000
-    ).then((data) => {
-      if (!data || !Array.isArray(data.pilots)) return;
-      this.rawPilots = data.pilots;
-      this.flightsLive = true;
+    this.regionalSeeds.forEach((seed) => {
+      if (seed.resolved) return;
+      void this.fetchJson<{ response?: { flightroute?: AdsbDbFlightRoute } }>(
+        `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(seed.callsign)}`,
+        6000
+      ).then((data) => {
+        const route = data?.response?.flightroute;
+        if (!route) return;
+        if (route.airline?.name) seed.airline = route.airline.name;
+        if (route.origin) seed.originLabel = formatAirport(route.origin);
+        if (route.destination) seed.destinationLabel = formatAirport(route.destination);
+        if (
+          Number.isFinite(route.origin?.latitude) &&
+          Number.isFinite(route.origin?.longitude) &&
+          Number.isFinite(route.destination?.latitude) &&
+          Number.isFinite(route.destination?.longitude)
+        ) {
+          seed.headingDeg = Math.round(
+            bearingDegBetween(
+              route.origin!.latitude!,
+              route.origin!.longitude!,
+              route.destination!.latitude!,
+              route.destination!.longitude!
+            )
+          );
+        }
+        seed.resolved = true;
+      });
     });
   }
 
-  update(lat: number, lon: number): void {
+  private refreshFlights(now: number): void {
+    if (now - this.lastFlightsFetchMs < 15000) return;
+    this.lastFlightsFetchMs = now;
+    const request = ++this.flightRequest;
+    const url = `https://api.adsb.lol/v2/lat/${this.lastLat.toFixed(3)}/lon/${this.lastLon.toFixed(3)}/dist/60`;
+    void this.fetchJson<{ ac?: AircraftReport[] }>(url, 5000).then(data => {
+      if (request !== this.flightRequest) return;
+      this.flightsLive = Array.isArray(data?.ac);
+      this.aircraft = data?.ac ?? [];
+      this.flightsFetchedAtMs = Date.now();
+    });
+  }
+
+  update(lat: number, lon: number, gps: boolean, hasFix: boolean): void {
+    if (this.gpsFlights !== gps) {
+      this.flightRequest++;
+      this.lastFlightsFetchMs = 0;
+      this.flightsFetchedAtMs = 0;
+      this.aircraft = [];
+      this.flightsLive = false;
+    }
+    this.gpsFlights = gps;
     this.lastLat = lat;
     this.lastLon = lon;
     const now = Date.now();
     this.refreshKp(now);
     this.refreshIss(now);
     this.refreshSpaceX(now);
-    this.refreshFlights(now);
+    this.refreshRegionalRoutes(now);
+    if (gps && hasFix) this.refreshFlights(now);
   }
 
   getState(): LiveWorldState {
@@ -243,32 +385,71 @@ export class LiveWorldDataManager {
 
     const cd = formatCountdown(this.nextSpaceXNetIso);
 
-    // Filter closest airborne aircraft within 380 km
+    const nowMs = Date.now();
+    const pollAgeSec = this.flightsFetchedAtMs > 0 ? Math.max(0, (nowMs - this.flightsFetchedAtMs) / 1000) : 0;
     const nearby: LiveFlight[] = [];
-    for (const p of this.rawPilots) {
-      if (
-        typeof p.latitude !== 'number' ||
-        typeof p.longitude !== 'number' ||
-        typeof p.altitude !== 'number' ||
-        p.altitude < 1500
-      ) {
-        continue;
-      }
-      const dist = haversineKm(lat, lon, p.latitude, p.longitude);
-      if (dist <= 380) {
-        nearby.push({
-          callsign: (p.callsign || 'NORDIC').trim().slice(0, 10),
-          altitudeM: Math.round(p.altitude * 0.3048),
-          headingDeg: Math.round(p.heading ?? 0),
-          groundspeedKts: Math.round(p.groundspeed ?? 420),
-          bearingDeg: Math.round(bearingDegBetween(lat, lon, p.latitude, p.longitude)),
-          distanceKm: Math.round(dist),
-          isLive: true,
-        });
-      }
+    for (const p of this.aircraft) {
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon) || typeof p.alt_baro !== 'number' ||
+          !p.hex || (p.seen_pos ?? 0) > 60) continue;
+      const gsKts = p.gs ?? 0;
+      const trackDeg = p.track ?? 0;
+      const elapsedSec = pollAgeSec + Math.min(20, Math.max(0, p.seen_pos ?? 0));
+      const pos = deadReckonLatLon(p.lat!, p.lon!, trackDeg, gsKts, elapsedSec);
+      const distanceKm = haversineKm(lat, lon, pos.lat, pos.lon);
+      if (distanceKm > 111.2) continue;
+      nearby.push({
+        callsign: p.flight?.trim() || p.r || p.hex,
+        hex: p.hex,
+        aircraft: p.t,
+        registration: p.r,
+        altitudeM: Math.round(p.alt_baro * 0.3048),
+        groundspeedKts: gsKts,
+        headingDeg: trackDeg,
+        bearingDeg: bearingDegBetween(lat, lon, pos.lat, pos.lon),
+        distanceKm,
+        isLive: true,
+      });
     }
-    nearby.sort((a, b) => a.distanceKm - b.distanceKm);
-    const flights = nearby.length > 0 ? nearby.slice(0, 3) : FALLBACK_FLIGHTS;
+
+    const t = nowMs / 1000;
+    const regionalFlights: LiveFlight[] = this.regionalSeeds.map((s, idx) => {
+      // Physically accurate straight-line transit along each aircraft's true headingDeg & groundspeedKts
+      // across a 64 km sky corridor (no pendulum wobble or flying sideways/backwards).
+      const speedKmS = (s.groundspeedKts * 0.514444) / 1000;
+      const baseRad = (s.baseBearing * Math.PI) / 180;
+      const baseEastKm = Math.sin(baseRad) * s.distanceKm;
+      const baseNorthKm = Math.cos(baseRad) * s.distanceKm;
+      const headRad = (s.headingDeg * Math.PI) / 180;
+      const dirEast = Math.sin(headRad);
+      const dirNorth = Math.cos(headRad);
+      const baseAlong = baseEastKm * dirEast + baseNorthKm * dirNorth;
+      const perpEast = baseEastKm - dirEast * baseAlong;
+      const perpNorth = baseNorthKm - dirNorth * baseAlong;
+      const corridorKm = 64;
+      const alongKm = (((t * speedKmS + idx * 17.3) % corridorKm) + corridorKm) % corridorKm - corridorKm * 0.5;
+      const curEastKm = perpEast + dirEast * alongKm;
+      const curNorthKm = perpNorth + dirNorth * alongKm;
+      const bearingDeg = ((Math.atan2(curEastKm, curNorthKm) * 180) / Math.PI + 360) % 360;
+      const distanceKm = Math.max(4, Math.hypot(curEastKm, curNorthKm));
+      return {
+        callsign: s.callsign,
+        aircraft: s.aircraft,
+        airline: s.airline,
+        originLabel: s.originLabel,
+        destinationLabel: s.destinationLabel,
+        routeResolved: s.resolved,
+        altitudeM: s.altitudeM,
+        groundspeedKts: s.groundspeedKts,
+        headingDeg: s.headingDeg,
+        bearingDeg,
+        distanceKm,
+        isLive: s.resolved,
+      };
+    });
+
+    const flights = this.gpsFlights && nearby.length > 0
+      ? nearby.sort((a, b) => a.distanceKm - b.distanceKm)
+      : regionalFlights;
 
     const isAuroraAlert = this.kpIndex >= 4.0;
     const auroraLiveBoost = Math.max(0.75, Math.min(2.15, 0.72 + this.kpIndex * 0.2));
@@ -291,7 +472,7 @@ export class LiveWorldDataManager {
       nextSpaceXLaunchToday: cd.isToday,
       spaceXLive: this.spaceXLive,
       flights,
-      flightsLive: this.flightsLive && nearby.length > 0,
+      flightsLive: (this.flightsLive && nearby.length > 0) || this.regionalSeeds.some(s => s.resolved),
     };
   }
 }

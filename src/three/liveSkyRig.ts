@@ -1,16 +1,7 @@
 import * as THREE from 'three';
 import { EnvironmentState } from '../core/environment';
 import { LiveWorldState } from '../core/liveWorldData';
-import { TelemetryFrame } from '../core/telemetry';
 import { getSoftGlowTexture, getStarSpriteTexture } from './pixarMaterials';
-
-interface FlightNode {
-  group: THREE.Group;
-  tagSprite: THREE.Sprite;
-  tagTex: THREE.CanvasTexture;
-  tagCtx: CanvasRenderingContext2D;
-  lastTag: string;
-}
 
 interface AdventCandleNode {
   root: THREE.Group;
@@ -60,7 +51,6 @@ function drawBadgeTexture(
 export class LiveSkyRig {
   readonly group = new THREE.Group();
 
-  private flights: FlightNode[] = [];
   private issGroup: THREE.Group;
   private issTagTex: THREE.CanvasTexture;
   private issTagCtx: CanvasRenderingContext2D;
@@ -81,6 +71,7 @@ export class LiveSkyRig {
 
   private fireworkBursts: FireworkBurst[] = [];
   private fireworksGroup = new THREE.Group();
+  private boostFireworksUntil = 0;
 
   private meteors: Array<{
     group: THREE.Group;
@@ -98,69 +89,6 @@ export class LiveSkyRig {
     // 1. Live Overhead Flight Patrol Slots (up to 3)
     const glowTex = getSoftGlowTexture();
     const starTex = getStarSpriteTexture();
-    const bodyMat = new THREE.MeshBasicMaterial({ color: '#eef7ff', toneMapped: false });
-    const beaconMat = new THREE.MeshBasicMaterial({ color: '#ff3b52', toneMapped: false });
-
-    for (let i = 0; i < 3; i++) {
-      const g = new THREE.Group();
-      const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 2.2, 8), bodyMat);
-      fuse.rotation.z = Math.PI * 0.5;
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.06, 2.6), bodyMat);
-      const tailBeacon = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 6), beaconMat);
-      tailBeacon.position.set(-1.15, 0.22, 0);
-
-      const halo = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map: glowTex,
-          color: '#9ce6ff',
-          transparent: true,
-          opacity: 0.72,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          fog: false,
-        })
-      );
-      halo.scale.set(4.5, 4.5, 1);
-
-      const trail = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map: starTex,
-          color: '#ffe38c',
-          transparent: true,
-          opacity: 0.65,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          fog: false,
-        })
-      );
-      trail.scale.set(5.4, 1.4, 1);
-      trail.position.set(-3.2, 0, 0);
-
-      const c = document.createElement('canvas');
-      c.width = 384;
-      c.height = 96;
-      const ctx = c.getContext('2d')!;
-      const tex = new THREE.CanvasTexture(c);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const tag = new THREE.Sprite(
-        new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false })
-      );
-      tag.scale.set(11.5, 2.9, 1);
-      tag.position.set(0, 2.4, 0);
-
-      g.add(fuse, wing, tailBeacon, halo, trail, tag);
-      g.visible = false;
-      this.group.add(g);
-
-      this.flights.push({
-        group: g,
-        tagSprite: tag,
-        tagTex: tex,
-        tagCtx: ctx,
-        lastTag: '',
-      });
-    }
-
     // 2. Live ISS with Red Santa Hat!
     this.issGroup = new THREE.Group();
     const goldSolarMat = new THREE.MeshStandardMaterial({
@@ -221,14 +149,13 @@ export class LiveSkyRig {
     this.group.add(this.issGroup);
 
     // 3. 4 Towering Alpine Advent Candles along distant mountain skyline
-    const waxMat = new THREE.MeshStandardMaterial({
+    const waxMat = new THREE.MeshLambertMaterial({
       color: '#fff5df',
-      roughness: 0.45,
       emissive: '#381e06',
       emissiveIntensity: 0.35,
       fog: false,
     });
-    const collarMat = new THREE.MeshStandardMaterial({ color: '#8f1224', roughness: 0.5, fog: false });
+    const collarMat = new THREE.MeshLambertMaterial({ color: '#8f1224', fog: false });
     const flameMat = new THREE.MeshBasicMaterial({ color: '#ffcf5c', toneMapped: false, fog: false });
 
     const candleXs = [-48, -19, 19, 48];
@@ -262,10 +189,10 @@ export class LiveSkyRig {
     this.group.add(this.adventGroup);
 
     // 4. Dec 13 3D Luciatåg Procession (Lucia + 4 attendants holding candle wands)
-    const robeMat = new THREE.MeshStandardMaterial({ color: '#f7faff', roughness: 0.65 });
-    const sashMat = new THREE.MeshStandardMaterial({ color: '#cf1530', roughness: 0.5 });
+    const robeMat = new THREE.MeshLambertMaterial({ color: '#f7faff' });
+    const sashMat = new THREE.MeshLambertMaterial({ color: '#cf1530' });
     const goldCrownMat = new THREE.MeshBasicMaterial({ color: '#ffd866', toneMapped: false });
-    const skinMat = new THREE.MeshStandardMaterial({ color: '#ffd9be', roughness: 0.65 });
+    const skinMat = new THREE.MeshLambertMaterial({ color: '#ffd9be' });
 
     for (let i = 0; i < 5; i++) {
       const fig = new THREE.Group();
@@ -411,7 +338,7 @@ export class LiveSkyRig {
     }
 
     // 6. SpaceX Live Launch Countdown Roadside Gantry
-    const postMat = new THREE.MeshStandardMaterial({ color: '#1b2234', metalness: 0.7, roughness: 0.35 });
+    const postMat = new THREE.MeshLambertMaterial({ color: '#263048' });
     for (const px of [-2.4, 2.4]) {
       const p = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 6.2, 8), postMat);
       p.position.set(px, 3.1, 0);
@@ -447,6 +374,7 @@ export class LiveSkyRig {
     this.spaceXGantry.add(this.spaceXMiniRocket);
 
     this.spaceXGantry.rotation.y = -0.35;
+    this.spaceXGantry.name = 'SpaceX roadside countdown';
     this.group.add(this.spaceXGantry);
   }
 
@@ -472,41 +400,12 @@ export class LiveSkyRig {
     dt: number,
     time: number,
     forwardStep: number,
-    telemetry: TelemetryFrame,
     env: EnvironmentState,
     live: LiveWorldState,
     getRoadCurveX: (z: number) => number,
-    smoothCurve: number
+    smoothCurve: number,
+    showRoadside = true
   ): void {
-    // 1. Overhead Live Flights (relative bearing vs car heading!)
-    for (let i = 0; i < this.flights.length; i++) {
-      const node = this.flights[i];
-      const f = live.flights[i];
-      if (!f) {
-        node.group.visible = false;
-        continue;
-      }
-      node.group.visible = true;
-      const relDeg = ((f.bearingDeg - telemetry.headingDeg + 540) % 360) - 180;
-      const clampedAz = THREE.MathUtils.clamp(relDeg * 0.65, -72, 72) * (Math.PI / 180);
-      const drift = Math.sin(time * 0.18 + i * 2.1) * 14;
-      const radius = 128;
-      const x = Math.sin(clampedAz) * radius * 0.72 + drift;
-      const y = 24 + Math.min(20, (f.altitudeM / 11000) * 18) + (i % 2) * 3;
-      const z = -Math.cos(clampedAz) * radius;
-      node.group.position.set(x, y, z);
-      node.group.rotation.y = Math.sin(time * 0.18 + i) > 0 ? 0.15 : Math.PI - 0.15;
-
-      const labelTop = `${f.isLive ? '✈' : '🎅✈'} ${f.callsign}`;
-      const labelSub = `${f.altitudeM.toLocaleString()} m · ${f.distanceKm} km`;
-      const tagKey = `${labelTop}|${labelSub}`;
-      if (node.lastTag !== tagKey) {
-        node.lastTag = tagKey;
-        drawBadgeTexture(node.tagCtx, 384, 96, labelTop, labelSub, '#9ce6ff');
-        node.tagTex.needsUpdate = true;
-      }
-    }
-
     // 2. Festive Live ISS Gliding Across Upper Orbit
     this.issGroup.visible = live.issNearby;
     if (this.issGroup.visible) {
@@ -543,7 +442,7 @@ export class LiveSkyRig {
     }
 
     // 4. Dec 13 3D Luciatåg along left curve-locked snowbank
-    this.luciaGroup.visible = env.holidayCalendar.isLucia;
+    this.luciaGroup.visible = showRoadside && env.holidayCalendar.isLucia;
     if (this.luciaGroup.visible) {
       this.luciaZ += forwardStep * 0.55;
       if (this.luciaZ > 16) this.luciaZ = -138;
@@ -557,8 +456,8 @@ export class LiveSkyRig {
       });
     }
 
-    // 5. Dec 24 Julafton Fireworks over Mountains
-    this.fireworksGroup.visible = env.holidayCalendar.isXmasEve;
+    // 5. Dec 24 Julafton OR Triggered Magic Fireworks over Mountains
+    this.fireworksGroup.visible = env.holidayCalendar.isXmasEve || time < this.boostFireworksUntil;
     if (this.fireworksGroup.visible) {
       for (const b of this.fireworkBursts) {
         b.age += dt;
@@ -583,45 +482,49 @@ export class LiveSkyRig {
       }
     }
 
-    // 6. SpaceX Roadside Launch Countdown Gantry (curve-locked!)
-    this.spaceXGantryZ += forwardStep;
-    if (this.spaceXGantryZ > 22) this.spaceXGantryZ -= 165;
-    const gx = getRoadCurveX(this.spaceXGantryZ);
-    const gNext = getRoadCurveX(this.spaceXGantryZ - 5);
-    this.spaceXGantry.position.set(gx + 13.5, 0, this.spaceXGantryZ);
-    this.spaceXGantry.rotation.y = Math.atan2(gx - gNext, 5) - 0.35;
+    this.spaceXGantry.visible = showRoadside;
+    if (showRoadside) {
+      // 6. SpaceX Roadside Launch Countdown Gantry (curve-locked!)
+      this.spaceXGantryZ += forwardStep;
+      if (this.spaceXGantryZ > 22) this.spaceXGantryZ -= 165;
+      const gx = getRoadCurveX(this.spaceXGantryZ);
+      const gNext = getRoadCurveX(this.spaceXGantryZ - 5);
+      this.spaceXGantry.position.set(gx + 13.5, 0, this.spaceXGantryZ);
+      this.spaceXGantry.rotation.y = Math.atan2(gx - gNext, 5) - 0.35;
 
-    this.spaceXMiniRocket.visible = live.nextSpaceXLaunchToday;
-    if (this.spaceXMiniRocket.visible) {
-      this.spaceXMiniRocket.position.y = 0.25 + Math.abs(Math.sin(time * 2)) * 0.35;
-    }
+      this.spaceXMiniRocket.visible = live.nextSpaceXLaunchToday;
+      if (this.spaceXMiniRocket.visible) {
+        this.spaceXMiniRocket.position.y = 0.25 + Math.abs(Math.sin(time * 2)) * 0.35;
+      }
 
-    const sKey = `${live.nextSpaceXCountdown}|${live.nextSpaceXName}`;
-    if (this.spaceXLastText !== sKey) {
-      this.spaceXLastText = sKey;
-      const ctx = this.spaceXCtx;
-      ctx.clearRect(0, 0, 512, 160);
-      const grad = ctx.createLinearGradient(0, 0, 512, 160);
-      grad.addColorStop(0, '#0d193a');
-      grad.addColorStop(1, '#290f32');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.roundRect(6, 6, 500, 148, 18);
-      ctx.fill();
-      ctx.strokeStyle = '#70e2ff';
-      ctx.lineWidth = 5;
-      ctx.stroke();
+      const sKey = `${live.nextSpaceXCountdown}|${live.nextSpaceXName}`;
+      if (this.spaceXLastText !== sKey) {
+        this.spaceXLastText = sKey;
+        const ctx = this.spaceXCtx;
+        ctx.clearRect(0, 0, 512, 160);
+        const grad = ctx.createLinearGradient(0, 0, 512, 160);
+        grad.addColorStop(0, '#0d193a');
+        grad.addColorStop(1, '#290f32');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(6, 6, 500, 148, 18);
+        ctx.fill();
+        ctx.strokeStyle = '#70e2ff';
+        ctx.lineWidth = 5;
+        ctx.stroke();
 
-      ctx.fillStyle = '#70e2ff';
-      ctx.font = '700 22px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`🚀 SPACEX · ${live.nextSpaceXCountdown}`, 256, 52, 470);
+        ctx.fillStyle = '#70e2ff';
+        ctx.font = '700 22px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`🚀 SPACEX · ${live.nextSpaceXCountdown}`, 256, 52, 470);
 
-      ctx.fillStyle = '#fff8ea';
-      ctx.font = '600 24px "Cinzel", Georgia, serif';
-      ctx.fillText(live.nextSpaceXName.slice(0, 28), 256, 108, 470);
-      this.spaceXTex.needsUpdate = true;
+        ctx.fillStyle = '#fff8ea';
+        ctx.font = '600 24px "Cinzel", Georgia, serif';
+        ctx.fillText(live.nextSpaceXName.slice(0, 28), 256, 108, 470);
+        this.spaceXTex.needsUpdate = true;
+      }
+
     }
 
     // 7. Catchable Geminids Shooting Stars (visible in night & dusk)
@@ -676,6 +579,15 @@ export class LiveSkyRig {
     }
   }
 
+  triggerCelebrationFireworks(durationSec = 4.2, nowTime = 0): void {
+    const end = nowTime + durationSec;
+    if (end > this.boostFireworksUntil) this.boostFireworksUntil = end;
+    for (const b of this.fireworkBursts) {
+      b.age = Math.max(0, b.age);
+      this.resetFirework(b);
+    }
+  }
+
   tryCatchShootingStar(): boolean {
     const active = this.meteors.find((m) => m.cooldown <= 0 && m.wishBurstAge < 0 && m.group.visible);
     if (!active) return false;
@@ -684,9 +596,6 @@ export class LiveSkyRig {
   }
 
   dispose(): void {
-    for (const f of this.flights) {
-      f.tagTex.dispose();
-    }
     this.issTagTex.dispose();
     this.spaceXTex.dispose();
     for (const b of this.fireworkBursts) {

@@ -22,6 +22,9 @@ export interface OsmBuilding {
   depthM: number;
   areaM2: number;
   heightM: number;
+  levels?: number;
+  roofShape?: string;
+  tesla?: boolean;
   kind: OsmBuildingKind;
   name: string | null;
 }
@@ -30,6 +33,10 @@ export interface OsmRoadRibbon {
   points: OsmPoint2D[];
   widthM: number;
   isMajor: boolean;
+  highway?: string;
+  lanes?: number;
+  maxspeed?: number;
+  tunnel?: boolean;
   name: string | null;
 }
 
@@ -51,6 +58,7 @@ export interface OsmPoi {
   x: number;
   z: number;
   kind: 'charger' | 'landmark' | 'church' | 'station';
+  tesla?: boolean;
   name: string;
 }
 
@@ -64,6 +72,11 @@ export interface OsmMapSnapshot {
   waters: OsmWaterFeature[];
   forests: OsmForestPatch[];
   pois: OsmPoi[];
+  trees?: OsmPoint2D[];
+  woodland?: OsmPoint2D[][];
+  streetLamps?: OsmPoint2D[];
+  trafficSignals?: OsmPoint2D[];
+  crossings?: OsmPoint2D[];
 }
 
 export interface OsmWorldState {
@@ -240,6 +253,7 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   heightM: number;
 } {
   const bTag = tags.building ?? 'yes';
+  const levels = Number.parseFloat(tags['building:levels'] ?? '');
   const amenity = tags.amenity ?? '';
   const name = tags.name ?? '';
 
@@ -247,9 +261,8 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   const rawHeight = Number.parseFloat(tags.height ?? '');
   if (Number.isFinite(rawHeight) && rawHeight > 2) {
     heightM = rawHeight;
-  } else if (tags['building:levels']) {
-    const lv = Number.parseFloat(tags['building:levels']);
-    if (Number.isFinite(lv) && lv > 0) heightM = lv * 3.4 + 1.5;
+  } else if (Number.isFinite(levels) && levels > 0) {
+    heightM = levels*3.4+1.5;
   }
 
   let kind: OsmBuildingKind = 'small_cottage';
@@ -270,6 +283,9 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   ) {
     kind = 'church';
     if (!heightM) heightM = 16;
+  } else if (/^(house|detached|semidetached_house|bungalow|cabin|hut|cottage|farm|terrace)$/.test(bTag)) {
+    kind = 'small_cottage';
+    if (!heightM) heightM = 5;
   } else if (
     (isIndustrialOrHuge && area >= 280) ||
     area >= 660 ||
@@ -285,9 +301,12 @@ function classifyBuilding(tags: Record<string, string>, area: number): {
   ) {
     kind = 'large_building';
     if (!heightM) heightM = 15 + Math.min(14, area * 0.012);
-  } else if (area >= 115 || bTag === 'apartments' || bTag === 'residential' || bTag === 'terrace') {
+  } else if (bTag === 'apartments' || (Number.isFinite(levels) && levels >= 3)) {
+    kind = 'large_building';
+    if (!heightM) heightM = 12;
+  } else if (area >= 115 || bTag === 'residential') {
     kind = 'medium_house';
-    if (!heightM) heightM = 8.5 + Math.min(8, area * 0.02);
+    if (!heightM) heightM = 6;
   } else {
     kind = 'small_cottage';
     if (!heightM) heightM = 4.8 + (area > 60 ? 1.5 : 0);
@@ -480,6 +499,130 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
   };
 }
 
+interface OverpassEl {
+  type: 'node' | 'way' | 'relation';
+  id: number;
+  lat?: number;
+  lon?: number;
+  nodes?: number[];
+  geometry?: { lat: number; lon: number }[];
+  tags?: Record<string, string>;
+}
+
+const OSM_CACHE_KEY = 'tesla-xmas-osm-cache-v1';
+
+interface CachedOsmEntry {
+  cellKey: string;
+  savedAtMs: number;
+  lat: number;
+  lon: number;
+  placeName: string;
+  roadName: string;
+  biome: OsmBiome;
+  nearbyLandmark: string | null;
+  nearbyChargerName: string | null;
+  isNearRealTunnel: boolean;
+  snapshot: OsmMapSnapshot;
+}
+
+function osmCellKey(lat: number, lon: number): string {
+  return `${Math.round(lat / 0.003)}:${Math.round(lon / 0.005)}`;
+}
+
+async function querySingleOverpass(
+  endpoint: string,
+  query: string,
+  signal: AbortSignal
+): Promise<OverpassEl[]> {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    body: new URLSearchParams({ data: query }),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(5500)]),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data?.elements) || !data.elements.some((e: OverpassEl) => e.tags?.highway && e.geometry?.length)) {
+    throw new Error('No road elements');
+  }
+  return data.elements as OverpassEl[];
+}
+
+async function fetchOsmMapJson(
+  lat: number,
+  lon: number,
+  radiusM: number,
+  signal: AbortSignal
+): Promise<OverpassEl[]> {
+  const dy = radiusM / 110540;
+  const dx = radiusM / (111320 * Math.max(0.05, Math.cos((lat * Math.PI) / 180)));
+  const bbox = [lon - dx, lat - dy, lon + dx, lat + dy].map(n => n.toFixed(6)).join(',');
+  const response = await fetch('https://api.openstreetmap.org/api/0.6/map.json?bbox=' + bbox, {
+    signal: AbortSignal.any([signal, AbortSignal.timeout(6500)]),
+  });
+  if (!response.ok) throw new Error(`OSM HTTP ${response.status}`);
+  const elements: OverpassEl[] = (await response.json()).elements;
+  const positions = new Map<number, { lat: number; lon: number }>();
+  for (const e of elements) {
+    if (e.type === 'node' && e.lat !== undefined && e.lon !== undefined) {
+      positions.set(e.id, { lat: e.lat, lon: e.lon });
+    }
+  }
+  for (const e of elements) {
+    if (e.type === 'way' && e.nodes) e.geometry = e.nodes.flatMap(id => positions.get(id) ?? []);
+  }
+  const filtered = elements.filter(
+    e =>
+      e.tags &&
+      (!e.tags.highway ||
+        /^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$/.test(
+          e.tags.highway
+        ))
+  );
+  if (!filtered.some(e => e.tags?.highway && e.geometry?.length)) {
+    throw new Error('OSM map missing road ways');
+  }
+  return filtered;
+}
+
+async function streetElements(
+  query: string,
+  lat: number,
+  lon: number,
+  signal: AbortSignal
+): Promise<OverpassEl[]> {
+  // Race Overpass bbox query + OSM 0.6 map endpoint (~0.6s typical!) simultaneously
+  const overpassCtrl = new AbortController();
+  const osmCtrl = new AbortController();
+  const onParentAbort = () => {
+    overpassCtrl.abort();
+    osmCtrl.abort();
+  };
+  signal.addEventListener('abort', onParentAbort, { once: true });
+
+  try {
+    return await Promise.any([
+      querySingleOverpass(
+        'https://overpass-api.de/api/interpreter',
+        query,
+        AbortSignal.any([signal, overpassCtrl.signal])
+      ).then(els => {
+        osmCtrl.abort();
+        return els;
+      }),
+      fetchOsmMapJson(lat, lon, 440, AbortSignal.any([signal, osmCtrl.signal])).then(els => {
+        overpassCtrl.abort();
+        return els;
+      }),
+    ]);
+  } catch (error) {
+    if (signal.aborted) throw error;
+    // Tight fallback bbox if dense urban area exceeded OSM 0.6 node cap while Overpass was busy
+    return await fetchOsmMapJson(lat, lon, 300, signal);
+  } finally {
+    signal.removeEventListener('abort', onParentAbort);
+  }
+}
+
 export class OsmWorldDirector {
   private enabled = true;
   private isLiveOsm = false;
@@ -499,10 +642,14 @@ export class OsmWorldDirector {
   private lastFetchMs = 0;
   private lastFetchLat = 0;
   private lastFetchLon = 0;
+  private retryMap = false;
   private inflightAbort: AbortController | null = null;
+  private pendingCacheTimer?: number;
+  private pendingCacheIdle?: number;
   private placeListeners = new Set<(state: OsmWorldState) => void>();
 
-  constructor() {
+  constructor(liveOnly = false) {
+    if (liveOnly) return;
     try {
       const saved = localStorage.getItem('tesla-xmas-osm');
       if (saved === '0') this.enabled = false;
@@ -559,26 +706,44 @@ export class OsmWorldDirector {
     lat: number,
     lon: number,
     isMoving: boolean,
-    speedKmh = 55
+    speedKmh = 55,
+    gpsReady = true,
+    headingDeg = 0
   ): OsmWorldState {
     if (this.landmarkPulse > 0) {
       this.landmarkPulse = Math.max(0, this.landmarkPulse - dt * 0.25);
     }
 
-    if (!this.enabled) {
+    if ((!this.enabled || source !== 'gps') && this.inflightAbort) {
+      this.inflightAbort.abort();
+      this.inflightAbort = null;
+    }
+    if (!this.enabled || source !== 'gps') this.lastFetchMs = 0;
+    if (!this.enabled || (source === 'gps' && !gpsReady)) {
       return this.getState();
     }
 
     if (source === 'gps') {
+      if (!this.isLiveOsm) {
+        this.tryHydrateFromCache(lat, lon);
+      }
       const now = Date.now();
       const movedM =
         this.lastFetchMs === 0 ? 9999 : haversineMeters(this.lastFetchLat, this.lastFetchLon, lat, lon);
+      const distFromOrigin = this.isLiveOsm
+        ? haversineMeters(this.snapshot.originLat, this.snapshot.originLon, lat, lon)
+        : 9999;
 
-      if (this.lastFetchMs === 0 || (now - this.lastFetchMs >= 25000 && movedM >= 110)) {
+      if (
+        !this.inflightAbort &&
+        (this.lastFetchMs === 0 ||
+          (now - this.lastFetchMs >= 8000 && (distFromOrigin >= 210 || movedM >= 260)) ||
+          (now - this.lastFetchMs >= 18000 && (!this.isLiveOsm || this.retryMap)))
+      ) {
         this.lastFetchMs = now;
         this.lastFetchLat = lat;
         this.lastFetchLon = lon;
-        void this.fetchLiveOsm(lat, lon);
+        void this.fetchLiveOsm(lat, lon, isMoving ? speedKmh : 0, headingDeg);
       }
     } else {
       // Curated offline Swedish Street-View corridors
@@ -598,38 +763,138 @@ export class OsmWorldDirector {
     return this.getState();
   }
 
-  private async fetchLiveOsm(lat: number, lon: number): Promise<void> {
+  private tryHydrateFromCache(lat: number, lon: number): boolean {
+    try {
+      const raw = localStorage.getItem(OSM_CACHE_KEY);
+      if (!raw) return false;
+      const entries: CachedOsmEntry[] = JSON.parse(raw);
+      if (!Array.isArray(entries)) return false;
+      const now = Date.now();
+      const match = entries.find(
+        e => now - e.savedAtMs < 24 * 3600 * 1000 && haversineMeters(e.lat, e.lon, lat, lon) <= 280
+      );
+      if (!match?.snapshot?.roads?.length) return false;
+      this.isLiveOsm = true;
+      this.placeName = match.placeName;
+      this.roadName = match.roadName;
+      this.biome = match.biome;
+      this.nearbyLandmark = match.nearbyLandmark;
+      this.nearbyChargerName = match.nearbyChargerName;
+      this.isNearRealTunnel = match.isNearRealTunnel;
+      this.snapshotVersion++;
+      this.snapshot = { ...match.snapshot, version: this.snapshotVersion };
+      this.lastFetchLat = match.lat;
+      this.lastFetchLon = match.lon;
+      this.emitPlaceChange();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private saveToCache(entry: CachedOsmEntry): void {
+    if (this.pendingCacheTimer !== undefined) {
+      window.clearTimeout(this.pendingCacheTimer);
+      this.pendingCacheTimer = undefined;
+    }
+    if (this.pendingCacheIdle !== undefined && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(this.pendingCacheIdle);
+      this.pendingCacheIdle = undefined;
+    }
+
+    const writeCompact = () => {
+      this.pendingCacheTimer = undefined;
+      this.pendingCacheIdle = undefined;
+      try {
+        const snap = entry.snapshot;
+        const maxBSq = 360 * 360;
+        const maxRSq = 420 * 420;
+        const compactEntry: CachedOsmEntry = {
+          ...entry,
+          snapshot: {
+            ...snap,
+            buildings: snap.buildings.filter(b => b.centerX * b.centerX + b.centerZ * b.centerZ <= maxBSq).slice(0, 140),
+            roads: snap.roads.filter(r => r.points.some(p => p.x * p.x + p.z * p.z <= maxRSq)),
+            trees: snap.trees ? snap.trees.slice(0, 60) : undefined,
+          },
+        };
+        localStorage.setItem(OSM_CACHE_KEY, JSON.stringify([compactEntry]));
+      } catch {
+        // Ignore quota / privacy storage failures
+      }
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+      this.pendingCacheIdle = window.requestIdleCallback(writeCompact, { timeout: 1500 });
+    } else {
+      this.pendingCacheTimer = window.setTimeout(writeCompact, 800);
+    }
+  }
+
+  private async fetchLiveOsm(lat: number, lon: number, speedKmh = 0, headingDeg = 0): Promise<void> {
     this.inflightAbort?.abort();
     const ctrl = new AbortController();
     this.inflightAbort = ctrl;
-    const timer = setTimeout(() => ctrl.abort(), 7500);
+    const timer = setTimeout(() => ctrl.abort(), 16000);
 
     try {
+      // Bias chunk center forward along heading so upcoming roads & buildings pre-load far ahead
+      const lookaheadM = Math.max(0, Math.min(170, speedKmh * 3.2));
+      const hRad = (headingDeg * Math.PI) / 180;
+      const cosLat = Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+      const fetchLat = lat + (Math.cos(hRad) * lookaheadM) / 110540;
+      const fetchLon = lon + (Math.sin(hRad) * lookaheadM) / (111320 * cosLat);
+
       const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(
         5
-      )}&lon=${lon.toFixed(5)}&zoom=14&addressdetails=1`;
+      )}&lon=${lon.toFixed(5)}&zoom=18&addressdetails=1`;
 
-      const fLat = lat.toFixed(4);
-      const fLon = lon.toFixed(4);
-      const overpassQuery = `[out:json][timeout:6];(way(around:240,${fLat},${fLon})["building"];way(around:250,${fLat},${fLon})["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|service"];way(around:320,${fLat},${fLon})["natural"~"water|wood|grassland|heath"];way(around:300,${fLat},${fLon})["waterway"~"river|canal|stream"];way(around:300,${fLat},${fLon})["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];way(around:300,${fLat},${fLon})["leisure"="park"];way(around:120,${fLat},${fLon})["tunnel"="yes"];node(around:450,${fLat},${fLon})["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];node(around:450,${fLat},${fLon})["tourism"="attraction"];node(around:450,${fLat},${fLon})["railway"="station"];node(around:450,${fLat},${fLon})["historic"];);out body geom 160;`;
+      // Non-blocking reverse geocoding so 3D OSM geometry appears immediately without waiting on Nominatim
+      void fetch(nomUrl, { signal: AbortSignal.any([ctrl.signal, AbortSignal.timeout(4000)]) })
+        .then(r => (r.ok ? r.json() : null))
+        .then(nomData => {
+          if (ctrl.signal.aborted || !nomData?.address) return;
+          const addr = nomData.address;
+          const nextPlace = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || this.placeName;
+          const nextRoad = addr.road || addr.neighbourhood || this.roadName || nextPlace;
+          if (nextPlace !== this.placeName || nextRoad !== this.roadName) {
+            this.placeName = nextPlace;
+            this.roadName = nextRoad;
+            this.emitPlaceChange();
+          }
+        })
+        .catch(() => {});
 
-      const [nomRes, ovRes] = await Promise.all([
-        fetch(nomUrl, { signal: ctrl.signal }),
-        fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: `data=${encodeURIComponent(overpassQuery)}`,
-          signal: ctrl.signal,
-        }),
-      ]);
+      // Fast global bounding-box Overpass query covering +-520m ahead-biased window
+      const radLat = 520 / 110540;
+      const radLon = 520 / (111320 * cosLat);
+      const bS = (fetchLat - radLat).toFixed(5);
+      const bN = (fetchLat + radLat).toFixed(5);
+      const bW = (fetchLon - radLon).toFixed(5);
+      const bE = (fetchLon + radLon).toFixed(5);
+      const bbox = `${bS},${bW},${bN},${bE}`;
 
-      let nextPlace = this.placeName;
-      let nextRoad = this.roadName;
-      if (nomRes.ok) {
-        const nomData = await nomRes.json();
-        const addr = nomData?.address ?? {};
-        nextPlace = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || nextPlace;
-        nextRoad = addr.road || addr.neighbourhood || nextPlace;
-      }
+      const roadBox = `(${bS},${bW},${bN},${bE})`;
+      const overpassQuery =
+        `[out:json][timeout:5][bbox:${bbox}];(` +
+        `way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]${roadBox};` +
+        `way["building"];` +
+        `way["natural"~"water|wood|grassland|heath"];` +
+        `way["waterway"~"river|canal|stream"];` +
+        `way["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];` +
+        `way["leisure"="park"];` +
+        `way["tunnel"="yes"];` +
+        `node["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];` +
+        `node["tourism"="attraction"];` +
+        `node["railway"="station"];` +
+        `node["natural"="tree"];` +
+        `node["highway"~"^(traffic_signals|crossing|street_lamp)$"];` +
+        `);out body geom;`;
+
+      const els = await streetElements(overpassQuery, fetchLat, fetchLon, ctrl.signal);
+
+      const nextPlace = this.isLiveOsm ? this.placeName : '';
+      const nextRoad = this.isLiveOsm ? this.roadName : '';
 
       let nextBiome: OsmBiome = 'open';
       let nextLandmark: string | null = null;
@@ -641,18 +906,14 @@ export class OsmWorldDirector {
       const waters: OsmWaterFeature[] = [];
       const forests: OsmForestPatch[] = [];
       const pois: OsmPoi[] = [];
+      const trees: OsmPoint2D[] = [];
+      const woodland: OsmPoint2D[][] = [];
+      const streetLamps: OsmPoint2D[] = [];
+      const trafficSignals: OsmPoint2D[] = [];
+      const crossings: OsmPoint2D[] = [];
+      const seenWays = new Set<number>();
 
-      if (ovRes.ok) {
-        const ovData = await ovRes.json();
-        interface OverpassEl {
-          type: 'node' | 'way' | 'relation';
-          id: number;
-          lat?: number;
-          lon?: number;
-          geometry?: { lat: number; lon: number }[];
-          tags?: Record<string, string>;
-        }
-        const els: OverpassEl[] = ovData?.elements ?? [];
+      {
         let hasWater = false;
         let hasForest = false;
         let hasUrban = false;
@@ -666,11 +927,19 @@ export class OsmWorldDirector {
           if (tags.tunnel === 'yes') nextTunnel = true;
 
           if (el.type === 'node' && el.lat !== undefined && el.lon !== undefined) {
-            const pt = geoDeltaMeters(lat, lon, el.lat, el.lon);
-            if (tags.amenity === 'charging_station') {
-              const cname = tags.name || tags.operator || 'Tesla Supercharger';
+            const pt = geoDeltaMeters(fetchLat, fetchLon, el.lat, el.lon);
+            if (tags.natural === 'tree') {
+              trees.push(pt);
+            } else if (tags.highway === 'street_lamp') {
+              streetLamps.push(pt);
+            } else if (tags.highway === 'traffic_signals') {
+              trafficSignals.push(pt);
+            } else if (tags.highway === 'crossing') {
+              crossings.push(pt);
+            } else if (tags.amenity === 'charging_station') {
+              const cname = tags.name || tags.operator || 'Laddstation';
               if (!nextCharger) nextCharger = cname;
-              pois.push({ x: pt.x, z: pt.z, kind: 'charger', name: cname });
+              pois.push({ x: pt.x, z: pt.z, kind: 'charger', name: cname, tesla: /tesla|supercharger/i.test([tags.name, tags.brand, tags.operator, tags.network].join(' ')) });
             } else if (tags.amenity === 'place_of_worship' && tags.name) {
               if (!nextLandmark) nextLandmark = tags.name;
               pois.push({ x: pt.x, z: pt.z, kind: 'church', name: tags.name });
@@ -685,7 +954,9 @@ export class OsmWorldDirector {
           }
 
           if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
-          const pts = el.geometry.map((g) => geoDeltaMeters(lat, lon, g.lat, g.lon));
+          if (seenWays.has(el.id)) continue;
+          seenWays.add(el.id);
+          const pts = el.geometry.map((g) => geoDeltaMeters(fetchLat, fetchLon, g.lat, g.lon));
 
           if (tags.building) {
             const ring =
@@ -699,14 +970,19 @@ export class OsmWorldDirector {
             const cls = classifyBuilding(tags, stats.area);
             buildings.push({
               id: `w-${el.id}`,
-              footprint: decimatePoints(ring, 16),
+              footprint: ring,
               centerX: stats.cx,
               centerZ: stats.cz,
               widthM: stats.widthM,
               depthM: stats.depthM,
               areaM2: stats.area,
               heightM: cls.heightM,
+              levels: Number.parseFloat(tags['building:levels'] ?? '') || undefined,
+              roofShape: tags['roof:shape'],
               kind: cls.kind,
+              tesla: /tesla|gigafactory/i.test([tags.name, tags.brand, tags.operator].join(' ')) &&
+                /industrial|warehouse|factory|commercial/.test(tags.building + ' ' + tags.landuse) ||
+                /gigafactory/i.test(tags.name ?? ''),
               name: tags.name ?? null,
             });
             if (cls.kind === 'church' && tags.name) {
@@ -717,11 +993,17 @@ export class OsmWorldDirector {
             const isMajor = hw === 'motorway' || hw === 'trunk' || hw === 'primary' || hw === 'secondary';
             if (isMajor) hasHighwayOnly = true;
             const widthM = isMajor ? 8.5 : hw === 'tertiary' || hw === 'residential' ? 6.2 : 4.2;
+            const lanes = Number.parseInt(tags.lanes ?? '', 10);
+            const maxspeed = Number.parseInt(tags.maxspeed ?? '', 10);
             roads.push({
-              points: decimatePoints(pts, 18),
+              points: pts,
               widthM,
               isMajor,
-              name: tags.name ?? null,
+              highway: hw,
+              lanes: Number.isFinite(lanes) && lanes > 0 ? lanes : undefined,
+              maxspeed: Number.isFinite(maxspeed) && maxspeed >= 10 && maxspeed <= 160 ? maxspeed : undefined,
+              tunnel: tags.tunnel === 'yes' || tags.tunnel === 'building_passage',
+              name: tags.name ?? tags.ref ?? null,
             });
           } else if (tags.natural === 'water' || tags.waterway) {
             hasWater = true;
@@ -732,10 +1014,11 @@ export class OsmWorldDirector {
               points: decimatePoints(isClosed ? pts.slice(0, -1) : pts, 20),
               isPolygon: isClosed && tags.natural === 'water',
               widthM: tags.waterway === 'river' || tags.waterway === 'canal' ? 14 : 7,
-              name: tags.name ?? null,
+              name: tags.name ?? tags.ref ?? null,
             });
           } else if (tags.natural === 'wood' || tags.landuse === 'forest' || tags.leisure === 'park') {
             hasForest = true;
+            if (pts.length > 3 && Math.hypot(pts[0].x - pts.at(-1)!.x, pts[0].z - pts.at(-1)!.z) < 1) woodland.push(pts);
             const stats = polygonStats(pts);
             const estRadius = Math.max(8, Math.min(34, Math.sqrt(Math.max(50, stats.area) / Math.PI)));
             forests.push({
@@ -778,6 +1061,10 @@ export class OsmWorldDirector {
 
       const placeChanged =
         nextPlace !== this.placeName || nextBiome !== this.biome || nextLandmark !== this.nearbyLandmark;
+      const originLat = fetchLat;
+      const originLon = fetchLon;
+      if (ctrl.signal.aborted) return;
+      this.retryMap = false;
       this.isLiveOsm = true;
       this.placeName = nextPlace;
       this.roadName = nextRoad;
@@ -789,23 +1076,43 @@ export class OsmWorldDirector {
       this.snapshot = {
         version: this.snapshotVersion,
         biome: nextBiome,
-        originLat: lat,
-        originLon: lon,
-        buildings: buildings.slice(0, 42),
-        roads: roads.slice(0, 26),
+        originLat,
+        originLon,
+        buildings: buildings.slice(0, 220),
+        trees,
+        woodland,
+        streetLamps: streetLamps.slice(0, 120),
+        trafficSignals: trafficSignals.slice(0, 24),
+        crossings: crossings.slice(0, 32),
+        roads,
         waters: waters.slice(0, 10),
         forests: forests.slice(0, 14),
         pois: pois.slice(0, 8),
       };
+
+      this.saveToCache({
+        cellKey: osmCellKey(lat, lon),
+        savedAtMs: Date.now(),
+        lat,
+        lon,
+        placeName: nextPlace,
+        roadName: nextRoad,
+        biome: nextBiome,
+        nearbyLandmark: nextLandmark,
+        nearbyChargerName: nextCharger,
+        isNearRealTunnel: nextTunnel,
+        snapshot: this.snapshot,
+      });
 
       if (placeChanged) {
         this.landmarkPulse = 1.0;
         this.emitPlaceChange();
       }
     } catch {
-      // Offline / rate-limited / blocked: keep last snapshot quietly
+      this.retryMap = true;
     } finally {
       clearTimeout(timer);
+      if (this.inflightAbort === ctrl) this.inflightAbort = null;
     }
   }
 

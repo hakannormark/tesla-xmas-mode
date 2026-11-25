@@ -1,3 +1,7 @@
+import { FlightStars } from '../ui/FlightStars';
+import { streetAtCar } from '../three/mappedRoads';
+import { geoDeltaMeters, type OsmPoint2D, type OsmRoadRibbon } from '../core/osmWorld';
+import { WinterGrove } from '../three/winterGrove';
 import * as THREE from 'three';
 import { ELON_MILESTONES } from '../core/elonTimelineData';
 import { HolidayAudioEngine } from '../core/audioEngine';
@@ -101,6 +105,18 @@ export class NorthPole3DScene implements HolidayScene {
   private stage: PixarStage | null = null;
   private fallbackEl: HTMLElement | null = null;
 
+  private valley!: THREE.Mesh;
+  private flightStars?: FlightStars;
+  private signCaption?: HTMLDivElement;
+  private street?: OsmRoadRibbon;
+  private localStreet: OsmPoint2D[] = [];
+  private fixLat = NaN;
+  private fixLon = NaN;
+  private fixHeading = NaN;
+  private mapVersion = -1;
+  private grove?: WinterGrove;
+  constructor(private readonly winterLight = false) {}
+
   private skyMat!: THREE.ShaderMaterial;
   private moon!: THREE.Group;
   private alpineBackdrop!: THREE.Group;
@@ -201,6 +217,13 @@ export class NorthPole3DScene implements HolidayScene {
 
     if (this.stage) {
       const { scene, camera } = this.stage;
+      if (this.winterLight) {
+        this.grove = new WinterGrove();
+        scene.add(this.grove.group);
+        const rim = new THREE.DirectionalLight('#a8cfff', 1.35);
+        rim.position.set(-22, 14, -35);
+        scene.add(rim);
+      }
       camera.position.set(0, 6.2, 11.6);
 
       // 1. Pixar Sky Dome, Textured Moon & Sculpted Snowy Alpine Backdrop
@@ -216,7 +239,8 @@ export class NorthPole3DScene implements HolidayScene {
       scene.add(this.alpineBackdrop);
 
       // 2. Rolling Undulating Pixar Valley + Continuous Sculpted Snowbank Boulevard
-      scene.add(createPixarValleyTerrain());
+      this.valley = createPixarValleyTerrain();
+      scene.add(this.valley);
 
       this.snowyRoad = new PixarSnowyRoad();
       scene.add(this.snowyRoad.mesh);
@@ -491,7 +515,14 @@ export class NorthPole3DScene implements HolidayScene {
       this.swedishSign.group.rotation.y = 0.24;
       scene.add(this.swedishSign.group);
 
-      this.osmMap = new OsmMapLayer();
+      this.flightStars = new FlightStars(container);
+      this.signCaption = document.createElement('div');
+      this.signCaption.className = 'winter-road-caption';
+      container.appendChild(this.signCaption);
+      this.swedishSign.group.scale.setScalar(1.85);
+      this.roadSign.group.scale.setScalar(1.7);
+      if (this.winterLight) trailGeo.setDrawRange(0, 38);
+      this.osmMap = new OsmMapLayer(true);
       scene.add(this.osmMap.group);
 
       this.livingWorld = new LivingWorldRig(() => this.osmMap.lightUpNeighborhood());
@@ -704,6 +735,14 @@ export class NorthPole3DScene implements HolidayScene {
   }
 
   private getRoadCurveX(z: number): number {
+    if (this.street) {
+      for (let i = 1; i < this.localStreet.length; i++) {
+        const a = this.localStreet[i - 1], b = this.localStreet[i];
+        if ((a.z - z) * (b.z - z) <= 0 && Math.abs(b.z - a.z) > 0.01) {
+          return a.x + (z - a.z) * (b.x - a.x) / (b.z - a.z);
+        }
+      }
+    }
     const distAhead = Math.max(0, 10 - z);
     return this.smoothCurve * distAhead * distAhead * 0.0034;
   }
@@ -732,7 +771,8 @@ export class NorthPole3DScene implements HolidayScene {
     const windX = Math.sin(windRad) * windStrength * 2.2 - this.smoothCurve * 4;
 
     this.stage.setQuality(env.quality);
-    this.stage.setAtmosphere(env.daylightFactor, env.blueHourFactor, env.fogColor);
+    const daylight = this.winterLight ? 0.12 : env.daylightFactor;
+    this.stage.setAtmosphere(daylight, this.winterLight ? 0.8 : env.blueHourFactor, this.winterLight ? '#525e80' : env.fogColor);
     this.hornFlashTimer = Math.max(0, this.hornFlashTimer - dt);
     if (this.comboTimer > 0) {
       this.comboTimer -= dt;
@@ -750,17 +790,50 @@ export class NorthPole3DScene implements HolidayScene {
 
     // 1. Update Continuous Sculpted Pixar Snowy Boulevard + Wet Reflections & Glitter
     this.roadScroll += forwardStep;
-    this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
+    const liveMap = osm.enabled && osm.isLiveOsm && (frame.localDemo || (telemetry.source === 'gps' && telemetry.gpsStatus === 'active'));
+    if (!liveMap) {
+      this.street = undefined;
+      this.mapVersion = -1;
+    } else if (this.mapVersion !== osm.snapshot.version || this.fixLat !== telemetry.latitude ||
+               this.fixLon !== telemetry.longitude || this.fixHeading !== telemetry.headingDeg) {
+      this.street = streetAtCar(osm.snapshot, telemetry);
+      const pos = geoDeltaMeters(osm.snapshot.originLat, osm.snapshot.originLon, telemetry.latitude, telemetry.longitude);
+      const angle = telemetry.headingDeg * Math.PI / 180;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      this.localStreet = (this.street?.points ?? []).map(p => ({
+        x: (p.x - pos.x) * c + (p.z - pos.z) * s,
+        z: (p.z - pos.z) * c - (p.x - pos.x) * s,
+      }));
+      this.mapVersion = osm.snapshot.version;
+      this.fixLat = telemetry.latitude;
+      this.fixLon = telemetry.longitude;
+      this.fixHeading = telemetry.headingDeg;
+    }
+    this.snowyRoad.mesh.visible = !this.street;
+    this.valley.scale.y = this.street ? 0.001 : 1;
+    if (this.signCaption) {
+      this.signCaption.hidden = !osm.enabled;
+      const roadName = this.street ? this.street.name : osm.roadName;
+      const caption = telemetry.source === 'gps' && !this.street
+        ? telemetry.gpsStatus !== 'active' ? 'Väntar på GPS-position' : 'Vägkarta saknas för positionen'
+        : [roadName, osm.placeName].filter(Boolean).join(' · ');
+      this.signCaption.classList.toggle('mapped', !!this.street);
+      if (this.signCaption.textContent !== caption) this.signCaption.textContent = caption;
+    }
+    if (this.grove) this.grove.group.visible = !this.street;
+    if (!this.street) this.grove?.update(this.roadScroll, (z) => this.getRoadCurveX(z));
+    if (!this.street) this.snowyRoad.update(this.roadScroll, (z) => this.getRoadCurveX(z));
     const auroraHex =
       env.theme === 'cyber2099' ? '#3eeeff' : env.theme === 'nordic' ? '#7fd6ff' : '#3ce8b4';
     const auroraBoost = env.theme === 'cyber2099' ? 1.25 : 1.0 + live.auroraLiveBoost * 0.45;
-    this.snowyRoad.setAtmosphere(time, env.daylightFactor, auroraHex, auroraBoost);
+    this.snowyRoad.setAtmosphere(time, daylight, auroraHex, auroraBoost);
 
     // 2. Curve-Locked OSM Forest / Open Countryside / Town Layer + Living Props & Church Bells
     this.osmMap.setVisualMood(beat, windX, env.theme);
     this.osmMap.update(dt, telemetry, osm, env.quality, sleighAlert, (z) =>
       this.getRoadCurveX(z)
     );
+    if (telemetry.source === 'gps' && !osm.isLiveOsm) this.osmMap.group.visible = false;
     if (this.osmMap.hasPassingChurch()) {
       audio.playChurchBells();
     }
@@ -775,7 +848,8 @@ export class NorthPole3DScene implements HolidayScene {
     (this.frozenLake.material as THREE.MeshPhysicalMaterial).opacity = this.lakeBlend;
     this.frozenLake.visible = this.lakeBlend > 0.02;
 
-    this.roadSign.group.visible = osm.enabled;
+    const showSigns = osm.enabled && (telemetry.source !== 'gps' || !!this.street);
+    this.roadSign.group.visible = showSigns;
     this.roadSign.setText(
       `GOD JUL, ${osm.placeName.toUpperCase()}`,
       osm.nearbyLandmark || osm.nearbyChargerName || osm.roadName
@@ -788,11 +862,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.roadSign.group.rotation.y = -0.38 + Math.atan2(signRoadX - signNextX, 5);
 
     // Swedish Trafikverket Motorway Signboard with live OSM place & North Pole distance
-    this.swedishSign.group.visible = osm.enabled;
+    this.swedishSign.group.visible = showSigns;
     this.swedishSign.setDirections(
       telemetry.northPoleDistanceKm,
       osm.placeName,
-      osm.roadName
+      this.street?.name || osm.roadName
     );
     this.swedishSignZ += forwardStep;
     if (this.swedishSignZ > 14) this.swedishSignZ = -175;
@@ -810,11 +884,11 @@ export class NorthPole3DScene implements HolidayScene {
       beat * 0.48 +
       this.flightFactor * 0.65 +
       (osm.enabled && osm.biome === 'forest' ? 0.24 : 0);
-    this.skyMat.uniforms.uTopColor.value.set(env.skyTopColor);
-    this.skyMat.uniforms.uMidColor.value.set(env.skyMidColor);
-    this.skyMat.uniforms.uHorizonColor.value.set(env.skyHorizonColor);
+    this.skyMat.uniforms.uTopColor.value.set(this.winterLight ? '#101735' : env.skyTopColor);
+    this.skyMat.uniforms.uMidColor.value.set(this.winterLight ? '#48577e' : env.skyMidColor);
+    this.skyMat.uniforms.uHorizonColor.value.set(this.winterLight ? '#eba991' : env.skyHorizonColor);
     if (this.skyMat.uniforms.uDaylight) {
-      this.skyMat.uniforms.uDaylight.value = env.daylightFactor;
+      this.skyMat.uniforms.uDaylight.value = daylight;
     }
     this.moon.userData.setMoonPhase?.(env.moonPhase);
     this.moon.userData.setDaylight?.(env.daylightFactor);
@@ -831,7 +905,7 @@ export class NorthPole3DScene implements HolidayScene {
       const nextCx = this.getRoadCurveX(item.zOffset - 5);
       item.group.position.set(cx + item.side * item.lateralDist, 0, item.zOffset);
       item.group.rotation.y = Math.atan2(cx - nextCx, 5);
-      item.group.visible = !!item.isLamp || !hasOsmWorld;
+      item.group.visible = !!item.isLamp || !hasOsmWorld || (this.winterLight && !!item.cottage);
       if (item.group.visible) {
         item.cottage?.update(dt, time);
       }
@@ -1064,7 +1138,7 @@ export class NorthPole3DScene implements HolidayScene {
     // Update 240-Particle Swirling Stardust Wake (dramatically denser, wider & brighter with speed!)
     this.sleigh.getTrailOrigin(this.trailVec);
     const wakeSpeed = 1.6 + forwardStep * 0.85 + speedNorm * 8.5 * dt;
-    for (let i = TRAIL_COUNT - 1; i > 0; i--) {
+    for (let i = (this.winterLight ? 38 : TRAIL_COUNT) - 1; i > 0; i--) {
       const swirl = (0.04 + speedNorm * 0.18) * dt * 16;
       this.sleighTrailPos[i * 3] =
         this.sleighTrailPos[(i - 1) * 3] + Math.sin(time * 5 + i * 0.35) * swirl * 0.12;
@@ -1080,6 +1154,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.sleighTrailPoints.geometry.attributes.position.needsUpdate = true;
     this.sleighTrailMat.size = 0.55 + speedNorm * 0.65 + this.flightFactor * 0.35 + beat * 0.22;
     this.sleighTrailMat.opacity = Math.min(1.0, 0.68 + speedNorm * 0.32 + beat * 0.15);
+
+    if (this.winterLight) {
+      this.sleighTrailMat.size *= 0.48;
+      this.sleighTrailMat.opacity *= 0.32;
+    }
 
     // Update Interactive Tap Starburst Explosion
     for (let i = 0; i < BURST_COUNT; i++) {
@@ -1124,7 +1203,14 @@ export class NorthPole3DScene implements HolidayScene {
     let wantLookY = sleighY - 0.25;
     let wantLookZ = -26;
 
-    if (env.cinematicCam) {
+    if (this.winterLight) {
+      // The composition follows the measured turn and speed even during a stop.
+      wantCamX = sleighX - (env.cinematicCam ? 1.75 : 0) + this.smoothCurve * 0.8;
+      wantCamY = sleighY + 2.05;
+      wantCamZ = 12.8 + speedNorm;
+      wantLookY = sleighY + 0.45;
+      wantLookZ = -13;
+    } else if (env.cinematicCam) {
       this.camShotTimer += dt;
       if (this.stoppedSec > 3.6) {
         // Warm front-3/4 close-up of Santa waving his steaming glögg mug & frosted reindeer!
@@ -1189,11 +1275,11 @@ export class NorthPole3DScene implements HolidayScene {
     this.moon.position.x = 28 - this.smoothCurve * 24;
     this.alpineBackdrop.position.x = -this.smoothCurve * 16;
 
+    this.flightStars?.update(live.flights, telemetry);
     this.liveSkyRig.update(
       dt,
       time,
       forwardStep,
-      telemetry,
       env,
       live,
       (z) => this.getRoadCurveX(z),
@@ -1243,6 +1329,9 @@ export class NorthPole3DScene implements HolidayScene {
     }
     this.milestoneCardEl?.remove();
     this.milestoneCardEl = null;
+    this.flightStars?.dispose();
+    this.signCaption?.remove();
+    this.grove?.dispose();
     this.liveSkyRig?.dispose();
     this.livingWorld?.dispose();
     this.chimneyPts?.geometry.dispose();

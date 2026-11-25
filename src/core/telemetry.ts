@@ -167,7 +167,15 @@ export class TelemetryEngine {
 
   private handleGpsPosition(pos: GeolocationPosition): void {
     const now = performance.now();
-    const { latitude, longitude, speed, heading, accuracy } = pos.coords;
+    const { latitude, longitude, speed, accuracy } = pos.coords;
+    let heading = pos.coords.heading;
+    const east = (longitude - this.longitude) * 111320 * Math.cos(latitude * Math.PI / 180);
+    const north = (latitude - this.latitude) * 110540;
+    const meters = Math.hypot(east, north);
+    const seconds = (now - this.lastGpsFixMs) / 1000;
+    const movingFix = this.gpsStatus === 'active' && seconds > 0.2 && seconds < 20 &&
+      meters > Math.max(3, accuracy * 0.6) && meters / seconds < 80;
+    if (!Number.isFinite(heading) && movingFix) heading = Math.atan2(east, north) * 180 / Math.PI;
 
     this.latitude = latitude;
     this.longitude = longitude;
@@ -175,7 +183,7 @@ export class TelemetryEngine {
     this.gpsStatus = 'active';
     this.gpsUnavailableError = false;
 
-    const speedKmh = speed !== null && Number.isFinite(speed) && speed >= 0 ? speed * 3.6 : 0;
+    const speedKmh = speed !== null && Number.isFinite(speed) && speed >= 0 ? speed * 3.6 : movingFix ? meters / seconds * 3.6 : 0;
     this.rawSpeedKmh = speedKmh;
     if (speedKmh > 15) {
       this.wasMovingBeforeGpsLoss = true;

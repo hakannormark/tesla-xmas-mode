@@ -134,7 +134,10 @@ export function getStarSpriteTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+let cachedSnowTextures: { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } | null = null;
+
 export function createSnowTextures(): { bumpMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  if (cachedSnowTextures) return cachedSnowTextures;
   const size = 256;
   const bumpCanvas = document.createElement('canvas');
   bumpCanvas.width = size;
@@ -165,39 +168,47 @@ export function createSnowTextures(): { bumpMap: THREE.CanvasTexture; roughnessM
     bCtx.fill();
   }
 
-  for (let i = 0; i < 520; i++) {
+  // Soft snow-crystal micro-roughness variation (avoids harsh 2x2 aliased dots)
+  for (let i = 0; i < 420; i++) {
     const x = Math.random() * size;
     const y = Math.random() * size;
-    rCtx.fillStyle = Math.random() > 0.35 ? '#1c1c1c' : '#555555';
-    rCtx.fillRect(x, y, 2, 2);
+    const r = 1.6 + Math.random() * 2.4;
+    const rg = rCtx.createRadialGradient(x, y, 0.2, x, y, r);
+    const tone = Math.random() > 0.4 ? 110 : 155;
+    rg.addColorStop(0, `rgba(${tone},${tone},${tone},0.72)`);
+    rg.addColorStop(1, 'rgba(212,212,212,0)');
+    rCtx.fillStyle = rg;
+    rCtx.beginPath();
+    rCtx.arc(x, y, r, 0, Math.PI * 2);
+    rCtx.fill();
   }
 
   const bumpMap = new THREE.CanvasTexture(bumpCanvas);
   bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
   bumpMap.repeat.set(16, 16);
+  bumpMap.anisotropy = 4;
 
   const roughnessMap = new THREE.CanvasTexture(roughCanvas);
   roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
   roughnessMap.repeat.set(22, 22);
+  roughnessMap.anisotropy = 4;
 
-  return { bumpMap, roughnessMap };
+  cachedSnowTextures = { bumpMap, roughnessMap };
+  return cachedSnowTextures;
 }
 
 export function createSparklingSnowMaterial(tint = '#94b0d8'): THREE.MeshPhysicalMaterial {
   const { bumpMap, roughnessMap } = createSnowTextures();
-  return new THREE.MeshPhysicalMaterial({
+  // Runtime MeshStandardMaterial (avoids costly MeshPhysicalMaterial clearcoat/sheen branches
+  // across bulk snow geometry) while keeping the exported return type compatible with existing callers.
+  return new THREE.MeshStandardMaterial({
     color: tint,
-    roughness: 0.82,
-    metalness: 0.02,
-    clearcoat: 0.14,
-    clearcoatRoughness: 0.48,
+    roughness: 0.78,
+    metalness: 0.04,
     bumpMap,
     bumpScale: 0.16,
     roughnessMap,
-    sheen: 0.2,
-    sheenColor: new THREE.Color('#9ec0ee'),
-    sheenRoughness: 0.7,
-  });
+  }) as unknown as THREE.MeshPhysicalMaterial;
 }
 
 export function createTimberWallTexture(baseHex = '#7c1a28'): THREE.CanvasTexture {
@@ -236,6 +247,7 @@ export function createTimberWallTexture(baseHex = '#7c1a28'): THREE.CanvasTextur
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }
 
@@ -511,6 +523,642 @@ export function createMoonSurfaceTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+let cachedClapboard: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
+let cachedPlasterBrick: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
+let cachedShingleRoof: { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } | null = null;
+let cachedGigaWall: THREE.CanvasTexture | null = null;
+let cachedGigaAtrium: THREE.CanvasTexture | null = null;
+let cachedGigaSign: THREE.CanvasTexture | null = null;
+let cachedGigaSolarRoof: THREE.CanvasTexture | null = null;
+let cachedGigaRoofDeck: THREE.CanvasTexture | null = null;
+let cachedMarsTex: THREE.CanvasTexture | null = null;
+
+function pseudoRand(seed: number): number {
+  const s = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** Crisp Nordic horizontal beveled clapboard siding (neutral grayscale/warm base tinted by material.color) */
+export function createClapboardTextures(): { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } {
+  if (cachedClapboard) return cachedClapboard;
+  const s = 256;
+  const mapC = document.createElement('canvas');
+  mapC.width = mapC.height = s;
+  const mCtx = mapC.getContext('2d')!;
+
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = s;
+  const bCtx = bumpC.getContext('2d')!;
+
+  const planks = 10;
+  const ph = s / planks;
+  for (let i = 0; i < planks; i++) {
+    const y = i * ph;
+    const tone = 218 + Math.round((pseudoRand(i + 1) - 0.5) * 26);
+    const g = mCtx.createLinearGradient(0, y, 0, y + ph);
+    g.addColorStop(0, `rgb(${Math.min(255, tone + 16)},${Math.min(255, tone + 14)},${Math.min(255, tone + 12)})`);
+    g.addColorStop(0.75, `rgb(${tone},${tone - 3},${tone - 6})`);
+    g.addColorStop(0.92, `rgb(${tone - 28},${tone - 30},${tone - 32})`);
+    g.addColorStop(1, 'rgb(110,104,100)');
+    mCtx.fillStyle = g;
+    mCtx.fillRect(0, y, s, ph);
+
+    const bg = bCtx.createLinearGradient(0, y, 0, y + ph);
+    bg.addColorStop(0, '#c8c8c8');
+    bg.addColorStop(0.84, '#f0f0f0');
+    bg.addColorStop(0.93, '#404040');
+    bg.addColorStop(1, '#262626');
+    bCtx.fillStyle = bg;
+    bCtx.fillRect(0, y, s, ph);
+
+    // Subtle woodgrain lines
+    mCtx.strokeStyle = 'rgba(70, 50, 40, 0.10)';
+    mCtx.lineWidth = 1;
+    for (let k = 0; k < 3; k++) {
+      const gy = y + (0.22 + k * 0.24) * ph;
+      mCtx.beginPath();
+      mCtx.moveTo(0, gy);
+      mCtx.bezierCurveTo(s * 0.3, gy + (pseudoRand(i * 9 + k) - 0.5) * 4, s * 0.7, gy - (pseudoRand(i * 13 + k) - 0.5) * 4, s, gy);
+      mCtx.stroke();
+    }
+    const jointX = ((i * 89 + 44) % (s - 40)) + 20;
+    mCtx.fillStyle = 'rgba(60,48,42,0.22)';
+    mCtx.fillRect(jointX, y, 2, ph);
+    bCtx.fillStyle = '#383838';
+    bCtx.fillRect(jointX, y, 2, ph);
+  }
+
+  const map = new THREE.CanvasTexture(mapC);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
+  const bumpMap = new THREE.CanvasTexture(bumpC);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.anisotropy = 4;
+  cachedClapboard = { map, bumpMap };
+  return cachedClapboard;
+}
+
+/** Realistic European stucco/brick masonry texture with weathered variation & bump map */
+export function createPlasterBrickTextures(): { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } {
+  if (cachedPlasterBrick) return cachedPlasterBrick;
+  const s = 256;
+  const mapC = document.createElement('canvas');
+  mapC.width = mapC.height = s;
+  const mCtx = mapC.getContext('2d')!;
+
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = s;
+  const bCtx = bumpC.getContext('2d')!;
+
+  mCtx.fillStyle = '#dad4cc';
+  mCtx.fillRect(0, 0, s, s);
+  bCtx.fillStyle = '#606060';
+  bCtx.fillRect(0, 0, s, s);
+
+  const rows = 16;
+  const cols = 8;
+  const rh = s / rows;
+  const cw = s / cols;
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) * (cw * 0.5);
+    for (let c = -1; c <= cols; c++) {
+      const bx = c * cw + offset + 1.5;
+      const by = r * rh + 1.5;
+      const v = 205 + Math.round((pseudoRand(r * 31 + c * 17) - 0.5) * 42);
+      mCtx.fillStyle = `rgb(${v},${v - 5},${v - 9})`;
+      mCtx.fillRect(bx, by, cw - 3, rh - 3);
+      const bv = 175 + Math.round((pseudoRand(r * 19 + c * 23) - 0.5) * 30);
+      bCtx.fillStyle = `rgb(${bv},${bv},${bv})`;
+      bCtx.fillRect(bx, by, cw - 3, rh - 3);
+    }
+  }
+  for (let i = 0; i < 420; i++) {
+    const x = pseudoRand(i * 3.1) * s;
+    const y = pseudoRand(i * 7.3) * s;
+    mCtx.fillStyle = i % 2 === 0 ? 'rgba(255,252,246,0.16)' : 'rgba(90,82,78,0.10)';
+    mCtx.fillRect(x, y, 4, 3);
+  }
+
+  const map = new THREE.CanvasTexture(mapC);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
+  const bumpMap = new THREE.CanvasTexture(bumpC);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.anisotropy = 4;
+  cachedPlasterBrick = { map, bumpMap };
+  return cachedPlasterBrick;
+}
+
+/** Layered Nordic slate/shingle roof tiles with snow-dusted pockets & ridge bump */
+export function createShingleRoofTextures(): { map: THREE.CanvasTexture; bumpMap: THREE.CanvasTexture } {
+  if (cachedShingleRoof) return cachedShingleRoof;
+  const s = 256;
+  const mapC = document.createElement('canvas');
+  mapC.width = mapC.height = s;
+  const mCtx = mapC.getContext('2d')!;
+
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = s;
+  const bCtx = bumpC.getContext('2d')!;
+
+  mCtx.fillStyle = '#6d7b92';
+  mCtx.fillRect(0, 0, s, s);
+  bCtx.fillStyle = '#646464';
+  bCtx.fillRect(0, 0, s, s);
+
+  const rows = 10;
+  const cols = 8;
+  const rh = s / rows;
+  const cw = s / cols;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * (cw * 0.5);
+    for (let c = -1; c <= cols; c++) {
+      const x = c * cw + off;
+      const y = r * rh;
+      const baseL = 88 + Math.round((pseudoRand(r * 29 + c * 11) - 0.5) * 28);
+      mCtx.fillStyle = `rgb(${baseL},${baseL + 8},${baseL + 22})`;
+      mCtx.fillRect(x + 1, y + 1, cw - 2, rh - 2);
+      mCtx.fillStyle = 'rgba(18, 25, 40, 0.45)';
+      mCtx.fillRect(x, y + rh - 3, cw, 3);
+
+      const snowChance = pseudoRand(r * 41 + c * 13);
+      if (snowChance > 0.34) {
+        const sg = mCtx.createLinearGradient(0, y, 0, y + rh * 0.72);
+        sg.addColorStop(0, 'rgba(240, 246, 255, 0.92)');
+        sg.addColorStop(0.55, 'rgba(218, 232, 250, 0.65)');
+        sg.addColorStop(1, 'rgba(200, 220, 246, 0.0)');
+        mCtx.fillStyle = sg;
+        mCtx.fillRect(x + 1, y + 1, cw - 2, rh * 0.72);
+      }
+
+      const bg = bCtx.createLinearGradient(0, y, 0, y + rh);
+      bg.addColorStop(0, '#787878');
+      bg.addColorStop(0.82, '#ebebeb');
+      bg.addColorStop(1, '#262626');
+      bCtx.fillStyle = bg;
+      bCtx.fillRect(x + 1, y, cw - 2, rh);
+    }
+  }
+
+  const map = new THREE.CanvasTexture(mapC);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
+  const bumpMap = new THREE.CanvasTexture(bumpC);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.anisotropy = 4;
+  cachedShingleRoof = { map, bumpMap };
+  return cachedShingleRoof;
+}
+
+/** Authentic Giga Texas exterior: clean minimalist windowless white precast concrete & vertical architectural panels */
+export function createGigafactoryWallTexture(): THREE.CanvasTexture {
+  if (cachedGigaWall) return cachedGigaWall;
+  const w = 512;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  ctx.fillStyle = '#e7edf6';
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle vertical precast architectural panels (seamless X and Y wrapping across terrain elevations)
+  const colW = 64;
+  for (let x = 0; x < w; x += colW) {
+    const shade = 228 + Math.round((pseudoRand(x * 0.37 + 3) - 0.5) * 14);
+    const pg = ctx.createLinearGradient(x, 0, x + colW, 0);
+    pg.addColorStop(0, `rgb(${shade + 8},${shade + 11},${shade + 15})`);
+    pg.addColorStop(0.08, `rgb(${shade},${shade + 4},${shade + 9})`);
+    pg.addColorStop(0.92, `rgb(${shade - 6},${shade - 2},${shade + 4})`);
+    pg.addColorStop(1, `rgb(${shade - 24},${shade - 19},${shade - 12})`);
+    ctx.fillStyle = pg;
+    ctx.fillRect(x, 0, colW, h);
+
+    // Crisp panel joint seam & inner flute highlight
+    ctx.fillStyle = 'rgba(72, 92, 122, 0.24)';
+    ctx.fillRect(x, 0, 2, h);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
+    ctx.fillRect(x + 2, 0, 2, h);
+  }
+
+  // Two delicate horizontal concrete reveal grooves
+  for (const ry of [0, 128]) {
+    ctx.fillStyle = 'rgba(76, 94, 124, 0.22)';
+    ctx.fillRect(0, ry, w, 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.fillRect(0, ry + 2, w, 2);
+  }
+
+  // Subtle matte precast concrete micro-variation
+  for (let i = 0; i < 320; i++) {
+    const gx = pseudoRand(i * 5.7) * w;
+    const gy = pseudoRand(i * 9.3) * h;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(92,110,138,0.06)';
+    ctx.fillRect(gx, gy, 5, 3);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  cachedGigaWall = tex;
+  return tex;
+}
+
+/** Giga Texas West Main Entrance smoked architectural curtain-wall atrium with subtle interior holiday lobby tree glow */
+export function createGigaAtriumGlassTexture(): THREE.CanvasTexture {
+  if (cachedGigaAtrium) return cachedGigaAtrium;
+  const w = 512;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const glassGrad = ctx.createLinearGradient(0, 0, 0, h);
+  glassGrad.addColorStop(0, '#0a1628');
+  glassGrad.addColorStop(0.45, '#132847');
+  glassGrad.addColorStop(1, '#091423');
+  ctx.fillStyle = glassGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle futuristic aurora / winter sky diagonal reflection across curtain glass
+  ctx.fillStyle = 'rgba(130, 198, 255, 0.11)';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.08, 0);
+  ctx.lineTo(w * 0.34, 0);
+  ctx.lineTo(w * 0.18, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(180, 232, 255, 0.08)';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.56, 0);
+  ctx.lineTo(w * 0.68, 0);
+  ctx.lineTo(w * 0.50, h);
+  ctx.lineTo(w * 0.38, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Warm understated showroom holiday tree silhouette & festive glow inside atrium floor
+  const lobbyGlow = ctx.createRadialGradient(w * 0.5, h * 0.82, 8, w * 0.5, h * 0.78, 128);
+  lobbyGlow.addColorStop(0, 'rgba(255, 224, 158, 0.42)');
+  lobbyGlow.addColorStop(0.55, 'rgba(227, 45, 72, 0.16)');
+  lobbyGlow.addColorStop(1, 'rgba(10, 22, 40, 0)');
+  ctx.fillStyle = lobbyGlow;
+  ctx.fillRect(w * 0.22, h * 0.28, w * 0.56, h * 0.72);
+
+  ctx.fillStyle = 'rgba(26, 76, 56, 0.45)';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.5, h * 0.42);
+  ctx.lineTo(w * 0.57, h * 0.94);
+  ctx.lineTo(w * 0.43, h * 0.94);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255, 226, 145, 0.65)';
+  for (let d = 0; d < 7; d++) {
+    ctx.beginPath();
+    ctx.arc(w * 0.5 + ((d % 3) - 1) * 14, h * (0.56 + d * 0.05), 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sleek dark anodized structural mullions (4 columns x 3 rows)
+  ctx.fillStyle = '#070c14';
+  const cols = 4;
+  const rows = 3;
+  for (let i = 0; i <= cols; i++) {
+    const mx = Math.round((i / cols) * (w - 6));
+    ctx.fillRect(mx, 0, 6, h);
+  }
+  for (let j = 0; j <= rows; j++) {
+    const my = Math.round((j / rows) * (h - 5));
+    ctx.fillRect(0, my, w, 5);
+  }
+  ctx.strokeStyle = 'rgba(170, 204, 240, 0.22)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, w - 4, h - 4);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGigaAtrium = tex;
+  return tex;
+}
+
+/** Clean architectural Giga Texas TESLA signage with Tesla crest & glowing red trim */
+export function createGigaSignTexture(): THREE.CanvasTexture {
+  if (cachedGigaSign) return cachedGigaSign;
+  const w = 512;
+  const h = 112;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#0c1320');
+  bg.addColorStop(1, '#182236');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(220, 232, 248, 0.45)';
+  ctx.fillRect(0, 0, w, 4);
+  ctx.fillStyle = '#e31937';
+  ctx.fillRect(0, h - 8, w, 8);
+
+  drawTeslaCrestPath(ctx, 74, 52, 34);
+
+  ctx.fillStyle = '#f6f9ff';
+  ctx.font = '700 48px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('T E S L A', w * 0.59, h * 0.49);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedGigaSign = tex;
+  return tex;
+}
+
+/** Dark charcoal-anthracite industrial roof membrane & standing-seam deck texture for Gigafactories & large flat roofs */
+export function createGigaRoofDeckTexture(): THREE.CanvasTexture {
+  if (cachedGigaRoofDeck) return cachedGigaRoofDeck;
+  const w = 512;
+  const h = 512;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  ctx.fillStyle = '#141d2b';
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle industrial standing-seam TPO membrane bays
+  const bayW = 64;
+  for (let x = 0; x < w; x += bayW) {
+    const shade = Math.round((pseudoRand(x * 0.43 + 11) - 0.5) * 10);
+    const bg = ctx.createLinearGradient(x, 0, x + bayW, 0);
+    bg.addColorStop(0, `rgb(${18 + shade},${26 + shade},${40 + shade})`);
+    bg.addColorStop(0.5, `rgb(${23 + shade},${33 + shade},${49 + shade})`);
+    bg.addColorStop(1, `rgb(${15 + shade},${22 + shade},${34 + shade})`);
+    ctx.fillStyle = bg;
+    ctx.fillRect(x, 0, bayW, h);
+
+    // Standing seam shadow & fine gunmetal ridge
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.72)';
+    ctx.fillRect(x, 0, 2, h);
+    ctx.fillStyle = 'rgba(110, 134, 168, 0.22)';
+    ctx.fillRect(x + 2, 0, 1.5, h);
+  }
+
+  // Subtle transverse thermal expansion joints
+  for (let y = 0; y < h; y += 128) {
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.55)';
+    ctx.fillRect(0, y, w, 2);
+    ctx.fillStyle = 'rgba(105, 130, 165, 0.16)';
+    ctx.fillRect(0, y + 2, w, 1.5);
+  }
+
+  // Fine ballast / rubberized membrane grain so flat roof never looks plastic or washed out
+  for (let i = 0; i < 900; i++) {
+    const gx = pseudoRand(i * 7.3 + 2) * w;
+    const gy = pseudoRand(i * 11.7 + 5) * h;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(120, 146, 182, 0.08)' : 'rgba(4, 8, 16, 0.18)';
+    ctx.fillRect(gx, gy, 3, 3);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  cachedGigaRoofDeck = tex;
+  return tex;
+}
+
+/** Giga Texas iconic photovoltaic solar array roof with high-contrast dark PV grids, walkways, skylights & negative-space "TESLA" lettering */
+export function createGigaSolarRoofTexture(): THREE.CanvasTexture {
+  if (cachedGigaSolarRoof) return cachedGigaSolarRoof;
+  const w = 1024;
+  const h = 512;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  // 1. Deep obsidian-navy architectural membrane & photovoltaic deck base
+  const deckGrad = ctx.createLinearGradient(0, 0, w, h);
+  deckGrad.addColorStop(0, '#050c1b');
+  deckGrad.addColorStop(0.5, '#09162e');
+  deckGrad.addColorStop(1, '#040a16');
+  ctx.fillStyle = deckGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // 2. Dark anodized aluminum racking perimeter frame (no bright white border washout)
+  const rim = 18;
+  ctx.fillStyle = '#1b2638';
+  ctx.fillRect(0, 0, w, rim);
+  ctx.fillRect(0, h - rim, w, rim);
+  ctx.fillRect(0, 0, rim, h);
+  ctx.fillRect(w - rim, 0, rim, h);
+
+  // Crisp gunmetal frame bevel
+  ctx.strokeStyle = '#4c6180';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, w - 6, h - 6);
+  ctx.strokeStyle = 'rgba(6, 12, 24, 0.9)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(rim - 1, rim - 1, w - rim * 2 + 2, h - rim * 2 + 2);
+
+  // 3. High-contrast dark monocrystalline photovoltaic solar module grids with tilted-row shadow depth
+  const cellW = 24;
+  const cellH = 20;
+  for (let y = rim + 4; y < h - rim - 4; y += cellH) {
+    // Deep shadow trough between tilted PV array rows
+    ctx.fillStyle = 'rgba(2, 5, 12, 0.85)';
+    ctx.fillRect(rim + 2, y, w - rim * 2 - 4, 3);
+    for (let x = rim + 4; x < w - rim - 4; x += cellW) {
+      const seed = pseudoRand(x * 0.13 + y * 0.31);
+      // Deep cobalt-obsidian monocrystalline silicon cells (stays rich dark navy even under daylight)
+      const r = 7 + Math.round(seed * 9);
+      const g = 22 + Math.round(seed * 16);
+      const b = 50 + Math.round(seed * 28);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x + 1.5, y + 2.5, cellW - 3, cellH - 4);
+
+      // Subtle cool sky sheen gradient across individual PV glass pane
+      const pg = ctx.createLinearGradient(x, y, x + cellW, y + cellH);
+      pg.addColorStop(0, 'rgba(96, 158, 232, 0.20)');
+      pg.addColorStop(0.4, 'rgba(38, 92, 172, 0.05)');
+      pg.addColorStop(1, 'rgba(2, 6, 18, 0.34)');
+      ctx.fillStyle = pg;
+      ctx.fillRect(x + 1.5, y + 2.5, cellW - 3, cellH - 4);
+
+      // Crisp fine silver silicon busbars & sub-cell hairlines
+      ctx.fillStyle = 'rgba(148, 194, 244, 0.28)';
+      ctx.fillRect(x + cellW * 0.5, y + 3, 1, cellH - 5);
+      ctx.fillStyle = 'rgba(130, 178, 232, 0.18)';
+      ctx.fillRect(x + 2, y + cellH * 0.5 + 1, cellW - 4, 1);
+
+      // Anodized aluminum racking top-edge rail on each solar module
+      ctx.fillStyle = 'rgba(136, 166, 204, 0.34)';
+      ctx.fillRect(x + 1.5, y + 2.5, cellW - 3, 1.3);
+    }
+  }
+
+  // 4. Dark graphite architectural maintenance walkways & service corridors dividing solar bays
+  const walkwayMat = (wx: number, wy: number, ww: number, wh: number) => {
+    ctx.fillStyle = '#243146';
+    ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillStyle = 'rgba(142, 168, 202, 0.30)';
+    if (ww > wh) {
+      ctx.fillRect(wx, wy + 1, ww, 1.5);
+      ctx.fillRect(wx, wy + wh - 2.5, ww, 1.5);
+    } else {
+      ctx.fillRect(wx + 1, wy, 1.5, wh);
+      ctx.fillRect(wx + ww - 2.5, wy, 1.5, wh);
+    }
+    ctx.strokeStyle = 'rgba(4, 10, 22, 0.78)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(wx, wy, ww, wh);
+  };
+
+  // Perimeter inner service catwalk + vertical bay dividers
+  walkwayMat(rim + 2, rim + 2, w - rim * 2 - 4, 9);
+  walkwayMat(rim + 2, h - rim - 11, w - rim * 2 - 4, 9);
+  for (const vx of [w * 0.21, w * 0.79]) {
+    walkwayMat(vx - 5, rim + 9, 10, h - rim * 2 - 18);
+  }
+  // Horizontal north/south service spines framing the central TESLA solar bay
+  walkwayMat(rim + 9, 114, w - rim * 2 - 18, 10);
+  walkwayMat(rim + 9, h - 124, w - rim * 2 - 18, 10);
+
+  // 5. Smoked architectural skylight strips & dark industrial HVAC/chiller bay hardware
+  const drawSkylight = (sx: number, sy: number, sw: number, sh: number) => {
+    const sg = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+    sg.addColorStop(0, '#1a3254');
+    sg.addColorStop(0.5, '#3d6b9c');
+    sg.addColorStop(1, '#152946');
+    ctx.fillStyle = sg;
+    ctx.fillRect(sx, sy, sw, sh);
+    ctx.strokeStyle = '#0c1526';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx, sy, sw, sh);
+    // Subtle mullion ribs
+    for (let mx = sx + 14; mx < sx + sw - 6; mx += 14) {
+      ctx.fillStyle = 'rgba(10, 18, 32, 0.82)';
+      ctx.fillRect(mx, sy, 2, sh);
+    }
+  };
+  for (const sx of [62, 266, 624, 826]) {
+    drawSkylight(sx, 50, 122, 20);
+    drawSkylight(sx, h - 70, 122, 20);
+  }
+
+  // Dark gunmetal HVAC mechanical pods on far left/right industrial bays
+  const drawHvacBank = (bx: number, by: number) => {
+    ctx.fillStyle = '#334259';
+    ctx.fillRect(bx, by, 54, 34);
+    ctx.strokeStyle = '#627898';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx, by, 54, 34);
+    for (const fx of [bx + 15, bx + 39]) {
+      ctx.fillStyle = '#0c1424';
+      ctx.beginPath();
+      ctx.arc(fx, by + 17, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#5a7294';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  };
+  drawHvacBank(72, 174);
+  drawHvacBank(72, 294);
+  drawHvacBank(w - 126, 174);
+  drawHvacBank(w - 126, 294);
+
+  // 6. Iconic Giga Texas negative-space crisp silver-white "T E S L A" lettering formed directly in the dark PV array
+  ctx.save();
+  ctx.font = '900 116px Inter, "Helvetica Neue", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = 'rgba(3, 8, 20, 0.95)';
+  ctx.strokeText('T E S L A', w * 0.5, h * 0.505);
+
+  const letterGrad = ctx.createLinearGradient(0, h * 0.36, 0, h * 0.65);
+  letterGrad.addColorStop(0, '#eaf3ff');
+  letterGrad.addColorStop(0.5, '#cbdcf4');
+  letterGrad.addColorStop(1, '#a9c2e4');
+  ctx.fillStyle = letterGrad;
+  ctx.fillText('T E S L A', w * 0.5, h * 0.505);
+  ctx.restore();
+
+  // Subtle crimson Tesla architectural accent strips & corner status markers on frame
+  ctx.fillStyle = '#d81834';
+  ctx.fillRect(w * 0.34, 6, w * 0.32, 4);
+  ctx.fillRect(w * 0.34, h - 10, w * 0.32, 4);
+  for (const [cx, cy] of [[7, 7], [w - 17, 7], [7, h - 17], [w - 17, h - 17]]) {
+    ctx.fillStyle = '#d81834';
+    ctx.fillRect(cx, cy, 10, 10);
+    ctx.fillStyle = '#ffd166';
+    ctx.fillRect(cx + 3, cy + 3, 4, 4);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  cachedGigaSolarRoof = tex;
+  return tex;
+}
+
+/** Red Planet Mars equatorial map for festive SpaceX sky easter egg */
+export function createMarsSurfaceTexture(): THREE.CanvasTexture {
+  if (cachedMarsTex) return cachedMarsTex;
+  const w = 256;
+  const h = 128;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const base = ctx.createLinearGradient(0, 0, 0, h);
+  base.addColorStop(0, '#f4ece8');
+  base.addColorStop(0.14, '#d96e3c');
+  base.addColorStop(0.5, '#c64c26');
+  base.addColorStop(0.86, '#ad3f1f');
+  base.addColorStop(1, '#e8ddd6');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+
+  const patches: [number, number, number, string][] = [
+    [0.32, 0.48, 0.24, 'rgba(72, 24, 14, 0.42)'],
+    [0.64, 0.56, 0.28, 'rgba(84, 28, 16, 0.36)'],
+    [0.52, 0.38, 0.16, 'rgba(240, 140, 82, 0.34)'],
+    [0.18, 0.62, 0.18, 'rgba(68, 22, 12, 0.38)'],
+  ];
+  for (const [px, py, pr, col] of patches) {
+    const g = ctx.createRadialGradient(px * w, py * h, 2, px * w, py * h, pr * w);
+    g.addColorStop(0, col);
+    g.addColorStop(1, 'rgba(180, 70, 34, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(px * w, py * h, pr * w, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  cachedMarsTex = tex;
+  return tex;
+}
+
 export function createVolumetricBeamMaterial(colorHex = '#ffdf9e', opacity = 0.28): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -536,17 +1184,21 @@ export function createVolumetricBeamMaterial(colorHex = '#ffdf9e', opacity = 0.2
       varying vec3 vNormalView;
       varying vec3 vViewPos;
       void main() {
-        vec3 viewDir = normalize(vViewPos);
-        float edge = pow(abs(dot(vNormalView, viewDir)), 1.65);
-        float verticalFade = smoothstep(0.0, 0.72, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
-        float alpha = edge * verticalFade * uOpacity;
+        float viewDist = length(vViewPos);
+        vec3 viewDir = vViewPos / max(viewDist, 0.0001);
+        float ndotv = clamp(dot(normalize(vNormalView), viewDir), 0.0, 1.0);
+        float edge = pow(ndotv, 1.9);
+        float nearFade = smoothstep(1.2, 4.2, viewDist);
+        float axialFade = smoothstep(0.0, 0.62, vUv.y) * smoothstep(1.0, 0.84, vUv.y);
+        float coreBoost = 1.0 + smoothstep(0.55, 0.92, vUv.y) * 0.35;
+        float alpha = edge * nearFade * axialFade * coreBoost * uOpacity;
         gl_FragColor = vec4(uColor, alpha);
       }
     `,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
   });
 }
 
@@ -569,10 +1221,32 @@ const PIXAR_SKY_FRAG = `
   uniform vec3 uMidColor;
   uniform vec3 uHorizonColor;
 
-  float hash21(vec2 p) {
-    p = fract(p * vec2(234.34, 435.345));
-    p += dot(p, p + 34.23);
-    return fract(p.x * p.y);
+  float hash31(vec3 p) {
+    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  vec3 hash33(vec3 p) {
+    p = fract(p * vec3(443.897, 441.423, 437.195));
+    p += dot(p, p.yxz + 19.19);
+    return fract((p.xxy + p.yxx) * p.zyx);
+  }
+
+  vec3 sampleStarOctave(vec3 dir, float scale, float threshold, float size, float time) {
+    vec3 p = dir * scale;
+    vec3 cell = floor(p);
+    vec3 f = fract(p) - 0.5;
+    float rnd = hash31(cell);
+    if (rnd <= threshold) return vec3(0.0);
+    vec3 jitter = (hash33(cell) - 0.5) * 0.52;
+    float d = length(f - jitter);
+    float star = smoothstep(size, 0.0, d);
+    float tw = 0.58 + 0.42 * sin(time * (1.6 + rnd * 4.2) + rnd * 62.83);
+    vec3 sCol = rnd > threshold + (1.0 - threshold) * 0.65
+      ? vec3(1.24, 1.08, 0.84)
+      : (rnd > threshold + (1.0 - threshold) * 0.3 ? vec3(0.95, 1.06, 1.26) : vec3(0.84, 0.94, 1.15));
+    return sCol * star * tw;
   }
 
   void main() {
@@ -584,11 +1258,11 @@ const PIXAR_SKY_FRAG = `
     col = mix(col, uTopColor, smoothstep(0.28, 0.92, h));
 
     float nightVis = 1.0 - clamp(uDaylight * 1.15, 0.0, 0.92);
-    float horizonGlow = exp(-abs(y - 0.03) * 10.5);
+    float horizonGlow = exp(-abs(y - 0.025) * 9.5);
     vec3 glowTint = uThemeMode > 1.5
       ? vec3(0.75, 0.14, 0.56)
-      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : mix(vec3(0.48, 0.21, 0.14), vec3(0.95, 0.72, 0.48), uDaylight));
-    col += glowTint * horizonGlow * 0.58;
+      : (uThemeMode > 0.5 ? vec3(0.22, 0.42, 0.58) : mix(vec3(0.46, 0.24, 0.18), vec3(0.95, 0.76, 0.54), uDaylight));
+    col += glowTint * horizonGlow * 0.54;
 
     // Soft Milky Way diagonal stardust band across upper zenith in winter night
     if (y > 0.06 && nightVis > 0.08) {
@@ -620,19 +1294,24 @@ const PIXAR_SKY_FRAG = `
     col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost * nightVis);
     col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost * nightVis);
 
-    if (y > 0.04 && nightVis > 0.08) {
-      vec2 starGrid = vec2(az * 38.0, y * 74.0);
-      vec2 cell = floor(starGrid);
-      vec2 f = fract(starGrid) - 0.5;
-      float rnd = hash21(cell);
-      if (rnd > 0.925) {
-        float d = length(f);
-        float star = smoothstep(0.24, 0.0, d);
-        float tw = 0.55 + 0.45 * sin(uTime * (1.8 + rnd * 4.5) + rnd * 62.0);
-        vec3 sCol = rnd > 0.97 ? vec3(1.25, 1.08, 0.82) : vec3(0.95, 1.05, 1.25);
-        col += sCol * star * tw * smoothstep(0.04, 0.22, y) * 1.15 * nightVis;
-      }
+    // Seam-free 3D unit-direction starfield (zero zenith pinching or +-PI seam)
+    if (y > 0.03 && nightVis > 0.06) {
+      float starFade = smoothstep(0.03, 0.20, y) * nightVis;
+      vec3 stars = sampleStarOctave(dir, 72.0, 0.945, 0.21, uTime) * 1.18
+                 + sampleStarOctave(dir, 148.0, 0.962, 0.23, uTime * 0.75 + 2.1) * 0.55;
+      col += stars * starFade;
     }
+
+    // Soft atmospheric horizon mist & lunar Mie scatter for seamless mountain/sky blend
+    float mistBand = exp(-max(0.0, y) * 7.2) * smoothstep(-0.18, 0.01, y);
+    vec3 mistCol = mix(uHorizonColor * 1.12, vec3(0.78, 0.86, 0.96), uDaylight * 0.55);
+    col = mix(col, mistCol, mistBand * 0.34);
+
+    vec3 scatterDir = normalize(vec3(-0.29, 0.22, -0.93));
+    float moonCos = max(0.0, dot(dir, scatterDir));
+    float moonScatter = pow(moonCos, 5.5) * 0.16 + pow(moonCos, 24.0) * 0.18;
+    vec3 scatterTint = uThemeMode > 1.5 ? vec3(0.52, 0.62, 1.0) : vec3(0.58, 0.74, 1.0);
+    col += scatterTint * moonScatter * (0.25 + 0.75 * nightVis) * smoothstep(-0.04, 0.14, y);
 
     gl_FragColor = vec4(col, 1.0);
   }

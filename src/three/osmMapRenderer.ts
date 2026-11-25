@@ -1,3 +1,4 @@
+import { streetGeometry } from './mappedRoads';
 import * as THREE from 'three';
 import { GraphicsQuality, HolidayThemeId } from '../core/environment';
 import {
@@ -7,7 +8,12 @@ import {
   OsmWorldState,
 } from '../core/osmWorld';
 import { TelemetryFrame } from '../core/telemetry';
-import { createSparklingSnowMaterial, getSoftGlowTexture } from './pixarMaterials';
+import {
+  createGigaRoofDeckTexture,
+  createGigaSolarRoofTexture,
+  createSparklingSnowMaterial,
+  getSoftGlowTexture,
+} from './pixarMaterials';
 import {
   createHolidayRoadSign,
   createPixarCottage,
@@ -39,6 +45,7 @@ let sharedChurchGlassMat: THREE.MeshBasicMaterial | null = null;
 let sharedGigaWallMat: THREE.MeshPhysicalMaterial | null = null;
 let sharedGigaRedBandMat: THREE.MeshPhysicalMaterial | null = null;
 let sharedGigaGlassMat: THREE.MeshStandardMaterial | null = null;
+let sharedGigaRoofDeckMat: THREE.MeshStandardMaterial | null = null;
 let sharedSolarMat: THREE.MeshStandardMaterial | null = null;
 let sharedFenceWoodMat: THREE.MeshStandardMaterial | null = null;
 let sharedIcicleMat: THREE.MeshPhysicalMaterial | null = null;
@@ -233,9 +240,27 @@ function getSharedEnvMaterials() {
       })
     );
   }
+  if (!sharedGigaRoofDeckMat) {
+    const deckTex = createGigaRoofDeckTexture();
+    sharedGigaRoofDeckMat = markShared(
+      new THREE.MeshStandardMaterial({
+        color: '#ffffff',
+        map: deckTex,
+        roughness: 0.86,
+        metalness: 0.08,
+        envMapIntensity: 0.28,
+      })
+    );
+  }
   if (!sharedSolarMat) {
+    const solarTex = createGigaSolarRoofTexture();
     sharedSolarMat = markShared(
-      new THREE.MeshStandardMaterial({ color: '#14203d', metalness: 0.72, roughness: 0.24 })
+      new THREE.MeshStandardMaterial({
+        map: solarTex,
+        roughness: 0.44,
+        metalness: 0.18,
+        envMapIntensity: 0.35,
+      })
     );
   }
   if (!sharedFenceWoodMat) {
@@ -274,6 +299,7 @@ function getSharedEnvMaterials() {
     gigaWall: sharedGigaWallMat,
     gigaRed: sharedGigaRedBandMat,
     gigaGlass: sharedGigaGlassMat,
+    gigaRoofDeck: sharedGigaRoofDeckMat,
     solar: sharedSolarMat,
     fenceWood: sharedFenceWoodMat,
     icicle: sharedIcicleMat,
@@ -381,7 +407,7 @@ export class OsmMapLayer {
   private theme: HolidayThemeId = 'classic';
   private targetVec = new THREE.Vector3();
 
-  constructor() {
+  constructor(private readonly mappedStreets = false) {
     this.mapPivot.add(this.mapInner);
     this.group.add(this.mapPivot);
   }
@@ -507,36 +533,29 @@ export class OsmMapLayer {
       glassBand.position.y = h * 0.45;
       g.add(glassBand);
 
-      const roofSnow = new THREE.Mesh(
-        new THREE.BoxGeometry(spanX + 0.6, 0.55, spanZ + 0.6),
-        mats.snowRoof
+      // Dark charcoal architectural roof deck + raised full-span Tesla PV solar array
+      const roofDeck = new THREE.Mesh(
+        new THREE.BoxGeometry(spanX + 0.36, 0.42, spanZ + 0.36),
+        mats.gigaRoofDeck
       );
-      roofSnow.position.y = h + 0.28;
-      g.add(roofSnow);
+      roofDeck.position.y = h + 0.21;
+      g.add(roofDeck);
 
-      // Rooftop solar panel arrays dusted around perimeter
-      const panelCols = Math.max(2, Math.floor(spanX / 8));
-      const panelRows = Math.max(2, Math.floor(spanZ / 10));
-      for (let px = 0; px < panelCols; px++) {
-        for (let pz = 0; pz < panelRows; pz++) {
-          const sp = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.25, 6.2), mats.solar);
-          sp.rotation.x = 0.14;
-          sp.position.set(
-            -spanX * 0.34 + px * (spanX * 0.68 / Math.max(1, panelCols - 1)),
-            h + 0.72,
-            -spanZ * 0.34 + pz * (spanZ * 0.68 / Math.max(1, panelRows - 1))
-          );
-          g.add(sp);
-        }
-      }
+      const longSpan = Math.max(4, Math.max(spanX, spanZ) - 1.4);
+      const shortSpan = Math.max(3, Math.min(spanX, spanZ) - 1.4);
+      const solarGeo = new THREE.PlaneGeometry(longSpan, shortSpan).rotateX(-Math.PI * 0.5);
+      const solarMesh = new THREE.Mesh(solarGeo, mats.solar);
+      solarMesh.position.y = h + 0.46;
+      if (spanZ > spanX) solarMesh.rotation.y = Math.PI * 0.5;
+      g.add(solarMesh);
 
       // Golden Holiday Fairy Rim around Gigafactory parapet
       const rimPts = [
-        new THREE.Vector3(-spanX * 0.51, h + 0.62, -spanZ * 0.51),
-        new THREE.Vector3(spanX * 0.51, h + 0.62, -spanZ * 0.51),
-        new THREE.Vector3(spanX * 0.51, h + 0.62, spanZ * 0.51),
-        new THREE.Vector3(-spanX * 0.51, h + 0.62, spanZ * 0.51),
-        new THREE.Vector3(-spanX * 0.51, h + 0.62, -spanZ * 0.51),
+        new THREE.Vector3(-spanX * 0.51, h + 0.48, -spanZ * 0.51),
+        new THREE.Vector3(spanX * 0.51, h + 0.48, -spanZ * 0.51),
+        new THREE.Vector3(spanX * 0.51, h + 0.48, spanZ * 0.51),
+        new THREE.Vector3(-spanX * 0.51, h + 0.48, spanZ * 0.51),
+        new THREE.Vector3(-spanX * 0.51, h + 0.48, -spanZ * 0.51),
       ];
       g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rimPts), mats.fairy));
       topY = h + 1.8;
@@ -772,6 +791,7 @@ export class OsmMapLayer {
     this.builtVersion = snapshot.version;
     this.builtQuality = quality;
     this.builtIsLiveOsm = isLiveOsm;
+    this.wasLiveOsm = false;
     this.originLat = snapshot.originLat;
     this.originLon = snapshot.originLon;
 
@@ -844,7 +864,11 @@ export class OsmMapLayer {
 
     // 2. Secondary OSM Cross-Streets & Neighborhood Roads
     const roadLimit = quality === 'eco' ? 14 : 26;
-    for (const road of snapshot.roads.slice(0, roadLimit)) {
+    const renderNetwork = this.mappedStreets && isLiveOsm;
+    if (renderNetwork) {
+      this.mapInner.add(new THREE.Mesh(streetGeometry(snapshot.roads), mats.road));
+    }
+    for (const road of renderNetwork ? [] : snapshot.roads.slice(0, roadLimit)) {
       for (let i = 0; i < road.points.length - 1; i++) {
         const a = road.points[i];
         const b = road.points[i + 1];
@@ -1131,7 +1155,7 @@ export class OsmMapLayer {
         const wz = -lx * sinP + lz * cosP;
         const curveX = getRoadCurveX(wz);
         const nearRoad = Math.abs(wx - curveX) < b.radius + 7.5 && wz > -185 && wz < 22;
-        b.group.visible = !nearRoad;
+        b.group.visible = this.mappedStreets || !nearRoad;
         if (b.label) b.label.rotation.y = -pivotRad;
       }
     } else {
