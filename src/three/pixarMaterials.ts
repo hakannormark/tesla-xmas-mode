@@ -884,54 +884,199 @@ export function createGigaSignTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** Giga Texas iconic photovoltaic solar array roof with bright frosted negative-space "TESLA" lettering */
+/** Giga Texas iconic photovoltaic solar array roof with high-contrast dark PV grids, walkways, skylights & negative-space "TESLA" lettering */
 export function createGigaSolarRoofTexture(): THREE.CanvasTexture {
   if (cachedGigaSolarRoof) return cachedGigaSolarRoof;
-  const w = 512;
-  const h = 256;
+  const w = 1024;
+  const h = 512;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d')!;
 
-  // Clean winter white TPO roof perimeter
-  ctx.fillStyle = '#eef4fc';
+  // 1. Dark architectural membrane & deep navy photovoltaic deck base
+  const deckGrad = ctx.createLinearGradient(0, 0, w, h);
+  deckGrad.addColorStop(0, '#071022');
+  deckGrad.addColorStop(0.5, '#0c1b38');
+  deckGrad.addColorStop(1, '#060e1e');
+  ctx.fillStyle = deckGrad;
   ctx.fillRect(0, 0, w, h);
 
-  const stepX = 16;
-  const stepY = 16;
-  for (let y = 16; y < h - 16; y += stepY) {
-    for (let x = 16; x < w - 16; x += stepX) {
-      ctx.fillStyle = ((x + y) / 16) % 2 === 0 ? '#0f2042' : '#162d58';
-      ctx.fillRect(x + 1, y + 1, stepX - 2, stepY - 2);
-      ctx.fillStyle = 'rgba(155, 202, 255, 0.14)';
-      ctx.fillRect(x + 2, y + 2, stepX - 4, 2);
+  // 2. Brushed aluminum parapet coping perimeter with subtle frosted snow dusting on outer rim
+  const rim = 22;
+  ctx.fillStyle = '#33425c';
+  ctx.fillRect(0, 0, w, rim);
+  ctx.fillRect(0, h - rim, w, rim);
+  ctx.fillRect(0, 0, rim, h);
+  ctx.fillRect(w - rim, 0, rim, h);
+
+  // Crisp metallic parapet top bevel
+  ctx.strokeStyle = '#9db1cc';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4, 4, w - 8, h - 8);
+  ctx.strokeStyle = 'rgba(18, 28, 46, 0.85)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(rim - 1, rim - 1, w - rim * 2 + 2, h - rim * 2 + 2);
+
+  // Delicate perimeter snow-dusted drifts tucked along parapet edge (keeps center solar bays crisp & dark)
+  for (let i = 0; i < 42; i++) {
+    const t = i / 41;
+    const topW = 18 + pseudoRand(i * 7.1) * 32;
+    const topH = 7 + pseudoRand(i * 11.3) * 11;
+    const gTop = ctx.createRadialGradient(t * w, rim * 0.65, 1, t * w, rim * 0.65, topW);
+    gTop.addColorStop(0, 'rgba(226, 238, 255, 0.72)');
+    gTop.addColorStop(1, 'rgba(200, 220, 248, 0)');
+    ctx.fillStyle = gTop;
+    ctx.fillRect(t * w - topW, 2, topW * 2, topH + rim * 0.6);
+
+    const botW = 18 + pseudoRand(i * 9.7 + 5) * 30;
+    const gBot = ctx.createRadialGradient(t * w, h - rim * 0.65, 1, t * w, h - rim * 0.65, botW);
+    gBot.addColorStop(0, 'rgba(220, 234, 252, 0.68)');
+    gBot.addColorStop(1, 'rgba(200, 220, 248, 0)');
+    ctx.fillStyle = gBot;
+    ctx.fillRect(t * w - botW, h - rim - 12, botW * 2, rim + 10);
+  }
+
+  // 3. High-contrast dark monocrystalline photovoltaic solar module grids
+  const cellW = 24;
+  const cellH = 20;
+  for (let y = rim + 6; y < h - rim - 6; y += cellH) {
+    for (let x = rim + 6; x < w - rim - 6; x += cellW) {
+      const seed = pseudoRand(x * 0.13 + y * 0.31);
+      // Deep glossy cobalt-obsidian silicon panels with realistic angle-of-incidence variation
+      const r = 10 + Math.round(seed * 10);
+      const g = 24 + Math.round(seed * 18);
+      const b = 52 + Math.round(seed * 30);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x + 1.5, y + 1.5, cellW - 3, cellH - 3);
+
+      // Subtle diagonal sky specular reflection sheen on individual PV glass
+      const pg = ctx.createLinearGradient(x, y, x + cellW, y + cellH);
+      pg.addColorStop(0, 'rgba(135, 192, 255, 0.22)');
+      pg.addColorStop(0.35, 'rgba(72, 130, 210, 0.06)');
+      pg.addColorStop(1, 'rgba(4, 10, 24, 0.26)');
+      ctx.fillStyle = pg;
+      ctx.fillRect(x + 1.5, y + 1.5, cellW - 3, cellH - 3);
+
+      // Fine silver silicon busbars & sub-cell hairlines
+      ctx.fillStyle = 'rgba(155, 198, 245, 0.22)';
+      ctx.fillRect(x + cellW * 0.5, y + 2, 1, cellH - 4);
+      ctx.fillStyle = 'rgba(140, 185, 235, 0.14)';
+      ctx.fillRect(x + 2, y + cellH * 0.5, cellW - 4, 1);
+
+      // Crisp metallic aluminum racking seam on top edge of each module
+      ctx.fillStyle = 'rgba(182, 204, 230, 0.28)';
+      ctx.fillRect(x + 1.5, y + 1.5, cellW - 3, 1.2);
     }
   }
 
-  // Crisp negative-space white TESLA cutout on roof solar array
-  ctx.fillStyle = '#f7faff';
-  ctx.fillRect(58, 72, w - 116, 112);
-  ctx.strokeStyle = '#d4deec';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(58, 72, w - 116, 112);
+  // 4. Metallic architectural maintenance walkways & service corridors dividing solar bays
+  const walkwayMat = (wx: number, wy: number, ww: number, wh: number) => {
+    ctx.fillStyle = '#3c4c66';
+    ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillStyle = 'rgba(195, 214, 238, 0.38)';
+    if (ww > wh) {
+      ctx.fillRect(wx, wy + 1, ww, 2);
+      ctx.fillRect(wx, wy + wh - 3, ww, 2);
+    } else {
+      ctx.fillRect(wx + 1, wy, 2, wh);
+      ctx.fillRect(wx + ww - 3, wy, 2, wh);
+    }
+    ctx.strokeStyle = 'rgba(10, 18, 34, 0.65)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(wx, wy, ww, wh);
+  };
 
-  ctx.fillStyle = '#142648';
-  ctx.font = '900 72px Inter, Arial, sans-serif';
+  // Perimeter inner service catwalk + vertical bay dividers
+  walkwayMat(rim + 2, rim + 2, w - rim * 2 - 4, 10);
+  walkwayMat(rim + 2, h - rim - 12, w - rim * 2 - 4, 10);
+  for (const vx of [w * 0.22, w * 0.78]) {
+    walkwayMat(vx - 6, rim + 10, 12, h - rim * 2 - 20);
+  }
+  // Horizontal north/south service spines framing the central TESLA solar bay
+  walkwayMat(rim + 10, 118, w - rim * 2 - 20, 12);
+  walkwayMat(rim + 10, h - 130, w - rim * 2 - 20, 12);
+
+  // 5. Industrial skylight strips & rooftop HVAC/chiller bay hardware along service spines
+  const drawSkylight = (sx: number, sy: number, sw: number, sh: number) => {
+    const sg = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+    sg.addColorStop(0, '#506f96');
+    sg.addColorStop(0.5, '#d8e8fa');
+    sg.addColorStop(1, '#3d587c');
+    ctx.fillStyle = sg;
+    ctx.fillRect(sx, sy, sw, sh);
+    ctx.strokeStyle = '#1e2c44';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx, sy, sw, sh);
+    // Warm factory interior glow glint + mullions
+    ctx.fillStyle = 'rgba(255, 224, 168, 0.28)';
+    ctx.fillRect(sx + 2, sy + 2, sw - 4, sh - 4);
+    for (let mx = sx + 14; mx < sx + sw - 6; mx += 14) {
+      ctx.fillStyle = 'rgba(24, 36, 56, 0.75)';
+      ctx.fillRect(mx, sy, 2, sh);
+    }
+  };
+  for (const sx of [68, 270, 620, 822]) {
+    drawSkylight(sx, 54, 124, 24);
+    drawSkylight(sx, h - 78, 124, 24);
+  }
+
+  // Metallic HVAC mechanical pods on the far left/right industrial bays
+  const drawHvacBank = (bx: number, by: number) => {
+    ctx.fillStyle = '#5a6b86';
+    ctx.fillRect(bx, by, 54, 34);
+    ctx.strokeStyle = '#9cb2ce';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx, by, 54, 34);
+    // Twin fan shrouds
+    for (const fx of [bx + 15, bx + 39]) {
+      ctx.fillStyle = '#141e30';
+      ctx.beginPath();
+      ctx.arc(fx, by + 17, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#8fa4c2';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  };
+  drawHvacBank(76, 174);
+  drawHvacBank(76, 294);
+  drawHvacBank(w - 130, 174);
+  drawHvacBank(w - 130, 294);
+
+  // 6. Iconic Giga Texas negative-space frosted white "T E S L A" lettering formed directly in the dark PV array
+  ctx.save();
+  ctx.font = '900 112px Inter, "Helvetica Neue", Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('T E S L A', w * 0.5, h * 0.51);
+  // Recessed dark border shadow around letter cutouts so letters pop sharply from the dark solar glass
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = 'rgba(4, 10, 24, 0.92)';
+  ctx.strokeText('T E S L A', w * 0.5, h * 0.505);
 
-  // Subtle festive crimson & gold corner markers on the rooftop TPO border
-  for (const [cx, cy] of [[10, 10], [w - 18, 10], [10, h - 18], [w - 18, h - 18]]) {
+  const letterGrad = ctx.createLinearGradient(0, h * 0.36, 0, h * 0.65);
+  letterGrad.addColorStop(0, '#eef5ff');
+  letterGrad.addColorStop(0.5, '#d6e4f7');
+  letterGrad.addColorStop(1, '#b8cbe6');
+  ctx.fillStyle = letterGrad;
+  ctx.fillText('T E S L A', w * 0.5, h * 0.505);
+  ctx.restore();
+
+  // Subtle crimson Tesla architectural accent strips & warm gold corner beacons on parapet corners
+  ctx.fillStyle = '#d81834';
+  ctx.fillRect(w * 0.34, 8, w * 0.32, 5);
+  ctx.fillRect(w * 0.34, h - 13, w * 0.32, 5);
+  for (const [cx, cy] of [[10, 10], [w - 22, 10], [10, h - 22], [w - 22, h - 22]]) {
     ctx.fillStyle = '#d81834';
-    ctx.fillRect(cx, cy, 8, 8);
+    ctx.fillRect(cx, cy, 12, 12);
     ctx.fillStyle = '#ffd166';
-    ctx.fillRect(cx + 2, cy + 2, 4, 4);
+    ctx.fillRect(cx + 3, cy + 3, 6, 6);
   }
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   cachedGigaSolarRoof = tex;
   return tex;
 }

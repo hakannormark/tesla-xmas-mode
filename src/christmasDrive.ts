@@ -88,7 +88,9 @@ if (!stage) {
   let gpsLatBias = 0;
   let steerLaneSway = 0;
   let liveState = live.getState();
+  let lastFlightStateSec = performance.now() / 1000;
   let activeFlights: LiveFlight[] = [];
+  const flightTargetPos = new THREE.Vector3();
   let demoPrevHeading = 0;
   let demoHasInit = false;
   let horizonY = 0;
@@ -934,6 +936,7 @@ if (!stage) {
       lastUi = now;
       live.update(frame.latitude, frame.longitude, !demo && !trial, fix);
       liveState = live.getState();
+      lastFlightStateSec = time;
       activeFlights = trial ? [] : liveState.flights;
       if (trial) {
         const inclination = Math.round(100 * Math.tan(avatar.rotation.x));
@@ -979,23 +982,51 @@ if (!stage) {
       });
     }
 
+    const flightSubDt = Math.min(0.35, Math.max(0, time - lastFlightStateSec));
     for (const [fIdx, flight] of activeFlights.entries()) {
-      const model = aircraftModels.get(flight.hex || flight.callsign)!;
-      // Fixed world compass azimuth (never rotates when the sleigh turns) flying high in the winter sky
-      const azimuth = (flight.bearingDeg * Math.PI) / 180;
-      const radius = THREE.MathUtils.clamp(flight.distanceKm * 5.8, 115, 185);
+      const id = flight.hex || flight.callsign;
+      const model = aircraftModels.get(id)!;
+      // Smooth 60fps sub-poll dead-reckoning along true compass heading & groundspeed
+      const baseAz = (flight.bearingDeg * Math.PI) / 180;
+      const headRad = (flight.headingDeg * Math.PI) / 180;
+      const stepKm = flight.groundspeedKts > 5 ? (flight.groundspeedKts * 0.514444 * flightSubDt) / 1000 : 0;
+      const eastKm = Math.sin(baseAz) * flight.distanceKm + Math.sin(headRad) * stepKm;
+      const northKm = Math.cos(baseAz) * flight.distanceKm + Math.cos(headRad) * stepKm;
+      const liveDistKm = Math.max(2, Math.hypot(eastKm, northKm));
+      const azimuth = Math.atan2(eastKm, northKm);
+      const radius = THREE.MathUtils.clamp(liveDistKm * 5.8, 115, 185);
+
+      // Stable per-aircraft elevation slot (keyed by ID hash, not list index, preventing vertical jumps)
+      let idHash = 0;
+      for (let c = 0; c < id.length; c++) idHash = (idHash * 31 + id.charCodeAt(c)) | 0;
+      const slotOffset = (Math.abs(idHash) % 3) * 0.032;
       const elevation = THREE.MathUtils.clamp(
-        0.19 + (fIdx % 3) * 0.032 + Math.atan2(flight.altitudeM, Math.max(8000, flight.distanceKm * 1000)) * 0.14,
+        0.19 + slotOffset + Math.atan2(flight.altitudeM, Math.max(8000, liveDistKm * 1000)) * 0.14,
         0.19,
-        0.27
+        0.28
       );
+      const relX = Math.sin(azimuth) * radius;
+      const relY = Math.tan(elevation) * radius;
+      const relZ = -Math.cos(azimuth) * radius;
+      flightTargetPos.set(relX, relY, relZ);
+      let relPos = model.userData.flightRel as THREE.Vector3 | undefined;
+      if (!relPos || rebase || relPos.distanceToSquared(flightTargetPos) > 45 * 45) {
+        if (!relPos) {
+          relPos = new THREE.Vector3();
+          model.userData.flightRel = relPos;
+        }
+        relPos.copy(flightTargetPos);
+      } else {
+        // Smoothly damp any 15s ADS-B poll track/wind correction in avatar-relative sky space
+        relPos.lerp(flightTargetPos, 1 - Math.exp(-dt * 4.5));
+      }
       model.position.set(
-        avatar.position.x + Math.sin(azimuth) * radius,
-        avatar.position.y + Math.tan(elevation) * radius,
-        avatar.position.z - Math.cos(azimuth) * radius
+        avatar.position.x + relPos.x,
+        avatar.position.y + relPos.y,
+        avatar.position.z + relPos.z
       );
       model.rotation.order = 'YXZ';
-      model.rotation.y = Math.PI / 2 - (flight.headingDeg * Math.PI) / 180;
+      model.rotation.y = Math.PI / 2 - headRad;
       model.rotation.x = Math.sin(time * 0.9 + fIdx) * 0.06;
       model.scale.setScalar(1.95 + radius / 90);
     }
