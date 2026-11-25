@@ -124,45 +124,136 @@ function pushOutwardQuad(
   pushOutwardTri(out, a, c, d, interiorRef);
 }
 
+const _tmpMatrix = new THREE.Matrix4();
+const _tmpColor = new THREE.Color();
+
 /**
- * Builds a smooth multi-station lofted hull with guaranteed outward normals.
- * Each station is an ordered ring of Vector3 points around the perimeter.
+ * Builds a multi-station lofted hull with guaranteed outward normals.
+ * When `smooth` is true (Semi cab, Roadster body), shares indexed vertices across the
+ * lofted skin so clearcoat gleams smoothly while end caps remain crisp.
+ * When `smooth` is false (Cybertruck angular exoskeleton), preserves sharp planar creases.
  */
-function buildLoftedHull(stations: THREE.Vector3[][]): THREE.BufferGeometry {
-  const positions: number[] = [];
+function buildLoftedHull(stations: THREE.Vector3[][], smooth = true): THREE.BufferGeometry {
   const ringLen = stations[0].length;
+  if (!smooth) {
+    const positions: number[] = [];
+    for (let s = 0; s < stations.length - 1; s++) {
+      const r0 = stations[s];
+      const r1 = stations[s + 1];
+      const center = new THREE.Vector3();
+      for (let i = 0; i < ringLen; i++) {
+        center.add(r0[i]).add(r1[i]);
+      }
+      center.multiplyScalar(1 / (ringLen * 2));
+
+      for (let i = 0; i < ringLen; i++) {
+        const next = (i + 1) % ringLen;
+        pushOutwardQuad(positions, r0[i], r0[next], r1[next], r1[i], center);
+      }
+    }
+
+    const capRing = (ring: THREE.Vector3[], offsetZ: number) => {
+      const center = new THREE.Vector3();
+      for (const p of ring) center.add(p);
+      center.multiplyScalar(1 / ring.length);
+      const ref = center.clone().add(new THREE.Vector3(0, 0, offsetZ));
+      for (let i = 0; i < ring.length; i++) {
+        const next = (i + 1) % ring.length;
+        pushOutwardTri(positions, center, ring[i], ring[next], ref);
+      }
+    };
+    capRing(stations[0], 1.0);
+    capRing(stations[stations.length - 1], -1.0);
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  // Smooth indexed loft skin with separate crisp end-cap vertices
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let s = 0; s < stations.length; s++) {
+    const ring = stations[s];
+    for (let i = 0; i < ringLen; i++) {
+      const p = ring[i];
+      positions.push(p.x, p.y, p.z);
+    }
+  }
+
+  const e1 = new THREE.Vector3();
+  const e2 = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const mid = new THREE.Vector3();
+  const center = new THREE.Vector3();
 
   for (let s = 0; s < stations.length - 1; s++) {
     const r0 = stations[s];
     const r1 = stations[s + 1];
-    const center = new THREE.Vector3();
+    center.set(0, 0, 0);
     for (let i = 0; i < ringLen; i++) {
       center.add(r0[i]).add(r1[i]);
     }
     center.multiplyScalar(1 / (ringLen * 2));
 
+    const base0 = s * ringLen;
+    const base1 = (s + 1) * ringLen;
     for (let i = 0; i < ringLen; i++) {
       const next = (i + 1) % ringLen;
-      pushOutwardQuad(positions, r0[i], r0[next], r1[next], r1[i], center);
+      const a = r0[i], b = r0[next], c = r1[next];
+      const ia = base0 + i, ib = base0 + next, ic = base1 + next, id = base1 + i;
+
+      // Orient first triangle outward
+      e1.subVectors(b, a);
+      e2.subVectors(c, a);
+      n.crossVectors(e1, e2);
+      mid.addVectors(a, b).add(c).multiplyScalar(1 / 3).sub(center);
+      if (n.dot(mid) >= 0) {
+        indices.push(ia, ib, ic, ia, ic, id);
+      } else {
+        indices.push(ia, ic, ib, ia, id, ic);
+      }
     }
   }
 
-  // Front & back caps
-  const capRing = (ring: THREE.Vector3[], offsetZ: number) => {
-    const center = new THREE.Vector3();
-    for (const p of ring) center.add(p);
-    center.multiplyScalar(1 / ring.length);
-    const ref = center.clone().add(new THREE.Vector3(0, 0, offsetZ));
+  // Separate crisp front & back caps (unshared with side skin so end normals stay sharp)
+  const capRingIndexed = (ring: THREE.Vector3[], interiorStation: THREE.Vector3[]) => {
+    const capCenter = new THREE.Vector3();
+    const interiorCenter = new THREE.Vector3();
+    for (let i = 0; i < ring.length; i++) {
+      capCenter.add(ring[i]);
+      interiorCenter.add(interiorStation[i]);
+    }
+    capCenter.multiplyScalar(1 / ring.length);
+    interiorCenter.multiplyScalar(1 / ring.length);
+
+    const centerIdx = positions.length / 3;
+    positions.push(capCenter.x, capCenter.y, capCenter.z);
+    const ringStart = positions.length / 3;
+    for (let i = 0; i < ring.length; i++) {
+      positions.push(ring[i].x, ring[i].y, ring[i].z);
+    }
     for (let i = 0; i < ring.length; i++) {
       const next = (i + 1) % ring.length;
-      pushOutwardTri(positions, center, ring[i], ring[next], ref);
+      const p1 = ring[i], p2 = ring[next];
+      e1.subVectors(p1, capCenter);
+      e2.subVectors(p2, capCenter);
+      n.crossVectors(e1, e2);
+      mid.addVectors(capCenter, p1).add(p2).multiplyScalar(1 / 3).sub(interiorCenter);
+      if (n.dot(mid) >= 0) {
+        indices.push(centerIdx, ringStart + i, ringStart + next);
+      } else {
+        indices.push(centerIdx, ringStart + next, ringStart + i);
+      }
     }
   };
-  capRing(stations[0], 1.0);
-  capRing(stations[stations.length - 1], -1.0);
+  capRingIndexed(stations[0], stations[1]);
+  capRingIndexed(stations[stations.length - 1], stations[stations.length - 2]);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
 }
@@ -437,28 +528,32 @@ export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): Accur
   rearPanel.position.set(0, 2.55, 7.87);
   group.add(rearPanel);
 
-  // ~76 Blooming 3D Golden Perimeter Fairy Bulbs!
-  const bulbGeo = new THREE.SphereGeometry(0.085, 6, 6);
-  const bulbMaterials: THREE.MeshBasicMaterial[] = [];
-  const addBulb = (bx: number, by: number, bz: number) => {
-    const bm = new THREE.MeshBasicMaterial({ color: '#ffdf88', toneMapped: false });
-    bulbMaterials.push(bm);
-    const m = new THREE.Mesh(bulbGeo, bm);
-    m.position.set(bx, by, bz);
-    group.add(m);
-  };
+  // 80 Blooming 3D Golden Perimeter Fairy Bulbs batched into 1 InstancedMesh!
+  const bulbCoords: [number, number, number][] = [];
   for (let i = 0; i <= 16; i++) {
     const bz = -1.1 + (i / 16) * 8.8;
     for (const side of [-1.34, 1.34]) {
-      addBulb(side, 3.96, bz);
-      addBulb(side, 0.88, bz);
+      bulbCoords.push([side, 3.96, bz], [side, 0.88, bz]);
     }
   }
   for (let i = 0; i < 6; i++) {
     const bx = -1.2 + (i / 5) * 2.4;
-    addBulb(bx, 3.96, 7.86);
-    addBulb(bx, 0.88, 7.86);
+    bulbCoords.push([bx, 3.96, 7.86], [bx, 0.88, 7.86]);
   }
+  const bulbGeo = new THREE.SphereGeometry(0.085, 6, 6);
+  const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false });
+  const bulbInst = new THREE.InstancedMesh(bulbGeo, bulbMat, bulbCoords.length);
+  _tmpColor.setRGB(1.28, 0.98, 0.45);
+  for (let i = 0; i < bulbCoords.length; i++) {
+    const [bx, by, bz] = bulbCoords[i];
+    _tmpMatrix.makeTranslation(bx, by, bz);
+    bulbInst.setMatrixAt(i, _tmpMatrix);
+    bulbInst.setColorAt(i, _tmpColor);
+  }
+  bulbInst.instanceMatrix.needsUpdate = true;
+  if (bulbInst.instanceColor) bulbInst.instanceColor.needsUpdate = true;
+  bulbInst.computeBoundingSphere();
+  group.add(bulbInst);
 
   // Crimson Brake Tail Lights on Rear Trailer Door
   const tailMat = new THREE.MeshBasicMaterial({ color: '#c41022', toneMapped: false });
@@ -496,6 +591,7 @@ export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): Accur
     group.add(custom);
   });
 
+  const bulbCount = bulbCoords.length;
   return {
     group,
     update(
@@ -509,11 +605,14 @@ export function createAccurateTeslaSemi(livery: SemiLivery = 'coca_cola'): Accur
       for (const wg of wheelGroups) {
         wg.rotation.x = -wheelPhase;
       }
-      bulbMaterials.forEach((bm, idx) => {
+      const boostBase = rippleBoost * 1.4 + hornFlash * 1.1;
+      for (let idx = 0; idx < bulbCount; idx++) {
         const twinkle = 0.68 + 0.32 * Math.sin(time * 5.2 + idx * 0.45);
-        const boost = twinkle + rippleBoost * 1.4 + hornFlash * 1.1;
-        bm.color.setRGB(1.28 * boost, 0.98 * boost, 0.45 * boost);
-      });
+        const boost = twinkle + boostBase;
+        _tmpColor.setRGB(1.28 * boost, 0.98 * boost, 0.45 * boost);
+        bulbInst.setColorAt(idx, _tmpColor);
+      }
+      if (bulbInst.instanceColor) bulbInst.instanceColor.needsUpdate = true;
       panelMat.emissiveIntensity = 0.85 + rippleBoost * 0.9 + hornFlash * 0.8;
       rearPanelMat.emissiveIntensity = 0.78 + rippleBoost * 0.85 + hornFlash * 0.8;
       beamMat.uniforms.uOpacity.value = 0.24 + rippleBoost * 0.14 + hornFlash * 0.46;
@@ -592,7 +691,7 @@ export function createAccurateCybertruck(withTree = true, withPlow = false): Acc
   ];
 
   // Build main body up to cab sail crest (stations 0..3), then separate left/right sail pillars for open vault bed!
-  const bodyGeo = buildLoftedHull(hullStations);
+  const bodyGeo = buildLoftedHull(hullStations, false);
   group.add(new THREE.Mesh(bodyGeo, steelMat));
 
   // Rear Bed Floor + Left/Right Sloped Sail Pillar Walls + Tailgate
@@ -615,7 +714,7 @@ export function createAccurateCybertruck(withTree = true, withPlow = false): Acc
         new THREE.Vector3(side * 0.94, 0.48, 2.82),
       ],
     ];
-    group.add(new THREE.Mesh(buildLoftedHull(sailWallStations), steelMat));
+    group.add(new THREE.Mesh(buildLoftedHull(sailWallStations, false), steelMat));
   }
 
   const tailgate = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.84, 0.14), steelMat);
@@ -739,7 +838,6 @@ export function createAccurateCybertruck(withTree = true, withPlow = false): Acc
 
     const gMat = new THREE.MeshStandardMaterial({ color: '#0e3a2f', roughness: 0.8 });
     const sMat = createSparklingSnowMaterial('#b2cae8');
-    const bulbs: THREE.MeshBasicMaterial[] = [];
 
     for (let t = 0; t < 5; t++) {
       const r = 0.90 - t * 0.16;
@@ -753,16 +851,24 @@ export function createAccurateCybertruck(withTree = true, withPlow = false): Acc
       cap.rotation.y = t * 0.55;
       group.add(c, cap);
     }
-    for (let i = 0; i < 10; i++) {
-      const f = i / 10;
+    const bedBulbCount = 10;
+    const bedBulbGeo = new THREE.SphereGeometry(0.06, 6, 6);
+    const bedBulbMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false });
+    const bedBulbInst = new THREE.InstancedMesh(bedBulbGeo, bedBulbMat, bedBulbCount);
+    for (let i = 0; i < bedBulbCount; i++) {
+      const f = i / bedBulbCount;
       const ang = i * 1.4;
       const rad = 0.74 * (1 - f * 0.75);
-      const bm = new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? '#ffdf78' : '#ff384c', toneMapped: false });
-      bulbs.push(bm);
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), bm);
-      b.position.set(Math.cos(ang) * rad, 1.35 + f * 1.9, 1.72 + Math.sin(ang) * rad);
-      group.add(b);
+      _tmpMatrix.makeTranslation(Math.cos(ang) * rad, 1.35 + f * 1.9, 1.72 + Math.sin(ang) * rad);
+      bedBulbInst.setMatrixAt(i, _tmpMatrix);
+      if (i % 2 === 0) _tmpColor.setRGB(1.3, 1.05, 0.45);
+      else _tmpColor.setRGB(1.3, 0.22, 0.28);
+      bedBulbInst.setColorAt(i, _tmpColor);
     }
+    bedBulbInst.instanceMatrix.needsUpdate = true;
+    if (bedBulbInst.instanceColor) bedBulbInst.instanceColor.needsUpdate = true;
+    bedBulbInst.computeBoundingSphere();
+    group.add(bedBulbInst);
     const star = new THREE.Mesh(
       new THREE.OctahedronGeometry(0.16, 0),
       new THREE.MeshBasicMaterial({ color: '#ffe588', toneMapped: false })
@@ -771,11 +877,13 @@ export function createAccurateCybertruck(withTree = true, withPlow = false): Acc
     group.add(star);
 
     bedTreeUpdate = (time: number) => {
-      bulbs.forEach((bm, idx) => {
+      for (let idx = 0; idx < bedBulbCount; idx++) {
         const p = 0.75 + 0.25 * Math.sin(time * 5 + idx);
-        if (idx % 2 === 0) bm.color.setRGB(1.3 * p, 1.05 * p, 0.45 * p);
-        else bm.color.setRGB(1.3 * p, 0.22 * p, 0.28 * p);
-      });
+        if (idx % 2 === 0) _tmpColor.setRGB(1.3 * p, 1.05 * p, 0.45 * p);
+        else _tmpColor.setRGB(1.3 * p, 0.22 * p, 0.28 * p);
+        bedBulbInst.setColorAt(idx, _tmpColor);
+      }
+      if (bedBulbInst.instanceColor) bedBulbInst.instanceColor.needsUpdate = true;
     };
   }
 
@@ -1013,12 +1121,16 @@ export function createAccurateStarshipStack(): THREE.Group {
   return group;
 }
 
+export type StarmanRoadsterGroup = THREE.Group & {
+  updateWheels?: (wheelPhase: number) => void;
+};
+
 /**
  * 4. ACCURATE 2ND-GEN CHERRY-RED TESLA ROADSTER + STARMAN IN EVA SUIT + COLD-GAS THRUSTERS (facing +X)
  */
-export function createAccurateStarmanRoadster(options?: { forSky?: boolean }): THREE.Group {
+export function createAccurateStarmanRoadster(options?: { forSky?: boolean }): StarmanRoadsterGroup {
   const forSky = !!options?.forSky;
-  const group = new THREE.Group();
+  const group = new THREE.Group() as StarmanRoadsterGroup;
 
   const cherryRed = new THREE.MeshPhysicalMaterial({
     color: '#d40d2a',
@@ -1150,26 +1262,50 @@ export function createAccurateStarmanRoadster(options?: { forSky?: boolean }): T
     group.add(starGlow);
   }
 
-  // 4 Sporty Low-Profile Tires with 5-Spoke Turbine Alloys & Crimson Brake Calipers
-  for (const wx of [-1.34, 1.34]) {
-    for (const wz of [-0.90, 0.90]) {
-      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.25, 16), blackCarbonMat);
-      tire.rotation.x = Math.PI * 0.5;
-      tire.position.set(wx, 0.35, wz);
-      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.26, 12), alloyMat);
-      rim.rotation.x = Math.PI * 0.5;
-      rim.position.set(wx, 0.35, wz);
-      const caliper = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.16), tlMat);
-      caliper.position.set(wx - 0.12, 0.36, wz * 0.96);
-      group.add(tire, rim, caliper);
-      for (let sp = 0; sp < 5; sp++) {
-        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.045, 0.27), alloyMat);
-        spoke.position.set(wx, 0.35, wz);
-        spoke.rotation.z = (sp / 5) * Math.PI;
-        group.add(spoke);
-      }
+  if (!forSky) {
+    const beamMat = createVolumetricBeamMaterial('#fff2d2', 0.18);
+    for (const lz of [-0.62, 0.62]) {
+      const beam = new THREE.Mesh(new THREE.ConeGeometry(1.55, 9.5, 14, 1, true), beamMat);
+      beam.rotation.z = -Math.PI * 0.5;
+      beam.position.set(6.7, 0.46, lz);
+      group.add(beam);
     }
   }
+
+  // 4 Sporty Low-Profile Tires with 5-Spoke Turbine Alloys & Crimson Brake Calipers (rotating wheel groups)
+  const wheelGroups: THREE.Group[] = [];
+  const roadsterTireGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.25, 16);
+  const roadsterRimGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.26, 12);
+  const roadsterSpokeGeo = new THREE.BoxGeometry(0.38, 0.045, 0.27);
+  const roadsterCaliperGeo = new THREE.BoxGeometry(0.14, 0.16, 0.16);
+  for (const wx of [-1.34, 1.34]) {
+    for (const wz of [-0.90, 0.90]) {
+      const wg = new THREE.Group();
+      wg.position.set(wx, 0.35, wz);
+      const tire = new THREE.Mesh(roadsterTireGeo, blackCarbonMat);
+      tire.rotation.x = Math.PI * 0.5;
+      const rim = new THREE.Mesh(roadsterRimGeo, alloyMat);
+      rim.rotation.x = Math.PI * 0.5;
+      wg.add(tire, rim);
+      for (let sp = 0; sp < 5; sp++) {
+        const spoke = new THREE.Mesh(roadsterSpokeGeo, alloyMat);
+        spoke.rotation.z = (sp / 5) * Math.PI;
+        wg.add(spoke);
+      }
+      group.add(wg);
+      wheelGroups.push(wg);
+
+      const caliper = new THREE.Mesh(roadsterCaliperGeo, tlMat);
+      caliper.position.set(wx - 0.12, 0.36, wz * 0.96);
+      group.add(caliper);
+    }
+  }
+  group.userData.wheelGroups = wheelGroups;
+  group.updateWheels = (wheelPhase: number): void => {
+    for (const wg of wheelGroups) {
+      wg.rotation.z = -wheelPhase;
+    }
+  };
 
   // Detailed SpaceX Starman in IVA Suit + Steering Yoke + Gold-Black Helmet + Fur-Trimmed Santa Hat & Flowing Scarf!
   const suitMat = new THREE.MeshPhysicalMaterial({ color: '#f5f8fd', roughness: 0.42, fog: !forSky ? undefined : false });
@@ -1453,11 +1589,20 @@ export function createAccurateSuperchargerPlaza(): { group: THREE.Group; update(
   chimney.position.set(4.25, 2.85, -0.5);
   group.add(booth, boothWindow, boothRoof, chimney);
 
-  // Subtle glögg chimney steam puffs
-  const steamMat = new THREE.MeshBasicMaterial({ color: '#f2f7ff', transparent: true, opacity: 0.4 });
-  const steams: THREE.Mesh[] = [];
+  // Subtle glögg chimney steam soft radial sprites
+  const steamTex = getSoftGlowTexture();
+  const steams: THREE.Sprite[] = [];
   for (let s = 0; s < 3; s++) {
-    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.14, 7, 7), steamMat.clone());
+    const puff = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: steamTex,
+        color: '#eef6ff',
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+      })
+    );
+    puff.scale.set(0.42, 0.42, 1);
     puff.position.set(4.25, 3.3 + s * 0.35, -0.5);
     group.add(puff);
     steams.push(puff);
@@ -1503,9 +1648,10 @@ export function createAccurateSuperchargerPlaza(): { group: THREE.Group; update(
       treeStar.rotation.y = time * 1.4;
       steams.forEach((p, idx) => {
         const cyc = (time * 0.42 + idx * 0.33) % 1;
-        p.position.set(4.25 + Math.sin(time * 2 + idx) * 0.08, 3.25 + cyc * 1.1, -0.5);
-        p.scale.setScalar(0.8 + cyc * 1.3);
-        (p.material as THREE.MeshBasicMaterial).opacity = (1 - cyc) * 0.42;
+        p.position.set(4.25 + Math.sin(time * 2 + idx) * 0.10, 3.25 + cyc * 1.25, -0.5);
+        const sc = 0.34 + cyc * 0.72;
+        p.scale.set(sc, sc, 1);
+        p.material.opacity = Math.sin(cyc * Math.PI) * 0.46;
       });
     },
   };

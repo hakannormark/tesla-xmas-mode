@@ -36,6 +36,7 @@ export class WindChain {
   readonly points: THREE.Vector3[];
   private prevPoints: THREE.Vector3[];
   private segLen: number;
+  private phase = 0;
 
   constructor(nodeCount: number, segLen: number, startPos: THREE.Vector3) {
     this.segLen = segLen;
@@ -48,9 +49,14 @@ export class WindChain {
     }
   }
 
-  update(dt: number, anchor: THREE.Vector3, wind: THREE.Vector3, gravity = -3.8): void {
+  update(dt: number, anchor: THREE.Vector3, wind: THREE.Vector3, gravity = -3.8, time?: number): void {
     const safeDt = Math.min(dt, 0.033);
     const drag = 0.91;
+    this.phase += safeDt;
+    const t = (time !== undefined ? time : this.phase) * 11.0;
+    const windFlutterAmp = 0.25 + wind.length() * 0.08;
+    const dtSq14 = safeDt * safeDt * 14;
+    const dtSq12 = safeDt * safeDt * 12;
 
     this.points[0].copy(anchor);
     this.prevPoints[0].copy(anchor);
@@ -64,10 +70,10 @@ export class WindChain {
       prev.copy(cur);
 
       // Flutter turbulence increases along tail length
-      const flutter = Math.sin(performance.now() * 0.011 + i * 1.4) * (0.25 + wind.length() * 0.08);
-      cur.x += vx + (wind.x + flutter * 0.45) * safeDt * safeDt * 14;
-      cur.y += vy + (wind.y + gravity + flutter * 0.3) * safeDt * safeDt * 12;
-      cur.z += vz + wind.z * safeDt * safeDt * 14;
+      const flutter = Math.sin(t + i * 1.4) * windFlutterAmp;
+      cur.x += vx + (wind.x + flutter * 0.45) * dtSq14;
+      cur.y += vy + (wind.y + gravity + flutter * 0.3) * dtSq12;
+      cur.z += vz + wind.z * dtSq14;
     }
 
     // Distance constraints (3 relaxation iterations keeps chain silky & stretch-free)

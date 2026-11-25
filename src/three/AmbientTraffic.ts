@@ -8,8 +8,13 @@ import {
   createAccurateTeslaSemi,
   type AccurateCybertruckHandle,
   type AccurateSemiHandle,
+  type StarmanRoadsterGroup,
 } from './teslaModels';
 import { createPixarForestAnimal, type PixarAnimalHandle, type WildlifeKind } from './pixarWildlife';
+
+function ptKey(p: OsmPoint2D): string {
+  return `${p.x.toFixed(1)},${p.z.toFixed(1)}`;
+}
 
 interface RoadSeg {
   ax: number;
@@ -56,13 +61,18 @@ interface TurnArc {
   nextDir: 1 | -1;
 }
 
+type TrafficFlow = 'oncoming' | 'same_dir';
+
 interface MovingVehicle {
   group: THREE.Group;
   groundGlow: THREE.Mesh;
+  tailGlow: THREE.Mesh;
   role: FleetRole;
+  flow: TrafficFlow;
   isSemi: boolean;
   semiHandle?: AccurateSemiHandle;
   cyberHandle?: AccurateCybertruckHandle;
+  roadsterHandle?: StarmanRoadsterGroup;
   roadIdx: number;
   dist: number;
   dir: 1 | -1;
@@ -80,6 +90,14 @@ interface MovingVehicle {
   turnArc?: TurnArc;
 }
 
+interface ParkedVehicleSlot {
+  group: THREE.Group;
+  x: number;
+  z: number;
+  placed: boolean;
+  side: 1 | -1;
+}
+
 interface SidewalkWalker {
   id: string;
   kind: 'rudolf' | 'reindeer' | 'elf';
@@ -92,14 +110,19 @@ interface SidewalkWalker {
   speed: number;
   phase: number;
   smoothYaw: number;
+  placed: boolean;
 }
 
-const MOVING_ROSTER: FleetRole[] = [
-  'semi_coca',
-  'cyber_tree',
-  'semi_tesla',
-  'roadster',
+const MOVING_ROSTER: Array<{ role: FleetRole; flow: TrafficFlow }> = [
+  { role: 'semi_coca', flow: 'oncoming' },
+  { role: 'cyber_tree', flow: 'same_dir' },
+  { role: 'semi_tesla', flow: 'oncoming' },
+  { role: 'roadster', flow: 'oncoming' },
+  { role: 'roadster', flow: 'same_dir' },
+  { role: 'cyber_tree', flow: 'oncoming' },
 ];
+
+const PARKED_SLOT_COUNT = 6;
 
 const WALKER_ROSTER: Array<'rudolf' | 'reindeer' | 'elf'> = [
   'rudolf',
@@ -231,6 +254,9 @@ function disposeObjectTree(root: THREE.Object3D): void {
   const seenGeo = new Set<THREE.BufferGeometry>();
   const seenMat = new Set<THREE.Material>();
   root.traverse(obj => {
+    if ((obj as THREE.InstancedMesh).isInstancedMesh) {
+      (obj as THREE.InstancedMesh).dispose();
+    }
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry && !mesh.geometry.userData?.shared && !seenGeo.has(mesh.geometry)) {
       seenGeo.add(mesh.geometry);
@@ -260,9 +286,11 @@ export class AmbientTraffic {
   private readonly movingFleet: MovingVehicle[] = [];
   private readonly walkers: SidewalkWalker[] = [];
   private readonly parkedTemplates: THREE.Group[] = [];
-  private readonly parkedBounds: Array<{ x: number; z: number; radius: number; height: number }> = [];
+  private readonly parkedSlots: ParkedVehicleSlot[] = [];
+  private junctionPts: OsmPoint2D[] = [];
   private fleetInitialized = false;
   private walkersInitialized = false;
+  private recycleAccum = 0;
 
   private drivableRoads: DrivableRoad[] = [];
   private endpointLinks = new Map<string, Array<{ roadIdx: number; atEnd: boolean }>>();
@@ -271,7 +299,9 @@ export class AmbientTraffic {
   private enabled = true;
 
   // Shared lightweight geometries & materials for festive gift sleighs, walkers, beams & AO shadows
-  private readonly beamPlaneGeo = new THREE.PlaneGeometry(4.4, 9.0).rotateX(-Math.PI * 0.5);
+  private readonly beamPlaneGeo = new THREE.PlaneGeometry(4.6, 9.6).rotateX(-Math.PI * 0.5);
+  private readonly tailGlowPlaneGeo = new THREE.PlaneGeometry(3.2, 4.2).rotateX(-Math.PI * 0.5);
+  private readonly semiTailGlowPlaneGeo = new THREE.PlaneGeometry(4.0, 5.2).rotateX(-Math.PI * 0.5);
   private readonly aoPlaneGeo = new THREE.PlaneGeometry(2.7, 5.4).rotateX(-Math.PI * 0.5);
   private readonly semiAoPlaneGeo = new THREE.PlaneGeometry(3.2, 11.4).rotateX(-Math.PI * 0.5);
   private readonly sleighBodyGeo = new THREE.BoxGeometry(1.42, 0.56, 2.75);
@@ -306,9 +336,31 @@ export class AmbientTraffic {
     map: getSoftGlowTexture(),
     color: '#fff2cc',
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.36,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
+  private readonly tailGlowMat = new THREE.MeshBasicMaterial({
+    map: getSoftGlowTexture(),
+    color: '#ff243c',
+    transparent: true,
+    opacity: 0.26,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
+  private readonly tailGlowBrakeMat = new THREE.MeshBasicMaterial({
+    map: getSoftGlowTexture(),
+    color: '#ff243c',
+    transparent: true,
+    opacity: 0.54,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
   });
   private readonly aoShadowMat = new THREE.MeshBasicMaterial({
     map: getSoftGlowTexture(),
@@ -380,7 +432,7 @@ export class AmbientTraffic {
     this.fleetInitialized = true;
 
     for (let k = 0; k < MOVING_ROSTER.length; k++) {
-      const role = MOVING_ROSTER[k];
+      const { role, flow } = MOVING_ROSTER[k];
       const root = new THREE.Group();
       const isSemi = role === 'semi_coca' || role === 'semi_tesla';
 
@@ -390,6 +442,7 @@ export class AmbientTraffic {
 
       let semiHandle: AccurateSemiHandle | undefined;
       let cyberHandle: AccurateCybertruckHandle | undefined;
+      let roadsterHandle: StarmanRoadsterGroup | undefined;
 
       if (role === 'semi_coca' || role === 'semi_tesla') {
         semiHandle = createAccurateTeslaSemi(role === 'semi_coca' ? 'coca_cola' : 'tesla');
@@ -402,10 +455,10 @@ export class AmbientTraffic {
         cyberHandle.group.rotation.y = Math.PI; // -Z forward -> +Z forward
         root.add(cyberHandle.group);
       } else if (role === 'roadster') {
-        const roadster = createAccurateStarmanRoadster();
-        roadster.scale.setScalar(0.92);
-        roadster.rotation.y = -Math.PI * 0.5; // +X forward -> +Z forward
-        root.add(roadster);
+        roadsterHandle = createAccurateStarmanRoadster();
+        roadsterHandle.scale.setScalar(0.92);
+        roadsterHandle.rotation.y = -Math.PI * 0.5; // +X forward -> +Z forward
+        root.add(roadsterHandle);
       } else {
         const sleigh = this.createHolidayGiftSleigh(true);
         sleigh.position.y = 0.18;
@@ -413,17 +466,25 @@ export class AmbientTraffic {
       }
 
       const groundGlow = new THREE.Mesh(this.beamPlaneGeo, this.beamMat);
-      groundGlow.position.set(0, 0.08, isSemi ? 8.2 : 5.6);
-      root.add(groundGlow);
+      groundGlow.position.set(0, 0.09, isSemi ? 8.2 : 5.6);
+      const tailGlow = new THREE.Mesh(
+        isSemi ? this.semiTailGlowPlaneGeo : this.tailGlowPlaneGeo,
+        this.tailGlowMat
+      );
+      tailGlow.position.set(0, 0.09, isSemi ? -7.8 : -3.8);
+      root.add(groundGlow, tailGlow);
 
       this.movingLayer.add(root);
       this.movingFleet.push({
         group: root,
         groundGlow,
+        tailGlow,
         role,
+        flow,
         isSemi,
         semiHandle,
         cyberHandle,
+        roadsterHandle,
         roadIdx: 0,
         dist: 0,
         dir: k % 2 === 0 ? 1 : -1,
@@ -441,7 +502,7 @@ export class AmbientTraffic {
       });
     }
 
-    // Build 3 lightweight parked templates (Cybertruck w/ tree, Starman Roadster, Gift Sleigh)
+    // Build 3 lightweight parked templates & pool 6 recyclable parked vehicle slots
     const ctWrap = new THREE.Group();
     const ctAo = new THREE.Mesh(this.aoPlaneGeo, this.aoShadowMat);
     ctAo.position.y = 0.03;
@@ -464,6 +525,18 @@ export class AmbientTraffic {
     slWrap.add(slAo, this.createHolidayGiftSleigh(false));
 
     this.parkedTemplates.push(ctWrap, rdWrap, slWrap);
+    for (let i = 0; i < PARKED_SLOT_COUNT; i++) {
+      const parked = this.parkedTemplates[i % this.parkedTemplates.length].clone();
+      parked.visible = false;
+      this.parkedLayer.add(parked);
+      this.parkedSlots.push({
+        group: parked,
+        x: 0,
+        z: 0,
+        placed: false,
+        side: i % 2 === 0 ? 1 : -1,
+      });
+    }
   }
 
   private ensureWalkersInitialized(): void {
@@ -490,6 +563,7 @@ export class AmbientTraffic {
         speed: kind === 'elf' ? 1.25 + (p % 3) * 0.14 : 1.55 + (p % 3) * 0.18,
         phase: p * 1.65,
         smoothYaw: 0,
+        placed: false,
       });
     }
   }
@@ -538,13 +612,15 @@ export class AmbientTraffic {
         height: car.isSemi ? 3.25 : 2.15,
       });
     }
-    for (const pb of this.parkedBounds) {
-      out.push(pb);
+    for (let i = 0; i < this.parkedSlots.length; i++) {
+      const ps = this.parkedSlots[i];
+      if (!ps.placed) continue;
+      out.push({ x: ps.x, z: ps.z, radius: 2.8, height: 2.1 });
     }
     return out;
   }
 
-  private placeOncomingAhead(
+  private placeTrafficAhead(
     car: MovingVehicle,
     k: number,
     playerPos: THREE.Vector3,
@@ -556,6 +632,8 @@ export class AmbientTraffic {
     const fwdX = Math.sin(playerHeading);
     const fwdZ = -Math.cos(playerHeading);
     const desiredAhead = THREE.MathUtils.lerp(targetAheadMin, targetAheadMax, (k * 0.37) % 1);
+    const isSameDir = car.flow === 'same_dir';
+    const minAheadGate = isSameDir ? 42 : 72;
 
     let bestScore = Infinity;
     let bestRoadIdx = car.roadIdx;
@@ -570,25 +648,49 @@ export class AmbientTraffic {
         const dx = s.x - playerPos.x;
         const dz = s.z - playerPos.z;
         const ahead = dx * fwdX + dz * fwdZ;
-        if (ahead < 72 || ahead > 240) continue;
+        if (ahead < minAheadGate || ahead > 240) continue;
         const lateral = Math.abs(dx * -fwdZ + dz * fwdX);
         const dotFwd = s.tx * fwdX + s.tz * fwdZ;
-        const alignmentPenalty = Math.abs(dotFwd) < 0.25 ? 85 : 0;
-        const nearMoving = this.movingFleet.some(
-          other =>
-            other !== car &&
-            ((other.roadIdx === rIdx && Math.abs(other.dist - d) < 42) ||
-              (other.hasPose && Math.hypot(other.worldX - s.x, other.worldZ - s.z) < 28)),
-        );
-        const nearConvoy = convoyPositions.some(c => Math.hypot(c.x - s.x, c.z - s.z) < 32);
-        const nearParked = this.parkedBounds.some(p => Math.hypot(p.x - s.x, p.z - s.z) < 9);
+        const alignmentPenalty = Math.abs(dotFwd) < (isSameDir ? 0.45 : 0.25) ? 95 : 0;
+
+        let nearMoving = false;
+        for (let m = 0; m < this.movingFleet.length; m++) {
+          const other = this.movingFleet[m];
+          if (other === car) continue;
+          if (
+            (other.roadIdx === rIdx && Math.abs(other.dist - d) < 42) ||
+            (other.hasPose && Math.hypot(other.worldX - s.x, other.worldZ - s.z) < 28)
+          ) {
+            nearMoving = true;
+            break;
+          }
+        }
+        let nearConvoy = false;
+        for (let c = 0; c < convoyPositions.length; c++) {
+          if (Math.hypot(convoyPositions[c].x - s.x, convoyPositions[c].z - s.z) < 32) {
+            nearConvoy = true;
+            break;
+          }
+        }
+        let nearParked = false;
+        for (let p = 0; p < this.parkedSlots.length; p++) {
+          const ps = this.parkedSlots[p];
+          if (ps.placed && Math.hypot(ps.x - s.x, ps.z - s.z) < 9) {
+            nearParked = true;
+            break;
+          }
+        }
         const crowdPenalty = nearMoving || nearConvoy ? 400 : nearParked ? 90 : 0;
         const score = Math.abs(ahead - desiredAhead) + lateral * 0.55 + alignmentPenalty + crowdPenalty;
         if (score < bestScore) {
           bestScore = score;
           bestRoadIdx = rIdx;
           bestDist = d;
-          bestDir = dotFwd > 0.08 ? -1 : dotFwd < -0.08 ? 1 : dx * s.tx + dz * s.tz >= 0 ? -1 : 1;
+          if (isSameDir) {
+            bestDir = dotFwd >= 0 ? 1 : -1;
+          } else {
+            bestDir = dotFwd > 0.08 ? -1 : dotFwd < -0.08 ? 1 : dx * s.tx + dz * s.tz >= 0 ? -1 : 1;
+          }
         }
       }
     }
@@ -599,8 +701,13 @@ export class AmbientTraffic {
       bestRoadIdx = fallbackIdx;
       const sMid = sampleRoad(dr, dr.totalLen * 0.5);
       const dotMid = sMid.tx * fwdX + sMid.tz * fwdZ;
-      bestDir = dotMid > 0 ? -1 : 1;
-      bestDist = bestDir < 0 ? Math.max(8, dr.totalLen - 12) : Math.min(dr.totalLen - 8, 12);
+      if (isSameDir) {
+        bestDir = dotMid >= 0 ? 1 : -1;
+        bestDist = bestDir > 0 ? Math.min(dr.totalLen - 8, 12) : Math.max(8, dr.totalLen - 12);
+      } else {
+        bestDir = dotMid > 0 ? -1 : 1;
+        bestDist = bestDir < 0 ? Math.max(8, dr.totalLen - 12) : Math.min(dr.totalLen - 8, 12);
+      }
     }
 
     car.roadIdx = bestRoadIdx;
@@ -611,8 +718,130 @@ export class AmbientTraffic {
     car.blockedSec = 0;
     const dr = this.drivableRoads[bestRoadIdx];
     const speedKmh = dr?.road.maxspeed && dr.road.maxspeed > 40 ? 38 : 28;
-    car.baseSpeed = (car.isSemi ? 0.85 : 1.0) * (speedKmh / 3.6);
+    const flowMul = isSameDir ? 0.78 : 1.0;
+    car.baseSpeed = (car.isSemi ? 0.85 : 1.0) * flowMul * (speedKmh / 3.6);
     car.currentSpeed = car.baseSpeed;
+  }
+
+  private tryPlaceParkedAhead(
+    slot: ParkedVehicleSlot,
+    slotIdx: number,
+    playerPos: THREE.Vector3,
+    playerHeading: number,
+    groundAt?: (x: number, z: number) => number,
+    minAhead = 46,
+    maxAhead = 185,
+  ): boolean {
+    const fwdX = Math.sin(playerHeading);
+    const fwdZ = -Math.cos(playerHeading);
+    const desiredAhead = THREE.MathUtils.lerp(minAhead, maxAhead, ((slotIdx * 0.31) + 0.18) % 1);
+    let bestScore = Infinity;
+    let bestX = 0;
+    let bestZ = 0;
+    let bestYaw = 0;
+
+    for (let rIdx = 0; rIdx < this.drivableRoads.length; rIdx++) {
+      const dr = this.drivableRoads[rIdx];
+      if (dr.road.highway === 'motorway' || dr.road.highway === 'trunk' || dr.totalLen < 38) continue;
+      for (let d = 20; d < dr.totalLen - 16; d += 38) {
+        const s = sampleRoad(dr, d);
+        const curbOffset = Math.max(1.5, dr.road.widthM * 0.5 - 0.85);
+        const px = s.x + s.nx * slot.side * curbOffset;
+        const pz = s.z + s.nz * slot.side * curbOffset;
+        const dx = px - playerPos.x;
+        const dz = pz - playerPos.z;
+        const ahead = dx * fwdX + dz * fwdZ;
+        if (ahead < minAhead || ahead > maxAhead) continue;
+        if (Math.hypot(dx, dz) < 22) continue;
+
+        let nearJunction = false;
+        for (let j = 0; j < this.junctionPts.length; j++) {
+          if (Math.hypot(this.junctionPts[j].x - px, this.junctionPts[j].z - pz) < 16) {
+            nearJunction = true;
+            break;
+          }
+        }
+        if (nearJunction) continue;
+
+        let nearOther = false;
+        for (let o = 0; o < this.parkedSlots.length; o++) {
+          const other = this.parkedSlots[o];
+          if (other !== slot && other.placed && Math.hypot(other.x - px, other.z - pz) < 28) {
+            nearOther = true;
+            break;
+          }
+        }
+        if (nearOther) continue;
+
+        const lateral = Math.abs(dx * -fwdZ + dz * fwdX);
+        const score = Math.abs(ahead - desiredAhead) + lateral * 0.45;
+        if (score < bestScore) {
+          bestScore = score;
+          bestX = px;
+          bestZ = pz;
+          bestYaw = Math.atan2(s.tx * slot.side, s.tz * slot.side);
+        }
+      }
+    }
+
+    if (bestScore === Infinity) return false;
+    slot.x = bestX;
+    slot.z = bestZ;
+    slot.placed = true;
+    slot.group.position.set(bestX, groundAt?.(bestX, bestZ) ?? 0, bestZ);
+    slot.group.rotation.y = bestYaw;
+    slot.group.visible = true;
+    return true;
+  }
+
+  private tryPlaceWalkerAhead(
+    walker: SidewalkWalker,
+    walkerIdx: number,
+    mapData: ChristmasMapData,
+    playerPos: THREE.Vector3,
+    playerHeading: number,
+    minAhead = 34,
+    maxAhead = 148,
+  ): boolean {
+    const fwdX = Math.sin(playerHeading);
+    const fwdZ = -Math.cos(playerHeading);
+    const desiredAhead = THREE.MathUtils.lerp(minAhead, maxAhead, ((walkerIdx * 0.27) + 0.12) % 1);
+    let bestScore = Infinity;
+    let bestRoadIdx = 0;
+    let bestDist = 0;
+    let bestYaw = 0;
+
+    for (let rIdx = 0; rIdx < this.drivableRoads.length; rIdx++) {
+      const dr = this.drivableRoads[rIdx];
+      const step = Math.max(18, Math.min(36, dr.totalLen * 0.25));
+      for (let d = 6; d <= dr.totalLen - 6; d += step) {
+        const s = sampleRoad(dr, d);
+        const vergeOffset = dr.road.widthM * 0.5 + 1.95;
+        const px = s.x + s.nx * walker.side * vergeOffset;
+        const pz = s.z + s.nz * walker.side * vergeOffset;
+        const dx = px - playerPos.x;
+        const dz = pz - playerPos.z;
+        const ahead = dx * fwdX + dz * fwdZ;
+        if (ahead < minAhead || ahead > maxAhead) continue;
+        if (mapData.clearance && !mapData.clearance.clear({ x: px, z: pz }, 0.45)) continue;
+        const lateral = Math.abs(dx * -fwdZ + dz * fwdX);
+        const score = Math.abs(ahead - desiredAhead) + lateral * 0.5;
+        if (score < bestScore) {
+          bestScore = score;
+          bestRoadIdx = rIdx;
+          bestDist = d;
+          bestYaw = Math.atan2(s.tx * walker.dir, s.tz * walker.dir);
+        }
+      }
+    }
+
+    if (bestScore === Infinity) return false;
+    walker.roadIdx = bestRoadIdx;
+    walker.dist = bestDist;
+    walker.smoothYaw = bestYaw;
+    walker.placed = true;
+    walker.group.visible = true;
+    return true;
   }
 
   private rebuild(
@@ -625,12 +854,15 @@ export class AmbientTraffic {
     this.ensureFleetInitialized();
     this.ensureWalkersInitialized();
 
-    this.parkedLayer.clear();
-    this.parkedBounds.length = 0;
     this.drivableRoads = [];
     this.endpointLinks.clear();
+    this.junctionPts = [];
 
-    const ptKey = (p: OsmPoint2D) => `${p.x.toFixed(1)},${p.z.toFixed(1)}`;
+    for (const ps of this.parkedSlots) {
+      ps.placed = false;
+      ps.group.visible = false;
+    }
+
     const pointDegree = new Map<string, number>();
 
     for (const road of snapshot.roads) {
@@ -685,11 +917,10 @@ export class AmbientTraffic {
     this.movingLayer.visible = true;
     this.pedLayer.visible = true;
 
-    const junctionPts: OsmPoint2D[] = [];
     for (const [k, deg] of pointDegree) {
       if (deg >= 2) {
         const [x, z] = k.split(',').map(Number);
-        junctionPts.push({ x, z });
+        this.junctionPts.push({ x, z });
       }
     }
 
@@ -701,37 +932,16 @@ export class AmbientTraffic {
       }))
       .sort((a, b) => a.dist - b.dist || b.totalLen - a.totalLen);
 
-    // 1. Place the 4 spaced Hero Moving Vehicles strictly oncoming ahead of the player
+    // 1. Place Moving Fleet (both oncoming & same-direction) ahead of the player
     this.movingFleet.forEach((car, k) => {
-      const minAhead = 84 + k * 34;
-      const maxAhead = 112 + k * 36;
-      this.placeOncomingAhead(car, k, playerPos, playerHeading, minAhead, maxAhead);
+      const minAhead = car.flow === 'same_dir' ? 46 + (k % 3) * 28 : 84 + k * 28;
+      const maxAhead = car.flow === 'same_dir' ? 120 + (k % 3) * 26 : 124 + k * 30;
+      this.placeTrafficAhead(car, k, playerPos, playerHeading, minAhead, maxAhead);
     });
 
-    // 2. Place up to 5 well-spaced Parked Tesla/Holiday Vehicles
-    const parkedPts: OsmPoint2D[] = [];
-    for (let r = 0; r < rankedRoads.length && parkedPts.length < 5; r++) {
-      const dr = this.drivableRoads[rankedRoads[r].i];
-      if (dr.road.highway === 'motorway' || dr.road.highway === 'trunk' || dr.totalLen < 38) continue;
-      for (let d = 22; d < dr.totalLen - 16 && parkedPts.length < 5; d += 48) {
-        const side = (parkedPts.length % 2 === 0 ? 1 : -1) as 1 | -1;
-        const s = sampleRoad(dr, d);
-        const curbOffset = Math.max(1.5, dr.road.widthM * 0.5 - 0.85);
-        const px = s.x + s.nx * side * curbOffset;
-        const pz = s.z + s.nz * side * curbOffset;
-        if (Math.hypot(px - playerPos.x, pz - playerPos.z) < 20) continue;
-        if (junctionPts.some(j => Math.hypot(j.x - px, j.z - pz) < 16)) continue;
-        if (parkedPts.some(p => Math.hypot(p.x - px, p.z - pz) < 30)) continue;
-        parkedPts.push({ x: px, z: pz });
-
-        const template = this.parkedTemplates[(parkedPts.length - 1) % this.parkedTemplates.length];
-        const parked = template.clone();
-        const y = groundAt?.(px, pz) ?? 0;
-        parked.position.set(px, y, pz);
-        parked.rotation.y = Math.atan2(s.tx * side, s.tz * side);
-        this.parkedLayer.add(parked);
-        this.parkedBounds.push({ x: px, z: pz, radius: 2.8, height: 2.1 });
-      }
+    // 2. Place pooled Parked Tesla/Holiday Vehicles ahead (will recycle as player drives)
+    for (let i = 0; i < this.parkedSlots.length; i++) {
+      this.tryPlaceParkedAhead(this.parkedSlots[i], i, playerPos, playerHeading, groundAt, 26, 175);
     }
 
     // 3. Place the 10 Street Reindeer (incl. Rudolf) & Elves strolling sidewalks
@@ -761,6 +971,7 @@ export class AmbientTraffic {
           break;
         }
       }
+      walker.placed = placed;
       walker.group.visible = placed;
     });
   }
@@ -784,15 +995,16 @@ export class AmbientTraffic {
       this.rebuild(snapshot, mapData, playerPos, playerHeading, groundAt);
     } else if (this.builtElevVersion !== resolvedElev) {
       this.builtElevVersion = resolvedElev;
-      for (const parked of this.parkedLayer.children) {
-        parked.position.y = groundAt?.(parked.position.x, parked.position.z) ?? 0;
+      for (const ps of this.parkedSlots) {
+        if (ps.placed) {
+          ps.group.position.y = groundAt?.(ps.x, ps.z) ?? 0;
+        }
       }
     }
     if (!this.enabled || !this.drivableRoads.length) return;
 
     const fwdPlayerX = Math.sin(playerHeading);
     const fwdPlayerZ = -Math.cos(playerHeading);
-    const ptKey = (p: OsmPoint2D) => `${p.x.toFixed(1)},${p.z.toFixed(1)}`;
 
     for (let k = 0; k < this.movingFleet.length; k++) {
       const car = this.movingFleet[k];
@@ -833,8 +1045,11 @@ export class AmbientTraffic {
       const dPlayer = Math.hypot(poseX - playerPos.x, poseZ - playerPos.z);
       const aheadPlayer = (poseX - playerPos.x) * fwdPlayerX + (poseZ - playerPos.z) * fwdPlayerZ;
 
-      if (aheadPlayer < -48 || dPlayer > 250) {
-        this.placeOncomingAhead(car, k, playerPos, playerHeading, 132, 220, convoyPositions);
+      const minBehind = car.flow === 'same_dir' ? -34 : -48;
+      if (aheadPlayer < minBehind || dPlayer > 250) {
+        const minSpawn = car.flow === 'same_dir' ? 54 : 132;
+        const maxSpawn = car.flow === 'same_dir' ? 165 : 220;
+        this.placeTrafficAhead(car, k, playerPos, playerHeading, minSpawn, maxSpawn, convoyPositions);
         dr = this.drivableRoads[car.roadIdx];
         const s = sampleRoad(dr, car.dist);
         const off = Math.max(2.05, Math.min(2.65, dr.road.widthM * 0.34));
@@ -871,7 +1086,8 @@ export class AmbientTraffic {
         }
       }
       if (!forceRelocate) {
-        for (const cv of convoyPositions) {
+        for (let c = 0; c < convoyPositions.length; c++) {
+          const cv = convoyPositions[c];
           const sep = Math.hypot(cv.x - poseX, cv.z - poseZ);
           if (sep < 18) {
             forceRelocate = true;
@@ -882,14 +1098,30 @@ export class AmbientTraffic {
       }
 
       if (forceRelocate) {
-        this.placeOncomingAhead(car, k, playerPos, playerHeading, 136, 225, convoyPositions);
+        this.placeTrafficAhead(
+          car,
+          k,
+          playerPos,
+          playerHeading,
+          car.flow === 'same_dir' ? 60 : 136,
+          car.flow === 'same_dir' ? 175 : 225,
+          convoyPositions
+        );
         car.group.visible = false;
         continue;
       }
 
       car.blockedSec = shouldYield ? car.blockedSec + dt : Math.max(0, car.blockedSec - dt * 2);
       if (car.blockedSec > 2.2) {
-        this.placeOncomingAhead(car, k, playerPos, playerHeading, 136, 225, convoyPositions);
+        this.placeTrafficAhead(
+          car,
+          k,
+          playerPos,
+          playerHeading,
+          car.flow === 'same_dir' ? 60 : 136,
+          car.flow === 'same_dir' ? 175 : 225,
+          convoyPositions
+        );
         car.group.visible = false;
         continue;
       }
@@ -904,8 +1136,13 @@ export class AmbientTraffic {
       if (car.cyberHandle) {
         car.cyberHandle.update(car.wheelPhase, time);
       }
+      if (car.roadsterHandle) {
+        car.roadsterHandle.updateWheels?.(car.wheelPhase);
+      }
 
       car.groundGlow.visible = true;
+      car.tailGlow.visible = true;
+      car.tailGlow.material = shouldYield ? this.tailGlowBrakeMat : this.tailGlowMat;
       car.group.visible = true;
 
       if (car.turnArc) {
@@ -931,22 +1168,50 @@ export class AmbientTraffic {
         if (car.dist > dr.totalLen - exitPad || car.dist < exitPad) {
           const atEnd = car.dist > dr.totalLen * 0.5;
           const endPt = dr.road.points[atEnd ? dr.road.points.length - 1 : 0];
-          const links = (this.endpointLinks.get(ptKey(endPt)) ?? []).filter(l => {
-            if (l.roadIdx === car.roadIdx) return false;
-            const nextDr = this.drivableRoads[l.roadIdx];
-            if (!nextDr) return false;
-            const dirSign = l.atEnd ? -1 : 1;
-            const entry = sampleRoad(nextDr, l.atEnd ? nextDr.totalLen : 0);
-            const dotTurn = entry.tx * dirSign * poseTx + entry.tz * dirSign * poseTz;
-            const dotFwd = entry.tx * dirSign * fwdPlayerX + entry.tz * dirSign * fwdPlayerZ;
-            return dotTurn > -0.35 && dotFwd <= 0.25;
-          });
-          if (links.length && aheadPlayer > -10) {
-            const pick = links[Math.floor(time * 7 + car.roadIdx + k) % links.length];
-            const nextDr = this.drivableRoads[pick.roadIdx];
-            const nextDir: 1 | -1 = pick.atEnd ? -1 : 1;
+          const rawLinks = this.endpointLinks.get(ptKey(endPt));
+          let validCount = 0;
+          let pickedLink: { roadIdx: number; atEnd: boolean } | undefined;
+          if (rawLinks && aheadPlayer > -10) {
+            for (let li = 0; li < rawLinks.length; li++) {
+              const l = rawLinks[li];
+              if (l.roadIdx === car.roadIdx) continue;
+              const nextDr = this.drivableRoads[l.roadIdx];
+              if (!nextDr) continue;
+              const dirSign = l.atEnd ? -1 : 1;
+              const entry = sampleRoad(nextDr, l.atEnd ? nextDr.totalLen : 0);
+              const dotTurn = entry.tx * dirSign * poseTx + entry.tz * dirSign * poseTz;
+              const dotFwd = entry.tx * dirSign * fwdPlayerX + entry.tz * dirSign * fwdPlayerZ;
+              const flowOk = car.flow === 'same_dir' ? dotFwd >= -0.25 : dotFwd <= 0.25;
+              if (dotTurn > -0.35 && flowOk) validCount++;
+            }
+            if (validCount > 0) {
+              const targetPick = Math.floor(time * 7 + car.roadIdx + k) % validCount;
+              let seen = 0;
+              for (let li = 0; li < rawLinks.length; li++) {
+                const l = rawLinks[li];
+                if (l.roadIdx === car.roadIdx) continue;
+                const nextDr = this.drivableRoads[l.roadIdx];
+                if (!nextDr) continue;
+                const dirSign = l.atEnd ? -1 : 1;
+                const entry = sampleRoad(nextDr, l.atEnd ? nextDr.totalLen : 0);
+                const dotTurn = entry.tx * dirSign * poseTx + entry.tz * dirSign * poseTz;
+                const dotFwd = entry.tx * dirSign * fwdPlayerX + entry.tz * dirSign * fwdPlayerZ;
+                const flowOk = car.flow === 'same_dir' ? dotFwd >= -0.25 : dotFwd <= 0.25;
+                if (dotTurn > -0.35 && flowOk) {
+                  if (seen === targetPick) {
+                    pickedLink = l;
+                    break;
+                  }
+                  seen++;
+                }
+              }
+            }
+          }
+          if (pickedLink) {
+            const nextDr = this.drivableRoads[pickedLink.roadIdx];
+            const nextDir: 1 | -1 = pickedLink.atEnd ? -1 : 1;
             const inset = Math.min(nextDr.totalLen * 0.22, 5.5);
-            const nextDist = pick.atEnd ? nextDr.totalLen - inset : inset;
+            const nextDist = pickedLink.atEnd ? nextDr.totalLen - inset : inset;
             const nextSample = sampleRoad(nextDr, nextDist);
             const nextOff = Math.max(2.05, Math.min(2.65, nextDr.road.widthM * 0.34));
             const p0x = poseX;
@@ -968,12 +1233,20 @@ export class AmbientTraffic {
               p2z: p3z - entryTz * h,
               p3x,
               p3z,
-              nextRoadIdx: pick.roadIdx,
+              nextRoadIdx: pickedLink.roadIdx,
               nextDist,
               nextDir,
             };
           } else if (car.dist > dr.totalLen || car.dist < 0) {
-            this.placeOncomingAhead(car, k, playerPos, playerHeading, 132, 220, convoyPositions);
+            this.placeTrafficAhead(
+              car,
+              k,
+              playerPos,
+              playerHeading,
+              car.flow === 'same_dir' ? 54 : 132,
+              car.flow === 'same_dir' ? 165 : 220,
+              convoyPositions
+            );
             car.group.visible = false;
             continue;
           }
@@ -992,9 +1265,14 @@ export class AmbientTraffic {
       car.worldZ = poseZ;
       const wy = groundAt?.(poseX, poseZ) ?? 0;
       const hover = car.role === 'gift_sleigh' ? 0.08 * Math.sin(time * 3.1 + car.phase) : 0;
-      const aheadY = groundAt?.(poseX + poseTx * 2.0, poseZ + poseTz * 2.0) ?? wy;
-      const behindY = groundAt?.(poseX - poseTx * 2.0, poseZ - poseTz * 2.0) ?? wy;
-      const targetPitch = Math.atan2(aheadY - behindY, 4.0);
+      const targetPitch =
+        dPlayer < 150 && groundAt
+          ? Math.atan2(
+              groundAt(poseX + poseTx * 2.0, poseZ + poseTz * 2.0) -
+                groundAt(poseX - poseTx * 2.0, poseZ - poseTz * 2.0),
+              4.0
+            )
+          : 0;
       const targetYaw = Math.atan2(poseTx, poseTz);
       const prevYaw = car.smoothYaw;
       car.smoothYaw = dampAngle(car.smoothYaw, targetYaw, 6.2, dt);
@@ -1010,15 +1288,59 @@ export class AmbientTraffic {
       car.group.rotation.z = car.smoothRoll;
     }
 
-    for (const walker of this.walkers) {
-      if (!walker.group.visible) continue;
-      const dr = this.drivableRoads[walker.roadIdx];
-      if (!dr) continue;
+    // Periodically recycle parked vehicles ahead as the player drives
+    this.recycleAccum += dt;
+    if (this.recycleAccum >= 0.4) {
+      this.recycleAccum = 0;
+      for (let i = 0; i < this.parkedSlots.length; i++) {
+        const ps = this.parkedSlots[i];
+        const dx = ps.x - playerPos.x;
+        const dz = ps.z - playerPos.z;
+        const ahead = dx * fwdPlayerX + dz * fwdPlayerZ;
+        const dist = Math.hypot(dx, dz);
+        if (!ps.placed || ahead < -28 || dist > 195) {
+          ps.placed = false;
+          ps.group.visible = false;
+          this.tryPlaceParkedAhead(ps, i, playerPos, playerHeading, groundAt, 64, 180);
+        }
+      }
+    }
+
+    for (let p = 0; p < this.walkers.length; p++) {
+      const walker = this.walkers[p];
+      let dr = this.drivableRoads[walker.roadIdx];
+      if (!dr || !walker.placed) {
+        if (!this.tryPlaceWalkerAhead(walker, p, mapData, playerPos, playerHeading, 46, 145)) {
+          walker.group.visible = false;
+          continue;
+        }
+        dr = this.drivableRoads[walker.roadIdx];
+      }
       const cur = sampleRoad(dr, walker.dist);
       const vergeOffset = dr.road.widthM * 0.5 + 1.95;
       const wx = cur.x + cur.nx * walker.side * vergeOffset;
       const wz = cur.z + cur.nz * walker.side * vergeOffset;
-      const dPlayer = Math.hypot(wx - playerPos.x, wz - playerPos.z);
+      const dx = wx - playerPos.x;
+      const dz = wz - playerPos.z;
+      const dPlayer = Math.hypot(dx, dz);
+      const ahead = dx * fwdPlayerX + dz * fwdPlayerZ;
+
+      // Recycle walkers ahead once passed or far away
+      if (ahead < -24 || dPlayer > 175) {
+        walker.placed = false;
+        if (!this.tryPlaceWalkerAhead(walker, p, mapData, playerPos, playerHeading, 46, 145)) {
+          walker.group.visible = false;
+          continue;
+        }
+        dr = this.drivableRoads[walker.roadIdx];
+      }
+
+      // Distance & behind-camera culling for walker updates
+      if (dPlayer > 115 || ahead < -18) {
+        walker.group.visible = false;
+        continue;
+      }
+      walker.group.visible = true;
 
       const moveSpeed = dPlayer < 9 ? 0.2 : walker.speed;
       walker.dist += walker.dir * moveSpeed * dt;
@@ -1054,11 +1376,14 @@ export class AmbientTraffic {
 
     for (const tpl of this.parkedTemplates) disposeObjectTree(tpl);
     this.parkedTemplates.length = 0;
+    this.parkedSlots.length = 0;
 
     for (const w of this.walkers) disposeObjectTree(w.group);
     this.walkers.length = 0;
 
     this.beamPlaneGeo.dispose();
+    this.tailGlowPlaneGeo.dispose();
+    this.semiTailGlowPlaneGeo.dispose();
     this.aoPlaneGeo.dispose();
     this.semiAoPlaneGeo.dispose();
     this.sleighBodyGeo.dispose();
@@ -1072,6 +1397,8 @@ export class AmbientTraffic {
     this.sleighTailMat.dispose();
     this.giftMats.forEach(m => m.dispose());
     this.beamMat.dispose();
+    this.tailGlowMat.dispose();
+    this.tailGlowBrakeMat.dispose();
     this.aoShadowMat.dispose();
   }
 }

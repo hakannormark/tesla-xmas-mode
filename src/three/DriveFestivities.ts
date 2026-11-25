@@ -24,8 +24,69 @@ import {
 import { moonDirection } from './winterSurfaces';
 
 const BURST_COUNT = 160;
-const CHIMNEY_SPARK_COUNT = 36;
+const CHIMNEY_SPARK_COUNT = 72;
+const PLOW_SPRAY_COUNT = 96;
+const RING_POOL_COUNT = 8;
 const ELON_CYCLE: ElonEventType[] = ['starlink', 'starship', 'starman', 'supercharger', 'cyberplow'];
+const ZERO_ELEV = () => 0;
+
+const FESTIVE_PARTICLE_VERT = /* glsl */ `
+  attribute float aLife;
+  attribute float aSize;
+  attribute vec3 aColor;
+  uniform float uPixelRatio;
+  uniform float uGrowOut;
+  varying float vLife;
+  varying vec3 vColor;
+
+  void main() {
+    vLife = aLife;
+    vColor = aColor;
+    if (aLife <= 0.001) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    float life = clamp(aLife, 0.0, 1.0);
+    float curve = mix(
+      mix(0.32, 1.18, sin(life * 3.14159265)),
+      mix(1.5, 0.5, life),
+      uGrowOut
+    );
+    float dist = max(1.5, -mvPosition.z);
+    gl_PointSize = clamp((aSize * curve * 260.0 * uPixelRatio) / dist, 1.5, 96.0);
+  }
+`;
+
+const FESTIVE_PARTICLE_FRAG = /* glsl */ `
+  uniform float uOpacity;
+  uniform float uStarMix;
+  uniform vec3 uCoolTint;
+  varying float vLife;
+  varying vec3 vColor;
+
+  void main() {
+    if (vLife <= 0.001) discard;
+    vec2 uv = gl_PointCoord - 0.5;
+    float r = length(uv) * 2.0;
+    if (r > 1.0) discard;
+    float radial = pow(max(0.0, 1.0 - r), 2.0);
+    float spikeX = exp(-abs(uv.y) * 20.0) * max(0.0, 1.0 - abs(uv.x) * 2.1);
+    float spikeY = exp(-abs(uv.x) * 20.0) * max(0.0, 1.0 - abs(uv.y) * 2.1);
+    float star = (spikeX + spikeY) * 0.68;
+    float shape = mix(radial, max(radial, star), uStarMix);
+    float life = clamp(vLife, 0.0, 1.0);
+    float fadeIn = 1.0 - smoothstep(0.92, 1.0, life);
+    float fadeOut = smoothstep(0.0, 0.34, life);
+    float alpha = shape * fadeIn * fadeOut * uOpacity;
+    if (alpha < 0.004) discard;
+    vec3 hot = mix(vColor, vec3(1.0, 0.99, 0.92), smoothstep(0.68, 1.0, life) * (0.5 * uStarMix + 0.15));
+    vec3 col = mix(uCoolTint, hot, smoothstep(0.0, 0.72, life));
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
 
 interface GiftProjectile {
   mesh: THREE.Group;
@@ -63,6 +124,7 @@ interface WishStarTarget {
 interface ExpandingRing {
   mesh: THREE.Mesh;
   mat: THREE.MeshBasicMaterial;
+  active: boolean;
   age: number;
   velocity: THREE.Vector3;
 }
@@ -87,6 +149,10 @@ export class DriveFestivities {
     { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 152 },
   ];
   readonly convoyPositions: Array<{ x: number; y: number; z: number; heading: number }> = [];
+  private readonly convoyPosPool = [
+    { x: 0, y: 0, z: 0, heading: 0 },
+    { x: 0, y: 0, z: 0, heading: 0 },
+  ];
 
   private readonly redLightOptimus = createAccurateOptimusGen2();
   private optimusAnchorPos: THREE.Vector3 | null = null;
@@ -100,21 +166,54 @@ export class DriveFestivities {
   private readonly giftPool: GiftProjectile[] = [];
   private readonly snowballPool: SnowballProjectile[] = [];
   private readonly wishStars: WishStarTarget[] = [];
+
   private readonly chimneyPts: THREE.Points;
+  private readonly chimneyMat: THREE.ShaderMaterial;
   private readonly chimneyPos = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
   private readonly chimneyVel = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
   private readonly chimneyLife = new Float32Array(CHIMNEY_SPARK_COUNT);
+  private readonly chimneyPosAttr: THREE.BufferAttribute;
+  private readonly chimneyLifeAttr: THREE.BufferAttribute;
+  private chimneyCursor = 0;
+  private chimneyWasActive = false;
 
   private readonly burstPts: THREE.Points;
+  private readonly burstMat: THREE.ShaderMaterial;
   private readonly burstPos = new Float32Array(BURST_COUNT * 3);
   private readonly burstVel = new Float32Array(BURST_COUNT * 3);
   private readonly burstLife = new Float32Array(BURST_COUNT);
+  private readonly burstPosAttr: THREE.BufferAttribute;
+  private readonly burstLifeAttr: THREE.BufferAttribute;
+  private burstWasActive = false;
+
+  private readonly plowSprayPts: THREE.Points;
+  private readonly plowSprayMat: THREE.ShaderMaterial;
+  private readonly plowSprayPos = new Float32Array(PLOW_SPRAY_COUNT * 3);
+  private readonly plowSprayVel = new Float32Array(PLOW_SPRAY_COUNT * 3);
+  private readonly plowSprayLife = new Float32Array(PLOW_SPRAY_COUNT);
+  private readonly plowSprayPosAttr: THREE.BufferAttribute;
+  private readonly plowSprayLifeAttr: THREE.BufferAttribute;
+  private plowSprayCursor = 0;
+  private plowSprayWasActive = false;
 
   private readonly rings: ExpandingRing[] = [];
   private readonly ringGeo = new THREE.TorusGeometry(1.15, 0.055, 8, 28);
 
   private readonly starmanAnchor = new THREE.Vector3();
   private readonly vertical = new THREE.Vector3(0, 1, 0);
+  private readonly starshipOrigin = new THREE.Vector3(33, 27, -130);
+  private readonly tmpSupercharger = new THREE.Vector3();
+  private readonly tmpOptimusPos = new THREE.Vector3();
+  private readonly tunnelFrame = {} as TelemetryFrame & { tunnelBlend: number };
+  private activePlowSpot: { x: number; z: number; heading: number } | false | undefined = false;
+  private activeGroundAt: (x: number, z: number) => number = ZERO_ELEV;
+  private readonly eventRoadPointAt = (_progress: number, side: number, out: THREE.Vector3): THREE.Vector3 => {
+    const plow = this.activePlowSpot;
+    if (!plow) return out.set(0, 0, 0);
+    out.set(plow.x + Math.cos(plow.heading) * side, 0, plow.z + Math.sin(plow.heading) * side);
+    out.y = this.activeGroundAt(out.x, out.z);
+    return this.effects.worldToLocal(out);
+  };
 
   private automatic = true;
   private nextMagicMeters = 48;
@@ -253,41 +352,139 @@ export class DriveFestivities {
       });
     });
 
-    for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) this.chimneyPos[i * 3 + 1] = -999;
+    const pixelRatio = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+
+    // Soft-fade Chimney Sparks (ring-buffered custom ShaderMaterial)
+    const chSizes = new Float32Array(CHIMNEY_SPARK_COUNT);
+    const chColors = new Float32Array(CHIMNEY_SPARK_COUNT * 3);
+    for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) {
+      this.chimneyPos[i * 3 + 1] = -999;
+      chSizes[i] = 0.34 + (i % 4) * 0.09;
+      const warmGold = i % 3 !== 0;
+      chColors[i * 3] = warmGold ? 1.0 : 1.0;
+      chColors[i * 3 + 1] = warmGold ? 0.86 : 0.42;
+      chColors[i * 3 + 2] = warmGold ? 0.38 : 0.32;
+    }
     const chGeo = new THREE.BufferGeometry();
-    chGeo.setAttribute('position', new THREE.BufferAttribute(this.chimneyPos, 3));
-    this.chimneyPts = new THREE.Points(
-      chGeo,
-      new THREE.PointsMaterial({
-        map: softGlowTex,
-        color: '#ffdf6b',
-        size: 0.44,
-        transparent: true,
-        opacity: 0.72,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      })
-    );
+    this.chimneyPosAttr = new THREE.BufferAttribute(this.chimneyPos, 3);
+    this.chimneyLifeAttr = new THREE.BufferAttribute(this.chimneyLife, 1);
+    chGeo.setAttribute('position', this.chimneyPosAttr);
+    chGeo.setAttribute('aLife', this.chimneyLifeAttr);
+    chGeo.setAttribute('aSize', new THREE.BufferAttribute(chSizes, 1));
+    chGeo.setAttribute('aColor', new THREE.BufferAttribute(chColors, 3));
+    this.chimneyMat = new THREE.ShaderMaterial({
+      vertexShader: FESTIVE_PARTICLE_VERT,
+      fragmentShader: FESTIVE_PARTICLE_FRAG,
+      uniforms: {
+        uPixelRatio: { value: pixelRatio },
+        uGrowOut: { value: 0.0 },
+        uOpacity: { value: 0.92 },
+        uStarMix: { value: 0.78 },
+        uCoolTint: { value: new THREE.Color('#ff5436') },
+      },
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.chimneyPts = new THREE.Points(chGeo, this.chimneyMat);
     this.chimneyPts.frustumCulled = false;
+    this.chimneyPts.visible = false;
     scene.add(this.chimneyPts);
 
-    for (let i = 0; i < BURST_COUNT; i++) this.burstPos[i * 3 + 1] = -999;
+    // Soft-fade Golden Starburst Particles
+    const burstSizes = new Float32Array(BURST_COUNT);
+    const burstColors = new Float32Array(BURST_COUNT * 3);
+    for (let i = 0; i < BURST_COUNT; i++) {
+      this.burstPos[i * 3 + 1] = -999;
+      burstSizes[i] = 0.32 + (i % 5) * 0.08;
+      const kind = i % 3;
+      burstColors[i * 3] = kind === 2 ? 0.55 : 1.0;
+      burstColors[i * 3 + 1] = kind === 1 ? 0.34 : 0.90;
+      burstColors[i * 3 + 2] = kind === 2 ? 1.0 : kind === 1 ? 0.42 : 0.45;
+    }
     const burstGeo = new THREE.BufferGeometry();
-    burstGeo.setAttribute('position', new THREE.BufferAttribute(this.burstPos, 3));
-    this.burstPts = new THREE.Points(
-      burstGeo,
-      new THREE.PointsMaterial({
-        map: softGlowTex,
-        color: '#ffe47a',
-        size: 0.40,
-        transparent: true,
-        opacity: 0.72,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      })
-    );
+    this.burstPosAttr = new THREE.BufferAttribute(this.burstPos, 3);
+    this.burstLifeAttr = new THREE.BufferAttribute(this.burstLife, 1);
+    burstGeo.setAttribute('position', this.burstPosAttr);
+    burstGeo.setAttribute('aLife', this.burstLifeAttr);
+    burstGeo.setAttribute('aSize', new THREE.BufferAttribute(burstSizes, 1));
+    burstGeo.setAttribute('aColor', new THREE.BufferAttribute(burstColors, 3));
+    this.burstMat = new THREE.ShaderMaterial({
+      vertexShader: FESTIVE_PARTICLE_VERT,
+      fragmentShader: FESTIVE_PARTICLE_FRAG,
+      uniforms: {
+        uPixelRatio: { value: pixelRatio },
+        uGrowOut: { value: 0.0 },
+        uOpacity: { value: 0.90 },
+        uStarMix: { value: 0.80 },
+        uCoolTint: { value: new THREE.Color('#ff6a4d') },
+      },
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    this.burstPts = new THREE.Points(burstGeo, this.burstMat);
     this.burstPts.frustumCulled = false;
+    this.burstPts.visible = false;
     scene.add(this.burstPts);
+
+    // Soft-fade Cybertruck Snowplow Spray
+    const plowSizes = new Float32Array(PLOW_SPRAY_COUNT);
+    const plowColors = new Float32Array(PLOW_SPRAY_COUNT * 3);
+    for (let i = 0; i < PLOW_SPRAY_COUNT; i++) {
+      this.plowSprayPos[i * 3 + 1] = -999;
+      plowSizes[i] = 0.52 + (i % 4) * 0.14;
+      plowColors[i * 3] = 0.92;
+      plowColors[i * 3 + 1] = 0.96;
+      plowColors[i * 3 + 2] = 1.0;
+    }
+    const plowGeo = new THREE.BufferGeometry();
+    this.plowSprayPosAttr = new THREE.BufferAttribute(this.plowSprayPos, 3);
+    this.plowSprayLifeAttr = new THREE.BufferAttribute(this.plowSprayLife, 1);
+    plowGeo.setAttribute('position', this.plowSprayPosAttr);
+    plowGeo.setAttribute('aLife', this.plowSprayLifeAttr);
+    plowGeo.setAttribute('aSize', new THREE.BufferAttribute(plowSizes, 1));
+    plowGeo.setAttribute('aColor', new THREE.BufferAttribute(plowColors, 3));
+    this.plowSprayMat = new THREE.ShaderMaterial({
+      vertexShader: FESTIVE_PARTICLE_VERT,
+      fragmentShader: FESTIVE_PARTICLE_FRAG,
+      uniforms: {
+        uPixelRatio: { value: pixelRatio },
+        uGrowOut: { value: 1.0 },
+        uOpacity: { value: 0.62 },
+        uStarMix: { value: 0.0 },
+        uCoolTint: { value: new THREE.Color('#b0d2f5') },
+      },
+      transparent: true,
+      depthWrite: false,
+    });
+    this.plowSprayPts = new THREE.Points(plowGeo, this.plowSprayMat);
+    this.plowSprayPts.frustumCulled = false;
+    this.plowSprayPts.visible = false;
+    scene.add(this.plowSprayPts);
+
+    // Pre-pooled Expanding Star Rings (zero per-burst allocation/disposal)
+    for (let i = 0; i < RING_POOL_COUNT; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: '#ffe588',
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(this.ringGeo, mat);
+      mesh.visible = false;
+      scene.add(mesh);
+      this.rings.push({
+        mesh,
+        mat,
+        active: false,
+        age: 0,
+        velocity: new THREE.Vector3(),
+      });
+    }
 
     for (const truck of this.convoy) {
       truck.handle.group.visible = false;
@@ -370,7 +567,10 @@ export class DriveFestivities {
   }
 
   private spawnChimneySparks(x: number, y: number, z: number): void {
-    for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) {
+    const emitCount = 32;
+    for (let n = 0; n < emitCount; n++) {
+      const i = this.chimneyCursor;
+      this.chimneyCursor = (this.chimneyCursor + 1) % CHIMNEY_SPARK_COUNT;
       this.chimneyPos[i * 3] = x;
       this.chimneyPos[i * 3 + 1] = y;
       this.chimneyPos[i * 3 + 2] = z;
@@ -381,6 +581,56 @@ export class DriveFestivities {
       this.chimneyVel[i * 3 + 2] = Math.sin(a) * spd;
       this.chimneyLife[i] = 1.0;
     }
+  }
+
+  private emitPlowSpray(px: number, py: number, pz: number, plowHeading: number): void {
+    const fwdX = Math.sin(plowHeading);
+    const fwdZ = -Math.cos(plowHeading);
+    const rightX = Math.cos(plowHeading);
+    const rightZ = Math.sin(plowHeading);
+    for (const side of [-1, 1]) {
+      const i = this.plowSprayCursor;
+      this.plowSprayCursor = (this.plowSprayCursor + 1) % PLOW_SPRAY_COUNT;
+      // Front edge of V-plow blade
+      this.plowSprayPos[i * 3] = px + fwdX * 2.55 + rightX * side * (1.1 + Math.random() * 0.35);
+      this.plowSprayPos[i * 3 + 1] = py + 0.32 + Math.random() * 0.25;
+      this.plowSprayPos[i * 3 + 2] = pz + fwdZ * 2.55 + rightZ * side * (1.1 + Math.random() * 0.35);
+      const outSpd = 2.6 + Math.random() * 2.8;
+      this.plowSprayVel[i * 3] = rightX * side * outSpd + fwdX * (1.4 + Math.random() * 1.4);
+      this.plowSprayVel[i * 3 + 1] = 1.8 + Math.random() * 2.1;
+      this.plowSprayVel[i * 3 + 2] = rightZ * side * outSpd + fwdZ * (1.4 + Math.random() * 1.4);
+      this.plowSprayLife[i] = 1.0;
+    }
+  }
+
+  private activateRing(
+    col: string,
+    x: number,
+    y: number,
+    z: number,
+    rotY: number,
+    scale: number,
+    age: number,
+    vx: number,
+    vy: number,
+    vz: number
+  ): void {
+    let slot = this.rings.find(r => !r.active);
+    if (!slot) {
+      slot = this.rings[0];
+      for (let i = 1; i < this.rings.length; i++) {
+        if (this.rings[i].age > slot.age) slot = this.rings[i];
+      }
+    }
+    slot.active = true;
+    slot.age = age;
+    slot.mat.color.set(col);
+    slot.mat.opacity = 0.95;
+    slot.mesh.position.set(x, y, z);
+    slot.mesh.rotation.y = rotY;
+    slot.mesh.scale.setScalar(scale);
+    slot.velocity.set(vx, vy, vz);
+    slot.mesh.visible = true;
   }
 
   shift(offset: THREE.Vector3): void {
@@ -394,22 +644,41 @@ export class DriveFestivities {
       s.start.add(offset);
       s.end.add(offset);
     }
+    let shiftedCh = false;
     for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) {
       if (this.chimneyLife[i] > 0) {
         this.chimneyPos[i * 3] += offset.x;
         this.chimneyPos[i * 3 + 1] += offset.y;
         this.chimneyPos[i * 3 + 2] += offset.z;
+        shiftedCh = true;
       }
     }
+    if (shiftedCh) this.chimneyPosAttr.needsUpdate = true;
+
+    let shiftedBurst = false;
     for (let i = 0; i < BURST_COUNT; i++) {
       if (this.burstLife[i] > 0) {
         this.burstPos[i * 3] += offset.x;
         this.burstPos[i * 3 + 1] += offset.y;
         this.burstPos[i * 3 + 2] += offset.z;
+        shiftedBurst = true;
       }
     }
+    if (shiftedBurst) this.burstPosAttr.needsUpdate = true;
+
+    let shiftedPlow = false;
+    for (let i = 0; i < PLOW_SPRAY_COUNT; i++) {
+      if (this.plowSprayLife[i] > 0) {
+        this.plowSprayPos[i * 3] += offset.x;
+        this.plowSprayPos[i * 3 + 1] += offset.y;
+        this.plowSprayPos[i * 3 + 2] += offset.z;
+        shiftedPlow = true;
+      }
+    }
+    if (shiftedPlow) this.plowSprayPosAttr.needsUpdate = true;
+
     for (const r of this.rings) {
-      r.mesh.position.add(offset);
+      if (r.active) r.mesh.position.add(offset);
     }
     if (this.optimusAnchorPos) {
       this.optimusAnchorPos.add(offset);
@@ -510,30 +779,20 @@ export class DriveFestivities {
   private spawnRingBurst(ringColors: string[], speedScale = 1): void {
     const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
     const sleighY = this.sleigh.group.visible ? this.sleigh.group.position.y * 0.45 : 0;
-    ringColors.forEach((col, idx) => {
-      const mat = new THREE.MeshBasicMaterial({
-        color: col,
-        transparent: true,
-        opacity: 0.95,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      });
-      const mesh = new THREE.Mesh(this.ringGeo, mat);
-      mesh.position.set(
+    for (let idx = 0; idx < ringColors.length; idx++) {
+      this.activateRing(
+        ringColors[idx],
         this.lastCenter.x + east * (3.5 + idx * 1.4),
         this.lastCenter.y + 2.0 + sleighY,
-        this.lastCenter.z - north * (3.5 + idx * 1.4)
+        this.lastCenter.z - north * (3.5 + idx * 1.4),
+        -this.lastHeading,
+        0.8 + idx * 0.45,
+        idx * 0.14,
+        east * (11 + idx * 3) * speedScale,
+        0.6,
+        -north * (11 + idx * 3) * speedScale
       );
-      mesh.rotation.y = -this.lastHeading;
-      mesh.scale.setScalar(0.8 + idx * 0.45);
-      this.scene.add(mesh);
-      this.rings.push({
-        mesh,
-        mat,
-        age: idx * 0.14,
-        velocity: new THREE.Vector3(east * (11 + idx * 3) * speedScale, 0.6, -north * (11 + idx * 3) * speedScale),
-      });
-    });
+    }
 
     const bx = this.lastCenter.x + east * 4.5;
     const by = this.lastCenter.y + 2.4 + (this.sleigh.group.visible ? this.sleigh.group.position.y * 0.5 : 0);
@@ -548,7 +807,7 @@ export class DriveFestivities {
       this.burstVel[i * 3] = Math.cos(theta) * Math.cos(phi) * spd + east * 4.5;
       this.burstVel[i * 3 + 1] = Math.sin(phi) * spd + 4.0;
       this.burstVel[i * 3 + 2] = Math.sin(theta) * Math.cos(phi) * spd - north * 4.5;
-      this.burstLife[i] = 1.15;
+      this.burstLife[i] = 1.0;
     }
   }
 
@@ -740,23 +999,19 @@ export class DriveFestivities {
       this.audio.playGiftLaunch();
     }
 
-    // 2. Expanding Star Ring ahead of sleigh
-    const mat = new THREE.MeshBasicMaterial({
-      color: '#ffe588',
-      transparent: true,
-      opacity: 0.92,
-      blending: THREE.AdditiveBlending,
-      toneMapped: false,
-    });
-    const mesh = new THREE.Mesh(this.ringGeo, mat);
-    mesh.position.set(
+    // 2. Pooled Expanding Star Ring ahead of sleigh
+    this.activateRing(
+      '#ffe588',
       this.lastCenter.x + east * 6.5,
       this.lastCenter.y + 2.2 + (this.sleigh.group.visible ? this.sleigh.group.position.y * 0.5 : 0),
-      this.lastCenter.z - north * 6.5
+      this.lastCenter.z - north * 6.5,
+      -this.lastHeading,
+      1.0,
+      0,
+      east * 12,
+      0,
+      -north * 12
     );
-    mesh.rotation.y = -this.lastHeading;
-    this.scene.add(mesh);
-    this.rings.push({ mesh, mat, age: 0, velocity: new THREE.Vector3(east * 12, 0, -north * 12) });
 
     // 3. 72-Particle Golden Starburst Explosion ahead
     const bx = this.lastCenter.x + east * 5.2;
@@ -868,7 +1123,7 @@ export class DriveFestivities {
     this.effects.position.copy(center);
     this.effects.rotation.y = -(event ? this.eventHeading : heading);
     this.frost.update(dt, env);
-    this.sky.update(dt, time, traveled, env, live, () => 0, 0, false);
+    this.sky.update(dt, time, traveled, env, live, ZERO_ELEV, 0, false);
     this.launchText = live.spaceXLive ? `🚀 ${live.nextSpaceXName} · ${live.nextSpaceXCountdown}` : '';
 
     if (this.snapshotVersion !== mapSnapshot?.version || time - this.matchedAt > 0.25) {
@@ -919,43 +1174,43 @@ export class DriveFestivities {
       this.map.mapData.clearance
     );
 
-    // Elon Roadside / Celestial Events
+    // Elon Roadside / Celestial Events (zero-GC scratch vectors + gated matrixWorld update)
     const charger = event?.type === 'supercharger' && mapSnapshot?.pois.find(p =>
       p.tesla && p.kind === 'charger' && Math.hypot(p.x - center.x, p.z - center.z) < 180);
-    this.effects.updateMatrixWorld();
     if (event?.type === 'supercharger' && event.elapsed <= dt && !charger) {
       this.announce('Ingen kartlagd Tesla Supercharger i närheten');
     }
-    const mappedSupercharger = charger
-      ? this.effects.worldToLocal(new THREE.Vector3(charger.x, groundAt(charger.x, charger.z), charger.z))
-      : null;
     const plow = event?.type === 'cyberplow' && street && pointAlongStreet(street, center, heading, 100 - event.progress * 109);
+    if (charger || plow) {
+      this.effects.updateMatrixWorld();
+    }
+    const mappedSupercharger = charger
+      ? this.effects.worldToLocal(this.tmpSupercharger.set(charger.x, groundAt(charger.x, charger.z), charger.z))
+      : null;
+    this.activePlowSpot = plow;
+    this.activeGroundAt = groundAt;
     this.events.update(event, dt, time, {
       moonPos: this.starmanAnchor.copy(moonDirection).multiplyScalar(145).applyAxisAngle(this.vertical, this.eventHeading),
-      starshipOrigin: new THREE.Vector3(33, 27, -130),
+      starshipOrigin: this.starshipOrigin,
       starlinkZ: -145,
       mappedSupercharger,
       showRoadVehicles: !!plow,
       cybertruckYaw: plow ? Math.PI - plow.heading + this.eventHeading : 0,
-      roadPointAt: (_progress, side, out) => {
-        if (!plow) return out.set(0, 0, 0);
-        out.set(plow.x + Math.cos(plow.heading) * side, 0, plow.z + Math.sin(plow.heading) * side);
-        out.y = groundAt(out.x, out.z);
-        return this.effects.worldToLocal(out);
-      },
+      roadPointAt: this.eventRoadPointAt,
     });
 
-    // 4-Truck Coca-Cola & Tesla Convoy on Real Mapped Lanes
+    // 4-Truck Coca-Cola & Tesla Convoy on Real Mapped Lanes (pooled convoyPositions)
     this.convoyTime = Math.max(0, this.convoyTime - dt);
     this.convoyPositions.length = 0;
     const beat = this.audio.getBeatEnergy();
     const hornPulse = this.hornFlashTimer > 0 ? Math.max(0, Math.sin(this.hornFlashTimer * 12) * 0.4 + 0.85) : 0;
     const lightShowBoost = beat * 0.65 + (this.hornFlashTimer > 0 ? 0.85 : 0);
-    this.convoy.forEach((entry, index) => {
+    for (let index = 0; index < this.convoy.length; index++) {
+      const entry = this.convoy[index];
       const aheadMeters = entry.baseOffset - (16 - this.convoyTime) * 15;
       const slot = this.convoyTime > 0 && street && aheadMeters > -38 && pointAlongStreet(street, center, heading, aheadMeters);
       entry.handle.group.visible = !!slot;
-      if (!slot) return;
+      if (!slot) continue;
       const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
       const tx = slot.x + Math.cos(slot.heading) * laneOffset;
       const tz = slot.z + Math.sin(slot.heading) * laneOffset;
@@ -965,8 +1220,13 @@ export class DriveFestivities {
       entry.handle.group.scale.setScalar(0.76);
       entry.handle.group.rotation.y = -truckHeading;
       entry.handle.update(dt, time * frame.speedKmh * 0.1 + index, false, lightShowBoost, time, hornPulse);
-      this.convoyPositions.push({ x: tx, y: ty, z: tz, heading: truckHeading });
-    });
+      const pooledPos = this.convoyPosPool[index];
+      pooledPos.x = tx;
+      pooledPos.y = ty;
+      pooledPos.z = tz;
+      pooledPos.heading = truckHeading;
+      this.convoyPositions.push(pooledPos);
+    }
 
     // Red-Light Cameo: World-pinned waving Santa-Hat Optimus (never slides alongside the moving sleigh)
     if (frame.speedKmh < 2.0 && this.stoppedSec > 3.2 && street) {
@@ -976,7 +1236,7 @@ export class DriveFestivities {
           const shoulder = street.widthM * 0.5 + 1.85;
           const ox = optimusSpot.x + Math.cos(optimusSpot.heading) * shoulder;
           const oz = optimusSpot.z + Math.sin(optimusSpot.heading) * shoulder;
-          this.optimusAnchorPos = new THREE.Vector3(ox, groundAt(ox, oz), oz);
+          this.optimusAnchorPos = this.tmpOptimusPos.set(ox, groundAt(ox, oz), oz);
           this.optimusAnchorYaw = -optimusSpot.heading + Math.PI - 0.35;
         }
       }
@@ -1007,10 +1267,12 @@ export class DriveFestivities {
         const lane = -Math.min(2.05, street.widthM * 0.27);
         const px = plowSpot.x + Math.cos(plowSpot.heading) * lane;
         const pz = plowSpot.z + Math.sin(plowSpot.heading) * lane;
+        const py = groundAt(px, pz) + 0.02;
         this.redLightPlow.group.visible = true;
-        this.redLightPlow.group.position.set(px, groundAt(px, pz) + 0.02, pz);
+        this.redLightPlow.group.position.set(px, py, pz);
         this.redLightPlow.group.rotation.y = -plowSpot.heading + Math.PI;
         this.redLightPlow.update(time * 12, time);
+        this.emitPlowSpray(px, py, pz, plowSpot.heading + Math.PI);
       } else {
         this.plowActive = false;
         this.redLightPlow.group.visible = false;
@@ -1116,39 +1378,73 @@ export class DriveFestivities {
       star.mesh.rotation.y = time * 2.1 + idx;
     }
 
+    let chActive = 0;
     for (let i = 0; i < CHIMNEY_SPARK_COUNT; i++) {
       if (this.chimneyLife[i] > 0) {
-        this.chimneyLife[i] -= dt * 0.9;
-        this.chimneyPos[i * 3] += this.chimneyVel[i * 3] * dt;
-        this.chimneyPos[i * 3 + 1] += this.chimneyVel[i * 3 + 1] * dt;
-        this.chimneyPos[i * 3 + 2] += this.chimneyVel[i * 3 + 2] * dt;
-        this.chimneyVel[i * 3 + 1] -= 6.5 * dt;
-      } else {
-        this.chimneyPos[i * 3 + 1] = -999;
+        this.chimneyLife[i] = Math.max(0, this.chimneyLife[i] - dt * 0.85);
+        if (this.chimneyLife[i] > 0) {
+          chActive++;
+          this.chimneyPos[i * 3] += this.chimneyVel[i * 3] * dt;
+          this.chimneyPos[i * 3 + 1] += this.chimneyVel[i * 3 + 1] * dt;
+          this.chimneyPos[i * 3 + 2] += this.chimneyVel[i * 3 + 2] * dt;
+          this.chimneyVel[i * 3 + 1] -= 6.5 * dt;
+        }
       }
     }
-    this.chimneyPts.geometry.attributes.position.needsUpdate = true;
+    if (chActive > 0 || this.chimneyWasActive) {
+      this.chimneyPosAttr.needsUpdate = true;
+      this.chimneyLifeAttr.needsUpdate = true;
+      this.chimneyWasActive = chActive > 0;
+    }
+    this.chimneyPts.visible = chActive > 0;
 
+    let burstActive = 0;
     for (let i = 0; i < BURST_COUNT; i++) {
       if (this.burstLife[i] > 0) {
-        this.burstLife[i] -= dt * 0.85;
-        this.burstPos[i * 3] += this.burstVel[i * 3] * dt;
-        this.burstPos[i * 3 + 1] += this.burstVel[i * 3 + 1] * dt;
-        this.burstPos[i * 3 + 2] += this.burstVel[i * 3 + 2] * dt;
-        this.burstVel[i * 3 + 1] -= 3.8 * dt;
-      } else {
-        this.burstPos[i * 3 + 1] = -999;
+        this.burstLife[i] = Math.max(0, this.burstLife[i] - dt * 0.82);
+        if (this.burstLife[i] > 0) {
+          burstActive++;
+          this.burstPos[i * 3] += this.burstVel[i * 3] * dt;
+          this.burstPos[i * 3 + 1] += this.burstVel[i * 3 + 1] * dt;
+          this.burstPos[i * 3 + 2] += this.burstVel[i * 3 + 2] * dt;
+          this.burstVel[i * 3 + 1] -= 3.8 * dt;
+        }
       }
     }
-    this.burstPts.geometry.attributes.position.needsUpdate = true;
+    if (burstActive > 0 || this.burstWasActive) {
+      this.burstPosAttr.needsUpdate = true;
+      this.burstLifeAttr.needsUpdate = true;
+      this.burstWasActive = burstActive > 0;
+    }
+    this.burstPts.visible = burstActive > 0;
 
-    for (let i = this.rings.length - 1; i >= 0; i--) {
+    let plowSprayActive = 0;
+    for (let i = 0; i < PLOW_SPRAY_COUNT; i++) {
+      if (this.plowSprayLife[i] > 0) {
+        this.plowSprayLife[i] = Math.max(0, this.plowSprayLife[i] - dt * 1.35);
+        if (this.plowSprayLife[i] > 0) {
+          plowSprayActive++;
+          this.plowSprayPos[i * 3] += this.plowSprayVel[i * 3] * dt;
+          this.plowSprayPos[i * 3 + 1] += this.plowSprayVel[i * 3 + 1] * dt;
+          this.plowSprayPos[i * 3 + 2] += this.plowSprayVel[i * 3 + 2] * dt;
+          this.plowSprayVel[i * 3 + 1] -= 5.2 * dt;
+        }
+      }
+    }
+    if (plowSprayActive > 0 || this.plowSprayWasActive) {
+      this.plowSprayPosAttr.needsUpdate = true;
+      this.plowSprayLifeAttr.needsUpdate = true;
+      this.plowSprayWasActive = plowSprayActive > 0;
+    }
+    this.plowSprayPts.visible = plowSprayActive > 0;
+
+    for (let i = 0; i < this.rings.length; i++) {
       const r = this.rings[i];
+      if (!r.active) continue;
       r.age += dt;
       if (r.age > 1.55) {
-        this.scene.remove(r.mesh);
-        r.mat.dispose();
-        this.rings.splice(i, 1);
+        r.active = false;
+        r.mesh.visible = false;
         continue;
       }
       const sc = 1 + r.age * 4.4;
@@ -1163,7 +1459,9 @@ export class DriveFestivities {
     if (!this.tunnelCanvas.hidden) {
       const { width, height } = this.tunnelCanvas;
       this.tunnelContext.clearRect(0, 0, width, height);
-      this.tunnel.render(this.tunnelContext, width, height, dt, { ...frame, tunnelBlend: this.tunnelBlend });
+      Object.assign(this.tunnelFrame, frame);
+      this.tunnelFrame.tunnelBlend = this.tunnelBlend;
+      this.tunnel.render(this.tunnelContext, width, height, dt, this.tunnelFrame);
     }
 
     return env;
@@ -1174,9 +1472,11 @@ export class DriveFestivities {
     this.livingWorld.dispose();
     this.sky.dispose();
     this.chimneyPts.geometry.dispose();
-    (this.chimneyPts.material as THREE.Material).dispose();
+    this.chimneyMat.dispose();
     this.burstPts.geometry.dispose();
-    (this.burstPts.material as THREE.Material).dispose();
+    this.burstMat.dispose();
+    this.plowSprayPts.geometry.dispose();
+    this.plowSprayMat.dispose();
     for (const r of this.rings) {
       this.scene.remove(r.mesh);
       r.mat.dispose();
