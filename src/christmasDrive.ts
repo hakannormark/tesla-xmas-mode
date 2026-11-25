@@ -398,56 +398,7 @@ if (!stage) {
   scene.add(flightsRoot);
   const projection = new THREE.Vector3();
 
-  // Lightweight 5-mesh Starman sky-glider proxy (nose along +X) to save ~57 draw calls per live ADS-B flight
-  function createSkyFlightProxy(): THREE.Group {
-    const proxy = new THREE.Group();
-    const bodyMat = new THREE.MeshLambertMaterial({ color: '#e31937', emissive: '#3a0610', fog: false });
-    const wingMat = new THREE.MeshLambertMaterial({ color: '#e4eefc', emissive: '#1e2c44', fog: false });
-    const visorMat = new THREE.MeshBasicMaterial({ color: '#f4f8ff', fog: false });
-    const thrusterMat = new THREE.MeshBasicMaterial({ color: '#ffcf72', toneMapped: false, fog: false });
-
-    const fuselageGeo = new THREE.ConeGeometry(0.62, 4.4, 8);
-    fuselageGeo.rotateZ(-Math.PI * 0.5);
-    const fuselage = new THREE.Mesh(fuselageGeo, bodyMat);
-    fuselage.scale.set(1, 0.55, 1.15);
-
-    const wingGeo = new THREE.BoxGeometry(1.15, 0.12, 3.6);
-    const wings = new THREE.Mesh(wingGeo, wingMat);
-    wings.position.set(-0.25, 0.02, 0);
-
-    const tailFinGeo = new THREE.BoxGeometry(0.65, 0.65, 0.12);
-    const tailFin = new THREE.Mesh(tailFinGeo, bodyMat);
-    tailFin.position.set(-1.65, 0.34, 0);
-
-    const helmetGeo = new THREE.SphereGeometry(0.28, 8, 6);
-    const helmet = new THREE.Mesh(helmetGeo, visorMat);
-    helmet.position.set(0.28, 0.42, 0);
-
-    const exhaustGeo = new THREE.ConeGeometry(0.32, 1.35, 6);
-    exhaustGeo.rotateZ(Math.PI * 0.5);
-    const exhaust = new THREE.Mesh(exhaustGeo, thrusterMat);
-    exhaust.position.set(-2.55, 0, 0);
-
-    const beacon = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: getSoftGlowTexture(),
-        color: '#ffe099',
-        transparent: true,
-        opacity: 0.72,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        fog: false,
-        toneMapped: false,
-      })
-    );
-    beacon.scale.set(3.4, 3.4, 1);
-    beacon.position.set(-2.1, 0.1, 0);
-
-    proxy.add(fuselage, wings, tailFin, helmet, exhaust, beacon);
-    return proxy;
-  }
-
-  const flightTemplate = createSkyFlightProxy();
+  const flightTemplate = createAccurateStarmanRoadster({ forSky: true });
   const flightBounds = new THREE.Box3().setFromObject(flightTemplate);
   const corners: THREE.Vector3[] = [];
   for (const x of [flightBounds.min.x, flightBounds.max.x]) {

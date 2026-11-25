@@ -1,14 +1,18 @@
-# Tesla Xmas Mode — Coca-Cola Holiday Edition (3D Pixar Cinema)
+# Vintervärlden · Julkarta i 3D (Tesla Xmas Mode)
 
-En dynamisk **3D-julupplevelse** byggd med Three.js WebGL, fotografisk bloom (`UnrealBloomPass`), PBR-material, **GPU-blend shapes & fjäderfysik för Pixar-karaktärer**, **realtidsvärld från OpenStreetMap + GPS**, samt **volymetriskt ljus** för Teslas webbläsare (och enkel test hemma på dator/surfplatta) med **5 valbara 3D-lägen**, **realtidsgenererat Web Audio-ljud** (utan externa ljudfiler), **riktig Nordpolen-kompass**, **Boring Company-tunnel**, **väderfrost**, **5 Elon-universe-påskägg** samt grafikläget **Pixar Ultra / Eco (MCU2)**.
+En interaktiv **3D-julvärld i realtid** byggd med Three.js WebGL, PBR-material, MSAA och fotografisk bloom för Teslas webbläsare (och enkel förhandsvisning på dator eller surfplatta). Startsidan öppnar numera direkt **Vintervärlden** — en GPS-driven julkarta i Tesla FSD-stil — medan de klassiska lägena finns kvar under `./klassisk.html`.
 
-## De 5 3D-lägena
+- **Live på GitHub Pages:** **https://hakannormark.github.io/tesla-xmas-mode/**
+- **Snabb demo på dator:** **https://hakannormark.github.io/tesla-xmas-mode/?demo=1**
+- **Klassiska lägen:** **https://hakannormark.github.io/tesla-xmas-mode/klassisk.html** *(tidigare `/dev/`-bokmärken omdirigeras automatiskt till startsidan)*
 
-1. **Coca-Cola Winter Express (3D Pixar Panorama)** — Filmisk sidoåkning längs skulpterad 3D-Tomtesläde med 4 galopperande renar & Rudolph med levande **blend shapes** (`Ho-Ho-Ho`, blinkningar, spetsade öron, vindduk & 4-takts galopp) över snöiga alptoppar, norrsken, sprakande eldstäder, **animerade skogsdjur (ren/hjort, räv, uggla, hare)** samt **OpenStreetMap-synkade sjöar, stadssiluett & trävägvisare**. Tryck på skärmen för att släppa en 3D-fallskärmsjulklapp.
-2. **Holidays Are Coming: Electric Caravan (3D Coca-Cola & Tesla Caravan)** — Glödande 3D-konvoj av **Coca-Cola-** och **Tesla-märkta** Tesla Semis med volymetriska strålkastare och julgrans-Cybertruck som tänder en gyllene ljusvåg längs den snöiga dalen bland skogens djur. Tryck för en rullande 3D Tesla Light Show-våg.
-3. **North Pole Flight Deck (Disney/Pixar All-in-One)** — Flaggskeppsläge som kombinerar **formgjuten snöig vinterväg med mjuka snövallar & alptoppar**, mötande och kryssande **Coca-Cola- och Tesla-julkaravaner**, OpenStreetMap-anpassade stugor, hus, kyrktorn & **Tesla Gigafactories** utifrån verklig omgivning (skog/öppet/stad), samt tydliga **Elon-tidslinjehändelser längs vägen**. Tryck på skärmen för stjärnexplosion, ljusvåg & Elon-överraskning (t.ex. Starlink)!
-4. **The Enchanted Snowglobe (3D Crystal Snowglobe)** — En äkta 3D-kristallglob på sammetsröd och mässingsförgylld sockel med miniatyrby, kretsande 3D-släde och snö- & guldflingor som virvlar av bilens G-krafter, flankerad av vintage julmätare (`Renväxel`) och riktig **Nordpolen-kompass**. Tryck för att skaka globen!
-5. **Elon Holiday Timeline (2006–2026)** — Kör förbi **14 fullskaliga Elon-händelser längs vintervägen** med gyllene tidsportaler, vägledande Tomtesläde och animerade skogsdjur — där milstolpar från **Secret Master Plan (2006)** och **Tesla Private at $420 — Funding Secured (2018)** till **Starman**, **Cybertruck Armor Glass** och **Mechazilla Catch (2024)** dyker upp i 3D längs vägrenen och över himlen.
+## Huvudfunktioner i Vintervärlden
+
+- **GPS-driven OpenStreetMap-vinterkarta**: Hämtar verkliga gator, rundade korsningar, julpyntade stugor, skogar, alpina siluetter och **Tesla Gigafactories** med solcellstak runt din position, med stöd för **Riktig höjddata** och en separat testrutt för höjdterräng.
+- **Tesla FSD Reality View Christmas Edition**: Följer vägen med **`FSD Julbana`**, valbara fordon (**🎅 Släde** med renar & Rudolph, **🚛 Tesla Semi**, **📐 Cybertruck** och **🚀 Starman Roadster**) samt tre kameralägen (**FSD Vy**, **Kartvy**, **Filmisk**) som automatiskt centrerar tillbaka efter 5 sekunders inaktivitet.
+- **Live-himlen & Starman-flyg**: Riktiga ADS-B-flygplan i närheten visas på himlen som **Starman i körsbärsröd Tesla Roadster** med kallgasraketer (klicka på ett flyg för flygbolag, rutt och höjd i julgranar), tillsammans med **ISS med tomteluva**, Mars, **SpaceX-uppskjutningsnedräkning**, norrsken, väderdata och svensk julkalender (**1–4 Advent**, **Lucia 13 dec**, **Julafton 24 dec**).
+- **Levande vintervärld & interaktioner**: Mötande jul- och Teslatrafik, Coca-Cola/Tesla-julkaravan, Cybertruck-plogbil, **Boring-tunneln**, **Elon-tidslinje**, snabbknappar längs nederkanten (**🎁 Julklapp**, **❄ Snöboll**, **🎺 Tut**, **🎅 Ho-Ho**, **✨ Ljus**) samt frost på skärmen som kan torkas bort med fingret eller musen.
+- **Grafik & bilstereo-ljud**: Välj mellan **Pixar Ultra** och **Eco (MCU2)**, färgteman (**Klassisk**, **Nordisk**, **Cyber 2099**), himmel (**Auto**, **Midnatt**, **Blå**, **Dag**), syntetiserat Web Audio-ljud + `Ho-Ho-Ho`-röst, ljudrutt (**Direkt** / **Media Player**), kupémikrofon och **Ljudtest**.
 
 ## Testa lokalt
 
@@ -17,22 +21,40 @@ npm install
 npm run dev
 ```
 
-Öppna URL:en i webbläsaren (t.ex. `http://localhost:5173/tesla-xmas-mode/`).
+Bygg och förhandsvisa produktionsbundlen lokalt:
 
-### Kortkommandon vid test på dator
+```bash
+npm run build
+npm run preview
+```
+
+Tips: lägg till `?demo=1` på URL:en för att starta demorutten direkt i webbläsaren på datorn.
+
+### Kortkommandon i Vintervärlden
+- `Mellanslag`: Trigga julinteraktion på skärmen
+- `C`: Växla kamera (`FSD Vy` / `Kartvy` / `Filmisk`)
+- `H`: Tut / julkaravanhälsning
+- `T`: Slå på/av Boring Company-tunneln
+- `E`: Trigga nästa jul-/Elon-händelse (`Starlink`, `Starship`, `Starman`, `Supercharger`, `Cybertruck-plog`)
+- `Esc`: Stäng kontrollpanelen
+
+## Klassiska lägen (`klassisk.html`)
+
+De ursprungliga fem 3D-lägena finns kvar via knappen **Klassiska lägen →** i kontrollpanelen eller direkt på `./klassisk.html`:
+
+1. **Coca-Cola Winter Express (3D Pixar Panorama)** — Filmisk sidoåkning längs skulpterad 3D-Tomtesläde med renar, skogsdjur och OSM-synkade omgivningar.
+2. **Holidays Are Coming: Electric Caravan** — Glödande 3D-konvoj av Coca-Cola- och Tesla-Semis med volymetriska strålkastare och julgrans-Cybertruck.
+3. **North Pole Flight Deck** — Flaggskeppsläge med formgjuten vinterväg, mötande karavaner, Gigafactories och Elon-händelser.
+4. **The Enchanted Snowglobe** — 3D-kristallglob på sammetsröd sockel med snö- och guldflingor som virvlar av bilens G-krafter samt Nordpolen-kompass.
+5. **Elon Holiday Timeline (2006–2026)** — 14 Elon-milstolpar längs vintervägen med gyllene tidsportaler.
+
+### Kortkommandon i Klassiska lägen
 - `1`–`5`: Hoppa direkt till läge 1–5
 - `Esc`: Tillbaka till menyn
-- `Mellanslag`: Trigga lägets interaktion (julklapp / ljusvåg / stjärnring / skaka globen / fira milstolpe)
+- `Mellanslag`: Trigga lägets interaktion
 - `T`: Slå på/av Boring Company-tunnel
-- `E`: Trigga nästa Elon-påskägg (`Starman`, `Starlink`, `Starship`, `Supercharger`, `Cybertruck`)
+- `E`: Trigga nästa Elon-påskägg
 
-## Kör direkt i Teslan (Live via GitHub Pages)
+## Valfria egna `.glb`-modeller
 
-Öppna följande HTTPS-länk i bilens webbläsare (krävs för bilens GPS & OpenStreetMap):
-
-- **https://hakannormark.github.io/tesla-xmas-mode/**
-
-Klicka på **Starta Julmagin**, skruva upp bilens rattvolym och välj **GPS (Bil)** längst ner i menyn (eller under **⚙ Kontroller**). I **Demo Drive** kan du även stega genom den svenska julruttens OpenStreetMap-biomer via **📍 Nästa demo-plats** i kontrollpanelen. Testa gärna **Ljudtest** om bilen behöver **Media Player**-läget för webbläsarljud.
-
-### Valfria egna `.glb`-modeller
-Appen innehåller proportionerliga 3D-skulpturer av **Tesla Semi**, **Cybertruck**, **SpaceX Starship + Super Heavy**, **Roadster + Starman**, **V4 Supercharger** och **Optimus Gen 2** som fungerar direkt utan externa filer. Vill du lägga in egna `.glb`-filer (t.ex. exporterade via `tesla-model-extractor`) kan du lägga dem i `public/models/` och lista filnamnen i `public/models/manifest.json` (`"semi"`, `"cybertruck"`, `"starship"`, `"roadster"`, `"optimus"`).
+Appen innehåller inbyggda 3D-modeller av **Tesla Semi**, **Cybertruck**, **SpaceX Starship + Super Heavy**, **Roadster + Starman**, **V4 Supercharger** och **Optimus Gen 2** som fungerar direkt utan externa filer. Vill du använda egna `.glb`-filer kan du lägga dem i `public/models/` och ange filnamnen i [public/models/manifest.json](public/models/manifest.json) (`"semi"`, `"cybertruck"`, `"starship"`, `"roadster"`, `"optimus"`).

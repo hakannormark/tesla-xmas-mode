@@ -1276,8 +1276,8 @@ export function createAccurateStarmanRoadster(options?: { forSky?: boolean }): S
   const wheelGroups: THREE.Group[] = [];
   const roadsterTireGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.25, 16);
   const roadsterRimGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.26, 12);
-  const roadsterSpokeGeo = new THREE.BoxGeometry(0.38, 0.045, 0.27);
-  const roadsterCaliperGeo = new THREE.BoxGeometry(0.14, 0.16, 0.16);
+  const roadsterSpokeGeo = !forSky ? new THREE.BoxGeometry(0.38, 0.045, 0.27) : null;
+  const roadsterCaliperGeo = !forSky ? new THREE.BoxGeometry(0.14, 0.16, 0.16) : null;
   for (const wx of [-1.34, 1.34]) {
     for (const wz of [-0.90, 0.90]) {
       const wg = new THREE.Group();
@@ -1287,17 +1287,21 @@ export function createAccurateStarmanRoadster(options?: { forSky?: boolean }): S
       const rim = new THREE.Mesh(roadsterRimGeo, alloyMat);
       rim.rotation.x = Math.PI * 0.5;
       wg.add(tire, rim);
-      for (let sp = 0; sp < 5; sp++) {
-        const spoke = new THREE.Mesh(roadsterSpokeGeo, alloyMat);
-        spoke.rotation.z = (sp / 5) * Math.PI;
-        wg.add(spoke);
+      if (!forSky && roadsterSpokeGeo) {
+        for (let sp = 0; sp < 5; sp++) {
+          const spoke = new THREE.Mesh(roadsterSpokeGeo, alloyMat);
+          spoke.rotation.z = (sp / 5) * Math.PI;
+          wg.add(spoke);
+        }
       }
       group.add(wg);
       wheelGroups.push(wg);
 
-      const caliper = new THREE.Mesh(roadsterCaliperGeo, tlMat);
-      caliper.position.set(wx - 0.12, 0.36, wz * 0.96);
-      group.add(caliper);
+      if (!forSky && roadsterCaliperGeo) {
+        const caliper = new THREE.Mesh(roadsterCaliperGeo, tlMat);
+        caliper.position.set(wx - 0.12, 0.36, wz * 0.96);
+        group.add(caliper);
+      }
     }
   }
   group.userData.wheelGroups = wheelGroups;
