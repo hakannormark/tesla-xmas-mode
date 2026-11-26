@@ -24,7 +24,13 @@ import { createAccurateSuperchargerPlaza, type SuperchargerPlazaHandle } from '.
 import { VillageLights } from './VillageLights';
 
 const asphalt = createWinterRoad();
+asphalt.polygonOffset = true;
+asphalt.polygonOffsetFactor = -1;
+asphalt.polygonOffsetUnits = -1;
 const verge = createWinterGround('#b6cbe8', 0.94);
+verge.polygonOffset = true;
+verge.polygonOffsetFactor = -0.5;
+verge.polygonOffsetUnits = -0.5;
 const snowTexture = createSnowTextures().bumpMap;
 snowTexture.wrapS = snowTexture.wrapT = THREE.RepeatWrapping;
 const snow = new THREE.MeshStandardMaterial({color: '#fff8f4', roughness: 0.83, bumpMap: snowTexture, bumpScale: 0.12});
@@ -167,7 +173,13 @@ const aoShadowMat = new THREE.MeshBasicMaterial({
 const zebraMat = new THREE.MeshBasicMaterial({
   color: '#dce7f5', transparent: true, opacity: 0.72, depthWrite: false,
 });
-const curbMat = new THREE.MeshStandardMaterial({ color: '#3b4d68', roughness: 0.82 });
+const curbMat = new THREE.MeshStandardMaterial({
+  color: '#3b4d68',
+  roughness: 0.82,
+  polygonOffset: true,
+  polygonOffsetFactor: -0.5,
+  polygonOffsetUnits: -0.5,
+});
 const lampIronMat = new THREE.MeshStandardMaterial({ color: '#1b2638', metalness: 0.65, roughness: 0.42 });
 const lampOrbMat = new THREE.MeshBasicMaterial({ color: '#ffd98a', toneMapped: false });
 const signalHousingMat = new THREE.MeshStandardMaterial({ color: '#17202d', metalness: 0.5, roughness: 0.45 });
@@ -316,6 +328,9 @@ const woodland = new THREE.MeshStandardMaterial({
   bumpMap: snowTexture,
   bumpScale: 0.14,
   roughness: 0.88,
+  polygonOffset: true,
+  polygonOffsetFactor: 1,
+  polygonOffsetUnits: 1,
 });
 const pine = new THREE.MeshStandardMaterial({color: '#21584c', roughness: 0.88});
 const walls = ['#ae4951','#e1a379','#4a7776','#9d756b','#d1b19a'].map(color =>
@@ -771,6 +786,148 @@ export interface ChristmasMapData {
   elevation?: (x: number, z: number) => number;
 }
 
+function subdivideForElevation(geometry: THREE.BufferGeometry, maxEdgeM = 16): THREE.BufferGeometry {
+  const posAttr = geometry.attributes.position;
+  if (!posAttr || posAttr.count < 3) return geometry;
+  const uvAttr = geometry.attributes.uv;
+  const indexAttr = geometry.index;
+
+  const vertsX: number[] = new Array(posAttr.count);
+  const vertsY: number[] = new Array(posAttr.count);
+  const vertsZ: number[] = new Array(posAttr.count);
+  const uvsU: number[] | null = uvAttr ? new Array(posAttr.count) : null;
+  const uvsV: number[] | null = uvAttr ? new Array(posAttr.count) : null;
+  for (let i = 0; i < posAttr.count; i++) {
+    vertsX[i] = posAttr.getX(i);
+    vertsY[i] = posAttr.getY(i);
+    vertsZ[i] = posAttr.getZ(i);
+    if (uvAttr && uvsU && uvsV) {
+      uvsU[i] = uvAttr.getX(i);
+      uvsV[i] = uvAttr.getY(i);
+    }
+  }
+
+  let tris: number[];
+  if (indexAttr) {
+    tris = new Array(indexAttr.count);
+    for (let i = 0; i < indexAttr.count; i++) tris[i] = indexAttr.getX(i);
+  } else {
+    tris = new Array(posAttr.count);
+    for (let i = 0; i < posAttr.count; i++) tris[i] = i;
+  }
+
+  const maxEdgeSq = maxEdgeM * maxEdgeM;
+  const MAX_PASSES = 4;
+  const MAX_TRIS = 4096;
+  const HARD_TRI_LIMIT = 8192;
+  let subdivided = false;
+
+  const edgeLenSq = (a: number, b: number): number => {
+    const dx = vertsX[b] - vertsX[a];
+    const dz = vertsZ[b] - vertsZ[a];
+    return dx * dx + dz * dz;
+  };
+
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    if (tris.length / 3 >= MAX_TRIS) break;
+    const midCache = new Map<string, number>();
+    const getMid = (a: number, b: number): number => {
+      const lo = a < b ? a : b;
+      const hi = a < b ? b : a;
+      const k = `${lo}_${hi}`;
+      const cached = midCache.get(k);
+      if (cached !== undefined) return cached;
+      const idx = vertsX.length;
+      vertsX.push((vertsX[a] + vertsX[b]) * 0.5);
+      vertsY.push((vertsY[a] + vertsY[b]) * 0.5);
+      vertsZ.push((vertsZ[a] + vertsZ[b]) * 0.5);
+      if (uvsU && uvsV) {
+        uvsU.push((uvsU[a] + uvsU[b]) * 0.5);
+        uvsV.push((uvsV[a] + uvsV[b]) * 0.5);
+      }
+      midCache.set(k, idx);
+      return idx;
+    };
+
+    const nextTris: number[] = [];
+    let anySplit = false;
+
+    for (let i = 0; i < tris.length; i += 3) {
+      const v0 = tris[i];
+      const v1 = tris[i + 1];
+      const v2 = tris[i + 2];
+
+      const s01 = edgeLenSq(v0, v1) > maxEdgeSq;
+      const s12 = edgeLenSq(v1, v2) > maxEdgeSq;
+      const s20 = edgeLenSq(v2, v0) > maxEdgeSq;
+      const splitCount = (s01 ? 1 : 0) + (s12 ? 1 : 0) + (s20 ? 1 : 0);
+
+      if (splitCount === 0 || (nextTris.length + (tris.length - i)) / 3 >= HARD_TRI_LIMIT) {
+        nextTris.push(v0, v1, v2);
+        continue;
+      }
+
+      anySplit = true;
+      subdivided = true;
+
+      if (splitCount === 3) {
+        const m01 = getMid(v0, v1);
+        const m12 = getMid(v1, v2);
+        const m20 = getMid(v2, v0);
+        nextTris.push(
+          v0, m01, m20,
+          m01, v1, m12,
+          m20, m12, v2,
+          m01, m12, m20
+        );
+      } else if (splitCount === 1) {
+        let a = v0, b = v1, c = v2;
+        if (s12) { a = v1; b = v2; c = v0; }
+        else if (s20) { a = v2; b = v0; c = v1; }
+        const mab = getMid(a, b);
+        nextTris.push(a, mab, c, mab, b, c);
+      } else {
+        let a = v0, b = v1, c = v2;
+        if (!s01) { a = v1; b = v2; c = v0; }
+        else if (!s12) { a = v2; b = v0; c = v1; }
+        const mab = getMid(a, b);
+        const mbc = getMid(b, c);
+        nextTris.push(mab, b, mbc);
+        if (edgeLenSq(a, mbc) <= edgeLenSq(mab, c)) {
+          nextTris.push(a, mab, mbc, a, mbc, c);
+        } else {
+          nextTris.push(a, mab, c, mab, mbc, c);
+        }
+      }
+    }
+
+    tris = nextTris;
+    if (!anySplit) break;
+  }
+
+  if (!subdivided) return geometry;
+
+  const positions = new Float32Array(vertsX.length * 3);
+  for (let i = 0; i < vertsX.length; i++) {
+    positions[i * 3] = vertsX[i];
+    positions[i * 3 + 1] = vertsY[i];
+    positions[i * 3 + 2] = vertsZ[i];
+  }
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (uvsU && uvsV) {
+    const uvs = new Float32Array(vertsX.length * 2);
+    for (let i = 0; i < vertsX.length; i++) {
+      uvs[i * 2] = uvsU[i];
+      uvs[i * 2 + 1] = uvsV[i];
+    }
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  }
+  geometry.deleteAttribute('normal');
+  geometry.setIndex(tris);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 function drapeElevation(geometry: THREE.BufferGeometry, offset: number, elevation?: (x: number, z: number) => number): void {
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -1172,7 +1329,8 @@ export class ChristmasMap {
     this.addJobSurface(job, snowbankGeometry(snapshot.roads, elevation, junctions), powder);
     for (const water of snapshot.waters) {
       if (water.isPolygon) {
-        const geometry = new THREE.ShapeGeometry(outline(water.points)).rotateX(-Math.PI / 2);
+        const rawGeo = new THREE.ShapeGeometry(outline(water.points)).rotateX(-Math.PI / 2);
+        const geometry = elevation ? subdivideForElevation(rawGeo, 16) : rawGeo;
         drapeElevation(geometry, 0.018, elevation);
         this.addJobSurface(job, geometry, lake, 0);
         const xs = water.points.map(p => p.x), zs = water.points.map(p => p.z);
@@ -1185,8 +1343,9 @@ export class ChristmasMap {
       }
     }
     for (const ring of snapshot.woodland ?? []) {
-      const geometry = new THREE.ShapeGeometry(outline(ring)).rotateX(-Math.PI / 2);
-      drapeElevation(geometry, 0.009, elevation);
+      const rawGeo = new THREE.ShapeGeometry(outline(ring)).rotateX(-Math.PI / 2);
+      const geometry = elevation ? subdivideForElevation(rawGeo, 16) : rawGeo;
+      drapeElevation(geometry, elevation ? -0.045 : 0.004, elevation);
       this.addJobSurface(job, geometry, woodland, 0);
     }
 

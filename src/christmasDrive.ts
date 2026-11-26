@@ -165,16 +165,19 @@ if (!stage) {
   avatar.add(shadow);
 
   const groundMaterial = createWinterGround();
+  groundMaterial.polygonOffset = true;
+  groundMaterial.polygonOffsetFactor = 2;
+  groundMaterial.polygonOffsetUnits = 2;
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), groundMaterial);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
 
-  const liveReliefGeo = new THREE.PlaneGeometry(640, 640, 72, 72).rotateX(-Math.PI / 2);
+  const liveReliefGeo = new THREE.PlaneGeometry(1520, 1520, 128, 128).rotateX(-Math.PI / 2);
   const liveRelief = new THREE.Mesh(liveReliefGeo, groundMaterial);
   liveRelief.receiveShadow = true;
   liveRelief.visible = false;
-  const outerSkirt = new THREE.Mesh(new THREE.RingGeometry(310, 960, 48).rotateX(-Math.PI / 2), groundMaterial);
-  outerSkirt.position.y = -0.06;
+  const outerSkirt = new THREE.Mesh(new THREE.RingGeometry(748, 1500, 48).rotateX(-Math.PI / 2), groundMaterial);
+  outerSkirt.position.y = -0.14;
   outerSkirt.receiveShadow = true;
   outerSkirt.visible = false;
 
@@ -183,7 +186,7 @@ if (!stage) {
     lastTerrainKey = key;
     const attr = liveReliefGeo.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < attr.count; i++) {
-      attr.setY(i, sampler(attr.getX(i), attr.getZ(i)) - 0.06);
+      attr.setY(i, sampler(attr.getX(i), attr.getZ(i)) - 0.14);
     }
     attr.needsUpdate = true;
     liveReliefGeo.computeVertexNormals();
@@ -668,7 +671,11 @@ if (!stage) {
     const fix = !!trial || !!demo || gpsFix;
     const hasActiveWorld = !!trial || !!demo || gpsFix || hasPosition;
     const snapshot = osm.isLiveOsm ? osm.snapshot : undefined;
-    liveElevation.update(frame.latitude, frame.longitude, liveElevationEnabled && !trial && hasActiveWorld);
+    const elevActive = liveElevationEnabled && !trial && hasActiveWorld;
+    liveElevation.update(frame.latitude, frame.longitude, elevActive);
+    if (snapshot && elevActive) {
+      liveElevation.update(snapshot.originLat, snapshot.originLon, true);
+    }
     const liveSampler = !trial && liveElevationEnabled && snapshot
       ? liveElevation.getSampler(snapshot.originLat, snapshot.originLon)
       : undefined;

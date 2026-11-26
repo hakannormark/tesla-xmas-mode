@@ -5,7 +5,7 @@ const GRID_COUNT = 1 << ZOOM; // 16384
 const TILE_PX = 256;
 const METERS_PER_DEG_LAT = 110540;
 const METERS_PER_DEG_LON_EQ = 111320;
-const MAX_CACHED_TILES = 25;
+const MAX_CACHED_TILES = 49;
 
 interface TileEntry {
   status: 'loading' | 'ready' | 'failed';
@@ -39,9 +39,9 @@ function decodeTerrariumTile(img: ImageBitmap | HTMLImageElement): Float32Array 
   }
 }
 
-const GRID_N = 65;
-const GRID_HALF_M = 360;
-const GRID_STEP_M = (GRID_HALF_M * 2) / (GRID_N - 1); // 11.25m
+const GRID_N = 129;
+const GRID_HALF_M = 760;
+const GRID_STEP_M = (GRID_HALF_M * 2) / (GRID_N - 1); // 11.875m
 
 export class LiveElevationManager {
   private readonly cache = new Map<string, TileEntry>();
@@ -63,18 +63,23 @@ export class LiveElevationManager {
     const tx = Math.floor(fx);
     const ty = Math.floor(fy);
 
-    // Fetch center tile first + generous adjacent tiles covering +-500m around the car
+    // Fetch center tile first + every tile intersecting +-GRID_HALF_M around (lat, lon)
     this.ensureTile(tx, ty);
-    const localU = fx - tx;
-    const localV = fy - ty;
-    if (localU < 0.45) this.ensureTile(tx - 1, ty);
-    if (localU > 0.55) this.ensureTile(tx + 1, ty);
-    if (localV < 0.45) this.ensureTile(tx, ty - 1);
-    if (localV > 0.55) this.ensureTile(tx, ty + 1);
-    if (localU < 0.45 && localV < 0.45) this.ensureTile(tx - 1, ty - 1);
-    if (localU > 0.55 && localV < 0.45) this.ensureTile(tx + 1, ty - 1);
-    if (localU < 0.45 && localV > 0.55) this.ensureTile(tx - 1, ty + 1);
-    if (localU > 0.55 && localV > 0.55) this.ensureTile(tx + 1, ty + 1);
+    const lonScale = METERS_PER_DEG_LON_EQ * Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+    const dLat = (GRID_HALF_M + 20) / METERS_PER_DEG_LAT;
+    const dLon = (GRID_HALF_M + 20) / lonScale;
+    const minTile = latLonToTileFloat(lat + dLat, lon - dLon);
+    const maxTile = latLonToTileFloat(lat - dLat, lon + dLon);
+    const minTx = Math.max(tx - 2, Math.floor(minTile.fx));
+    const maxTx = Math.min(tx + 2, Math.floor(maxTile.fx));
+    const minTy = Math.max(ty - 2, Math.floor(minTile.fy));
+    const maxTy = Math.min(ty + 2, Math.floor(maxTile.fy));
+    for (let y = minTy; y <= maxTy; y++) {
+      for (let x = minTx; x <= maxTx; x++) {
+        if (x === tx && y === ty) continue;
+        this.ensureTile(x, y);
+      }
+    }
   }
 
   private flushVersionUpdate(): void {
@@ -102,7 +107,14 @@ export class LiveElevationManager {
     const tx = ((rawX % GRID_COUNT) + GRID_COUNT) % GRID_COUNT;
     const ty = THREE.MathUtils.clamp(rawY, 0, GRID_COUNT - 1);
     const key = `${ZOOM}/${tx}/${ty}`;
-    if (this.cache.has(key)) return;
+    const existing = this.cache.get(key);
+    if (existing) {
+      if (this.cache.size >= MAX_CACHED_TILES - 8) {
+        this.cache.delete(key);
+        this.cache.set(key, existing);
+      }
+      return;
+    }
 
     if (this.cache.size >= MAX_CACHED_TILES) {
       const oldest = this.cache.keys().next().value;
@@ -231,17 +243,17 @@ export class LiveElevationManager {
     }
     const datum = this.anchorDatumM;
 
-    // Cache surrounding 3x3 tile pointers once so zero string/Map allocations occur during bake
-    const tileGrid: Array<Float32Array | undefined> = new Array(9);
-    for (let dy = -1; dy <= 1; dy++) {
+    // Cache surrounding 5x5 tile pointers once so zero string/Map allocations occur during bake
+    const tileGrid: Array<Float32Array | undefined> = new Array(25);
+    for (let dy = -2; dy <= 2; dy++) {
       const ty = THREE.MathUtils.clamp(centerTy + dy, 0, GRID_COUNT - 1);
-      for (let dx = -1; dx <= 1; dx++) {
+      for (let dx = -2; dx <= 2; dx++) {
         const tx = ((centerTx + dx) % GRID_COUNT + GRID_COUNT) % GRID_COUNT;
         const entry = this.cache.get(`${ZOOM}/${tx}/${ty}`);
-        tileGrid[(dy + 1) * 3 + (dx + 1)] = entry?.status === 'ready' ? entry.heights : undefined;
+        tileGrid[(dy + 2) * 5 + (dx + 2)] = entry?.status === 'ready' ? entry.heights : undefined;
       }
     }
-    const centerTile = tileGrid[4];
+    const centerTile = tileGrid[12];
 
     const samplePixelCached = (gx: number, gy: number): number | undefined => {
       const tx = ((Math.floor(gx / TILE_PX) % GRID_COUNT) + GRID_COUNT) % GRID_COUNT;
@@ -251,8 +263,8 @@ export class LiveElevationManager {
       else if (dtx < -GRID_COUNT * 0.5) dtx += GRID_COUNT;
       const dty = ty - centerTy;
       let heights: Float32Array | undefined;
-      if (dtx >= -1 && dtx <= 1 && dty >= -1 && dty <= 1) {
-        heights = tileGrid[(dty + 1) * 3 + (dtx + 1)];
+      if (dtx >= -2 && dtx <= 2 && dty >= -2 && dty <= 2) {
+        heights = tileGrid[(dty + 2) * 5 + (dtx + 2)];
       } else {
         const fallbackEntry = this.cache.get(`${ZOOM}/${tx}/${ty}`);
         heights = fallbackEntry?.status === 'ready' ? fallbackEntry.heights : undefined;
@@ -317,7 +329,7 @@ export class LiveElevationManager {
       for (let gx = 0; gx < GRID_N; gx++) {
         const x = -GRID_HALF_M + gx * GRID_STEP_M;
         const dist = Math.hypot(x, z);
-        if (dist >= 359) {
+        if (dist >= 746) {
           baked[rowOffset + gx] = 0;
           continue;
         }
@@ -332,7 +344,7 @@ export class LiveElevationManager {
         const w = sampleTileFloatCached(fxMinus[gx], fyC) ?? c;
         const e = sampleTileFloatCached(fxPlus[gx], fyC) ?? c;
         const smoothAbs = c * 0.52 + (n + s + w + e) * 0.12;
-        const fade = 1 - THREE.MathUtils.smoothstep(dist, 315, 358);
+        const fade = 1 - THREE.MathUtils.smoothstep(dist, 680, 745);
         baked[rowOffset + gx] = THREE.MathUtils.clamp((smoothAbs - datum) * 1.05, -45, 75) * fade;
       }
     }
