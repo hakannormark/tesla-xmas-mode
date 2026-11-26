@@ -189,22 +189,6 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   font-variant-numeric: tabular-nums;
 }
 .speed-unit { color: #c7ddf0; font-size: 0.85rem; }
-.gear-pill {
-  margin-left: 0.25rem;
-  padding: 0.16rem 0.45rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  background: rgba(180, 214, 245, 0.14);
-  border: 1px solid rgba(180, 214, 245, 0.26);
-  color: var(--ice);
-}
-.gear-pill.is-plaid {
-  background: linear-gradient(90deg, #ff3e7f55, #38e8ff55);
-  border-color: #70f0ff;
-  color: #ffffff;
-}
 .meta-row {
   display: flex;
   align-items: center;
@@ -259,10 +243,41 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   border-color: rgba(240, 203, 138, 0.65);
   color: #fff6e0;
 }
-.festive-toast {
+.dock-magic {
+  background: linear-gradient(135deg, rgba(46, 34, 88, 0.86), rgba(18, 28, 62, 0.88));
+  border-color: rgba(240, 203, 138, 0.48);
+  color: #ffeab4;
+  font-variant-numeric: tabular-nums;
+}
+.dock-magic.can-afford {
+  border-color: #ffd978;
+  box-shadow: 0 8px 22px rgba(4, 10, 24, 0.42), 0 0 18px rgba(255, 212, 104, 0.36);
+  animation: magicGoldPulse 2.4s ease-in-out infinite;
+}
+.dock-magic[aria-expanded="true"] {
+  border-color: #ffe799;
+  background: linear-gradient(135deg, rgba(140, 92, 26, 0.9), rgba(44, 34, 88, 0.94));
+  color: #fff8de;
+}
+@keyframes magicGoldPulse {
+  0%, 100% {
+    box-shadow: 0 8px 22px rgba(4, 10, 24, 0.42), 0 0 12px rgba(255, 212, 104, 0.25);
+  }
+  50% {
+    box-shadow: 0 8px 24px rgba(4, 10, 24, 0.46), 0 0 24px rgba(255, 218, 120, 0.58);
+  }
+}
+.dock-float-stack {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 0.6rem);
+  bottom: calc(100% + 0.55rem);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+.festive-toast {
   white-space: nowrap;
   border-radius: 999px;
   border: 1px solid rgba(240, 203, 138, 0.45);
@@ -276,6 +291,230 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   box-shadow: 0 8px 24px rgba(4, 10, 24, 0.5);
 }
 .festive-toast:empty { display: none; }
+.magic-active-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.32rem;
+}
+.magic-active-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.24rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 218, 120, 0.58);
+  background: rgba(14, 24, 52, 0.86);
+  backdrop-filter: blur(12px);
+  color: #ffedb8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgba(4, 10, 24, 0.45);
+}
+
+/* Julmagi Glassmorphic Popover */
+.magic-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  background: rgba(4, 10, 22, 0.32);
+}
+.magic-popover {
+  position: fixed;
+  right: 1rem;
+  bottom: 5.55rem;
+  width: min(26.5rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 9.5rem);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  border: 1px solid rgba(240, 203, 138, 0.38);
+  background: rgba(10, 20, 42, 0.93);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 22px 58px rgba(2, 6, 18, 0.78), 0 0 32px rgba(240, 203, 138, 0.14);
+  overflow: hidden;
+  animation: magicPopIn 0.18s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+@keyframes magicPopIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.magic-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.78rem 0.95rem 0.65rem;
+  border-bottom: 1px solid rgba(206, 228, 250, 0.14);
+}
+.magic-popover-title {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+}
+.magic-popover-title strong {
+  font: 700 1.08rem Cinzel, Georgia, serif;
+  color: #fff5d6;
+}
+.magic-points-pill {
+  padding: 0.18rem 0.56rem;
+  border-radius: 999px;
+  background: rgba(240, 203, 138, 0.2);
+  border: 1px solid rgba(240, 203, 138, 0.58);
+  color: #ffe9a8;
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.magic-combo-pill {
+  padding: 0.16rem 0.48rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 74, 114, 0.85), rgba(255, 186, 66, 0.85));
+  color: #160c14;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.magic-close {
+  min-width: 42px;
+  min-height: 42px;
+  border-radius: 11px;
+  border: 1px solid var(--glass-border);
+  background: rgba(32, 48, 76, 0.72);
+  cursor: pointer;
+}
+.magic-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.42rem;
+  padding: 0.65rem 0.9rem 0.45rem;
+}
+.magic-tab {
+  min-height: 46px;
+  padding: 0.45rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(186, 220, 252, 0.22);
+  background: rgba(22, 38, 68, 0.72);
+  font-weight: 700;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.magic-tab.active {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(164, 114, 44, 0.42), rgba(42, 66, 110, 0.92));
+  color: #fff1c6;
+}
+.magic-tab-body {
+  overflow-y: auto;
+  padding: 0.35rem 0.9rem 0.75rem;
+  display: grid;
+  gap: 0.48rem;
+}
+.magic-card {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 2.3rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 64px;
+  padding: 0.62rem 0.78rem;
+  border-radius: 14px;
+  border: 1px solid rgba(186, 220, 252, 0.24);
+  background: rgba(20, 36, 66, 0.76);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.11s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.magic-card:hover { border-color: rgba(240, 203, 138, 0.65); }
+.magic-card:active { transform: scale(0.985); }
+.magic-card.is-affordable {
+  border-color: rgba(240, 203, 138, 0.56);
+  background: linear-gradient(135deg, rgba(44, 48, 86, 0.86), rgba(20, 36, 68, 0.86));
+}
+.magic-card.is-locked-cost {
+  opacity: 0.68;
+}
+.magic-card.is-running {
+  border-color: #ffe17d;
+  background: linear-gradient(135deg, rgba(142, 92, 24, 0.46), rgba(26, 48, 84, 0.9));
+}
+.magic-card.is-unlocked {
+  border-color: rgba(114, 228, 186, 0.52);
+  background: linear-gradient(135deg, rgba(24, 68, 66, 0.52), rgba(20, 38, 70, 0.88));
+}
+.magic-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 1.28rem;
+}
+.magic-card-copy {
+  display: grid;
+  gap: 0.14rem;
+}
+.magic-card-title {
+  font-weight: 700;
+  font-size: 0.94rem;
+  color: #fff8e8;
+}
+.magic-card-desc {
+  font-size: 0.77rem;
+  line-height: 1.28;
+  color: #c5dbf0;
+}
+.magic-card-badge {
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid rgba(240, 203, 138, 0.45);
+  background: rgba(12, 24, 48, 0.82);
+  color: #ffe6a6;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.magic-card.is-running .magic-card-badge {
+  border-color: #ffe488;
+  background: rgba(180, 114, 22, 0.88);
+  color: #fffbe6;
+}
+.magic-card.is-unlocked .magic-card-badge {
+  border-color: rgba(116, 236, 192, 0.68);
+  background: rgba(16, 78, 64, 0.86);
+  color: #d6fff0;
+}
+.magic-card.is-unlocked.is-off .magic-card-badge {
+  border-color: rgba(186, 214, 244, 0.32);
+  background: rgba(28, 42, 68, 0.8);
+  color: #c4d7ec;
+}
+.magic-card-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0%;
+  background: linear-gradient(90deg, #ffe278, #56f5b8);
+  pointer-events: none;
+  transition: width 0.18s linear;
+}
+.magic-popover-foot {
+  padding: 0.52rem 0.95rem 0.68rem;
+  border-top: 1px solid rgba(206, 228, 250, 0.12);
+  font-size: 0.74rem;
+  color: #b7d0e8;
+  text-align: center;
+}
 
 /* Floating Cards (Timeline, Terrain Trial, Demo Pill) */
 .drive-timeline {
@@ -581,6 +820,8 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   .drive-footer { inset: auto 0.65rem 1.7rem; flex-wrap: wrap; gap: 0.45rem; }
   .drive-action-dock { width: 100%; justify-content: space-between; }
   .dock-btn { flex: 1 1 auto; padding: 0.48rem 0.4rem; font-size: 0.8rem; min-height: 42px; }
+  .magic-popover { left: 0.65rem; right: 0.65rem; width: auto; bottom: 6.3rem; max-height: calc(100vh - 10.5rem); }
+  .magic-card { min-height: 58px; padding: 0.55rem 0.65rem; gap: 0.5rem; }
   .drive-timeline { top: auto; bottom: 10.6rem; right: 0.65rem; width: min(24rem, 90vw); }
   .terrain-trial, .demo-pill { top: auto; right: 0.65rem; bottom: 9.2rem; width: min(14.5rem, 62vw); padding: 0.5rem 0.68rem; }
   #app:has(.terrain-trial:not([hidden])) .drive-timeline,

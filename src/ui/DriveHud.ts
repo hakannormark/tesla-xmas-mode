@@ -8,7 +8,12 @@ import type {
 } from '../core/environment';
 import type { ElonEventType } from '../core/i18n';
 import type { TelemetryFrame } from '../core/telemetry';
-import type { DriveFestivities } from '../three/DriveFestivities';
+import type {
+  DriveFestivities,
+  MagicPowerId,
+  MagicUnlockId,
+} from '../three/DriveFestivities';
+import { MAGIC_POWERS, MAGIC_UNLOCKS } from '../three/DriveFestivities';
 
 export type CameraMode = 'chase' | 'map' | 'cinematic';
 export type VehicleKind = 'sleigh' | 'semi' | 'cybertruck' | 'starman';
@@ -37,20 +42,16 @@ const CAMERA_LABELS: Record<CameraMode, string> = {
   cinematic: '🎬 Filmisk',
 };
 
-const GEAR_LABELS: Record<TelemetryFrame['reindeerGearKey'], string> = {
-  park: 'PARK',
-  trot: 'TROT',
-  dash: 'DASH',
-  prance: 'PRANCE',
-  comet: 'COMET',
-  blitzen: 'BLITZEN',
-  plaid: 'PLAID',
-};
-
 export class DriveHud {
   readonly worldEl: HTMLElement;
   private readonly drawerEl: HTMLElement;
   private readonly drawerBackdropEl: HTMLElement;
+  private readonly magicPopoverEl: HTMLElement;
+  private readonly magicBackdropEl: HTMLElement;
+  private readonly magicToggleBtn: HTMLButtonElement;
+  private readonly magicPopoverPointsEl: HTMLElement;
+  private readonly magicPopoverComboEl: HTMLElement;
+  private readonly magicActiveStripEl: HTMLElement;
   private readonly placeEl: HTMLElement;
   private readonly streetEl: HTMLElement;
   private readonly junctionEl: HTMLElement;
@@ -61,7 +62,6 @@ export class DriveHud {
   private readonly speedEl: HTMLElement;
   private readonly maxspeedEl: HTMLElement;
   private readonly fsdBadgeEl: HTMLElement;
-  private readonly gearEl: HTMLElement;
   private readonly northEl: HTMLElement;
   private readonly northArrowEl: HTMLElement;
   private readonly northDistEl: HTMLElement;
@@ -82,6 +82,7 @@ export class DriveHud {
   private telemetry!: { setForceTunnel(v: boolean): void; getForceTunnel(): boolean };
   private callbacks!: DriveHudCallbacks;
   private drawerOpen = false;
+  private magicOpen = false;
   private micState: 'off' | 'active' | 'denied' = 'off';
 
   constructor(private readonly root: HTMLElement) {
@@ -144,7 +145,6 @@ export class DriveHud {
             <strong data-speed>0</strong>
             <span class="speed-unit">km/h</span>
             <span class="speed-limit-sign" data-maxspeed hidden>50</span>
-            <span class="gear-pill" data-gear>PARK</span>
           </div>
           <div class="meta-row">
             <span class="pole-distance" data-north hidden><b data-north-arrow aria-hidden="true">↑</b> Nordpolen <span data-distance></span></span>
@@ -153,15 +153,63 @@ export class DriveHud {
         </div>
 
         <div class="drive-action-dock">
-          <output class="festive-toast" data-festive-status aria-live="polite"></output>
+          <div class="dock-float-stack">
+            <output class="festive-toast" data-festive-status aria-live="polite"></output>
+            <div class="magic-active-strip" data-magic-active-strip hidden></div>
+          </div>
           <button type="button" class="dock-btn dock-primary" data-gift>🎁 Julklapp</button>
           <button type="button" class="dock-btn" data-snowball>❄ Snöboll</button>
           <button type="button" class="dock-btn" data-salute>🎺 Tut</button>
           <button type="button" class="dock-btn" data-hohoho>🎅 Ho-Ho</button>
           <button type="button" class="dock-btn" data-light-wave>✨ Ljus</button>
+          <button type="button" class="dock-btn dock-magic" data-magic-toggle aria-expanded="false" aria-haspopup="dialog">✨ MAGI · 0</button>
         </div>
       </footer>
       <div class="hoho-banner" data-hoho-banner hidden>🎅 HO! HO! HO! · GOD JUL! ✨</div>
+
+      <div class="magic-backdrop" data-magic-backdrop hidden></div>
+      <section class="magic-popover" data-magic-popover hidden role="dialog" aria-label="Julmagi">
+        <div class="magic-popover-head">
+          <div class="magic-popover-title">
+            <strong>✨ Julmagi</strong>
+            <span class="magic-points-pill" data-magic-popover-points>0 p</span>
+            <span class="magic-combo-pill" data-magic-popover-combo hidden>x2</span>
+          </div>
+          <button type="button" class="magic-close" data-magic-close aria-label="Stäng Julmagi">✕</button>
+        </div>
+        <div class="magic-tabs" role="tablist">
+          <button type="button" class="magic-tab active" role="tab" aria-selected="true" data-magic-tab="powers">⚡ Fyra av nu</button>
+          <button type="button" class="magic-tab" role="tab" aria-selected="false" data-magic-tab="workshop">🎁 Verkstad</button>
+        </div>
+        <div class="magic-tab-body" data-magic-panel="powers">
+          ${MAGIC_POWERS.map(
+            p => `
+            <button type="button" class="magic-card" data-magic-power="${p.id}">
+              <span class="magic-card-icon" aria-hidden="true">${p.icon}</span>
+              <span class="magic-card-copy">
+                <span class="magic-card-title">${p.label}</span>
+                <span class="magic-card-desc">${p.description}</span>
+              </span>
+              <span class="magic-card-badge" data-power-badge="${p.id}">${p.cost} p</span>
+              <span class="magic-card-progress" data-power-progress="${p.id}"></span>
+            </button>`
+          ).join('')}
+        </div>
+        <div class="magic-tab-body" data-magic-panel="workshop" hidden>
+          ${MAGIC_UNLOCKS.map(
+            u => `
+            <button type="button" class="magic-card" data-magic-unlock="${u.id}">
+              <span class="magic-card-icon" aria-hidden="true">${u.icon}</span>
+              <span class="magic-card-copy">
+                <span class="magic-card-title">${u.label}</span>
+                <span class="magic-card-desc">${u.description}</span>
+              </span>
+              <span class="magic-card-badge" data-unlock-badge="${u.id}">${u.cost} p</span>
+            </button>`
+          ).join('')}
+        </div>
+        <div class="magic-popover-foot">Tjäna Julmagi: ⭐ +25 · 🦌 +20 · 🧝 +15 · 🎁 +10 (Combo upp till x4)</div>
+      </section>
 
       <div class="drawer-backdrop" data-drawer-backdrop hidden></div>
       <aside class="drive-drawer" data-drawer hidden aria-label="Kontrollpanel">
@@ -285,6 +333,12 @@ export class DriveHud {
     this.worldEl = q('.drive-world');
     this.drawerEl = q('[data-drawer]');
     this.drawerBackdropEl = q('[data-drawer-backdrop]');
+    this.magicPopoverEl = q('[data-magic-popover]');
+    this.magicBackdropEl = q('[data-magic-backdrop]');
+    this.magicToggleBtn = q('[data-magic-toggle]');
+    this.magicPopoverPointsEl = q('[data-magic-popover-points]');
+    this.magicPopoverComboEl = q('[data-magic-popover-combo]');
+    this.magicActiveStripEl = q('[data-magic-active-strip]');
     this.placeEl = q('[data-place]');
     this.streetEl = q('[data-street]');
     this.junctionEl = q('[data-junction]');
@@ -295,7 +349,6 @@ export class DriveHud {
     this.speedEl = q('[data-speed]');
     this.maxspeedEl = q('[data-maxspeed]');
     this.fsdBadgeEl = q('[data-fsd-badge]');
-    this.gearEl = q('[data-gear]');
     this.northEl = q('[data-north]');
     this.northArrowEl = q('[data-north-arrow]');
     this.northDistEl = q('[data-distance]');
@@ -321,12 +374,13 @@ export class DriveHud {
     this.callbacks = callbacks;
     this.bindEvents();
     this.syncSettings();
+    this.syncMagicUi();
   }
 
   private bindEvents(): void {
     const q = <T extends HTMLElement = HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
 
-    for (const sel of ['.drive-drawer', '.drive-action-dock', '.drive-header', '.street-board', '.drive-instruments', '.drive-timeline', '.terrain-trial', '.demo-pill']) {
+    for (const sel of ['.drive-drawer', '.magic-popover', '.magic-backdrop', '.drive-action-dock', '.drive-header', '.street-board', '.drive-instruments', '.drive-timeline', '.terrain-trial', '.demo-pill']) {
       this.root.querySelector(sel)?.addEventListener('pointerdown', e => e.stopPropagation());
     }
 
@@ -344,6 +398,47 @@ export class DriveHud {
     q('[data-drawer-toggle]').onclick = () => this.setDrawerOpen(!this.drawerOpen);
     q('[data-drawer-close]').onclick = () => this.setDrawerOpen(false);
     this.drawerBackdropEl.onclick = () => this.setDrawerOpen(false);
+
+    this.magicToggleBtn.onclick = () => this.setMagicOpen(!this.magicOpen);
+    q('[data-magic-close]').onclick = () => this.setMagicOpen(false);
+    this.magicBackdropEl.onclick = () => this.setMagicOpen(false);
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-magic-tab]').forEach(btn => {
+      btn.onclick = () => {
+        this.setMagicTab(btn.dataset.magicTab === 'workshop' ? 'workshop' : 'powers');
+      };
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-magic-power]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.magicPower as MagicPowerId;
+        this.festivities.audio.unlock();
+        if (this.festivities.audio.getMixMode() === 'muted') {
+          this.festivities.audio.setMixMode('sfx');
+          this.syncSettings();
+        }
+        const activated = this.festivities.activatePower(id);
+        this.syncMagicUi();
+        const status = this.festivities.getStatus();
+        if (this.statusEl.textContent !== status) this.statusEl.textContent = status;
+        if (activated) this.setMagicOpen(false);
+      };
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-magic-unlock]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.magicUnlock as MagicUnlockId;
+        this.festivities.audio.unlock();
+        if (this.festivities.audio.getMixMode() === 'muted') {
+          this.festivities.audio.setMixMode('sfx');
+          this.syncSettings();
+        }
+        this.festivities.activateOrCycleUnlock(id);
+        this.syncMagicUi();
+        const status = this.festivities.getStatus();
+        if (this.statusEl.textContent !== status) this.statusEl.textContent = status;
+      };
+    });
 
     q('[data-gift]').onclick = () => this.festivities.interact(0.5, 0.45);
     q('[data-snowball]').onclick = () => this.festivities.triggerSnowball(0.5);
@@ -521,11 +616,105 @@ export class DriveHud {
   }
 
   setDrawerOpen(open: boolean): void {
+    if (open && this.magicOpen) this.setMagicOpen(false);
     this.drawerOpen = open;
     this.drawerEl.hidden = !open;
     this.drawerBackdropEl.hidden = !open;
     this.root.querySelector('[data-drawer-toggle]')?.setAttribute('aria-expanded', String(open));
     if (open) this.syncSettings();
+  }
+
+  isMagicOpen(): boolean {
+    return this.magicOpen;
+  }
+
+  setMagicOpen(open: boolean): void {
+    if (open && this.drawerOpen) this.setDrawerOpen(false);
+    this.magicOpen = open;
+    this.magicPopoverEl.hidden = !open;
+    this.magicBackdropEl.hidden = !open;
+    this.magicToggleBtn.setAttribute('aria-expanded', String(open));
+    if (open) this.syncMagicUi();
+  }
+
+  private setMagicTab(tab: 'powers' | 'workshop'): void {
+    this.root.querySelectorAll<HTMLButtonElement>('[data-magic-tab]').forEach(btn => {
+      const active = btn.dataset.magicTab === tab;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
+    this.root.querySelectorAll<HTMLElement>('[data-magic-panel]').forEach(panel => {
+      panel.hidden = panel.dataset.magicPanel !== tab;
+    });
+  }
+
+  private syncMagicUi(): void {
+    if (!this.festivities) return;
+    const state = this.festivities.getMagicState();
+    const activePowers = this.festivities.getActivePowers();
+    const activeById = new Map(activePowers.map(p => [p.id, p]));
+
+    const dockLabel = `✨ MAGI · ${state.points}`;
+    if (this.magicToggleBtn.textContent !== dockLabel) {
+      this.magicToggleBtn.textContent = dockLabel;
+    }
+    this.magicToggleBtn.classList.toggle('can-afford', this.festivities.canAffordAnyMagic());
+
+    this.magicActiveStripEl.hidden = activePowers.length === 0 || this.magicOpen;
+    if (!this.magicActiveStripEl.hidden) {
+      const html = activePowers
+        .map(p => `<span class="magic-active-pill">${p.icon} ${Math.ceil(p.remainingSec)}s</span>`)
+        .join('');
+      if (this.magicActiveStripEl.innerHTML !== html) {
+        this.magicActiveStripEl.innerHTML = html;
+      }
+    }
+
+    const ptsText = `${state.points} p`;
+    if (this.magicPopoverPointsEl.textContent !== ptsText) {
+      this.magicPopoverPointsEl.textContent = ptsText;
+    }
+    this.magicPopoverComboEl.hidden = state.combo < 2;
+    if (state.combo >= 2) {
+      const comboText = `x${state.combo} COMBO`;
+      if (this.magicPopoverComboEl.textContent !== comboText) {
+        this.magicPopoverComboEl.textContent = comboText;
+      }
+    }
+
+    if (!this.magicOpen) return;
+
+    for (const spec of MAGIC_POWERS) {
+      const card = this.root.querySelector<HTMLButtonElement>(`[data-magic-power="${spec.id}"]`);
+      const badge = this.root.querySelector<HTMLElement>(`[data-power-badge="${spec.id}"]`);
+      const prog = this.root.querySelector<HTMLElement>(`[data-power-progress="${spec.id}"]`);
+      if (!card || !badge) continue;
+      const running = activeById.get(spec.id);
+      const affordable = state.points >= spec.cost;
+      card.classList.toggle('is-running', Boolean(running));
+      card.classList.toggle('is-affordable', !running && affordable);
+      card.classList.toggle('is-locked-cost', !running && !affordable);
+      const badgeText = running ? `⏱ ${Math.ceil(running.remainingSec)}s` : `${spec.cost} p`;
+      if (badge.textContent !== badgeText) badge.textContent = badgeText;
+      if (prog) {
+        const pct = running ? Math.max(0, Math.min(100, (running.remainingSec / running.durationSec) * 100)) : 0;
+        prog.style.width = `${pct.toFixed(1)}%`;
+      }
+    }
+
+    for (const spec of MAGIC_UNLOCKS) {
+      const card = this.root.querySelector<HTMLButtonElement>(`[data-magic-unlock="${spec.id}"]`);
+      const badge = this.root.querySelector<HTMLElement>(`[data-unlock-badge="${spec.id}"]`);
+      if (!card || !badge) continue;
+      const unlocked = state.unlocked[spec.id];
+      const affordable = state.points >= spec.cost;
+      const status = this.festivities.getUnlockStatusLabel(spec.id);
+      card.classList.toggle('is-unlocked', unlocked);
+      card.classList.toggle('is-off', unlocked && status.isOff);
+      card.classList.toggle('is-affordable', !unlocked && affordable);
+      card.classList.toggle('is-locked-cost', !unlocked && !affordable);
+      if (badge.textContent !== status.label) badge.textContent = status.label;
+    }
   }
 
   setFollowActive(active: boolean): void {
@@ -644,8 +833,6 @@ export class DriveHud {
       this.maxspeedEl.classList.toggle('is-exceeded', Math.round(frame.speedKmh) > maxspeedKmh + 5);
     }
     this.fsdBadgeEl.classList.toggle('is-active', hasWorld && fsdActive !== false);
-    this.gearEl.textContent = GEAR_LABELS[frame.reindeerGearKey];
-    this.gearEl.classList.toggle('is-plaid', frame.isPlaidSpeed);
 
     this.northEl.hidden = !hasWorld;
     this.northDistEl.textContent = Math.round(frame.northPoleDistanceKm).toLocaleString('sv-SE') + ' km';
@@ -664,6 +851,8 @@ export class DriveHud {
         ? `${scoreParts.join(' · ')} · ${summary.combo}×`
         : scoreParts.join(' · ');
     }
+
+    this.syncMagicUi();
 
     const status = this.festivities.getStatus();
     if (this.statusEl.textContent !== status) this.statusEl.textContent = status;
