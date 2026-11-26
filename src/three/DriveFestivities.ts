@@ -17,7 +17,7 @@ import { pointAlongStreet, streetAtCar } from './mappedRoads';
 import { PixarElonRig } from './pixarElonEvents';
 import { getSoftGlowTexture } from './pixarMaterials';
 import type { PixarSleighHandle } from './pixarModels';
-import { SkyCinema } from './SkyCinema';
+import { SKY_CINEMA_MODES, SkyCinema, type SkyCinemaMode } from './SkyCinema';
 import {
   createAccurateCybertruck,
   createAccurateOptimusGen2,
@@ -1314,6 +1314,18 @@ export class DriveFestivities {
 
   getSkyCinemaIntensity(): number {
     return this.skyCinema.getIntensity();
+  }
+
+  getSkyCinemaMode(): SkyCinemaMode {
+    return this.skyCinema.getMode();
+  }
+
+  setSkyCinemaMode(mode: SkyCinemaMode): void {
+    this.skyCinema.setMode(mode);
+    const spec = SKY_CINEMA_MODES.find((m) => m.id === mode);
+    if (this.skyCinema.isActive() && spec) {
+      this.announce(`🎬 Rymdbio-läge · ${spec.label}`, 3.2);
+    }
   }
 
   startConvoy(): void {

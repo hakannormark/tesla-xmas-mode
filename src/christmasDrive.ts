@@ -616,7 +616,17 @@ if (!stage) {
   } else {
     follow();
   }
-  if (new URLSearchParams(window.location.search).get('cinema') === '1') {
+  const urlParams = new URLSearchParams(window.location.search);
+  const cinemaModeParam = urlParams.get('cinemaMode');
+  if (
+    cinemaModeParam === 'aurora' ||
+    cinemaModeParam === 'celestial' ||
+    cinemaModeParam === 'mist' ||
+    cinemaModeParam === 'classic'
+  ) {
+    festivities.setSkyCinemaMode(cinemaModeParam);
+  }
+  if (urlParams.get('cinema') === '1') {
     festivities.startSkyCinema(0, true);
   }
 

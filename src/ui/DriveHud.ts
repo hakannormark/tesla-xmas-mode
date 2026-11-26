@@ -14,6 +14,7 @@ import type {
   MagicUnlockId,
 } from '../three/DriveFestivities';
 import { MAGIC_POWERS, MAGIC_UNLOCKS } from '../three/DriveFestivities';
+import { SKY_CINEMA_MODES, type SkyCinemaMode } from '../three/SkyCinema';
 
 export type CameraMode = 'chase' | 'map' | 'cinematic';
 export type VehicleKind = 'sleigh' | 'semi' | 'cybertruck' | 'starman';
@@ -105,11 +106,20 @@ export class DriveHud {
       </header>
 
       <aside class="cinema-bar" data-cinema-bar hidden aria-live="polite">
-        <span class="cinema-bar-title" data-cinema-title></span>
-        <span class="cinema-bar-count" data-cinema-count></span>
-        <button type="button" class="cinema-bar-btn cinema-bar-unmute" data-cinema-unmute hidden>🔊 Slå på ljud</button>
-        <button type="button" class="cinema-bar-btn" data-cinema-next title="Nästa klipp">⏭ Nästa</button>
-        <button type="button" class="cinema-bar-btn" data-cinema-stop aria-label="Stäng Rymdbio">✕</button>
+        <div class="cinema-bar-top">
+          <span class="cinema-bar-title" data-cinema-title></span>
+          <div class="cinema-bar-actions">
+            <span class="cinema-bar-count" data-cinema-count></span>
+            <button type="button" class="cinema-bar-btn cinema-bar-unmute" data-cinema-unmute hidden>🔊 Ljud</button>
+            <button type="button" class="cinema-bar-btn" data-cinema-next title="Nästa klipp">⏭ Nästa</button>
+            <button type="button" class="cinema-bar-btn" data-cinema-stop aria-label="Stäng Rymdbio">✕</button>
+          </div>
+        </div>
+        <div class="cinema-mode-row" role="group" aria-label="Rymdbio-läge">
+          ${SKY_CINEMA_MODES.map(
+            m => `<button type="button" class="cinema-mode-btn" data-cinema-mode="${m.id}" title="${m.description}">${m.shortLabel}</button>`
+          ).join('')}
+        </div>
       </aside>
 
       <aside class="street-board" aria-live="polite">
@@ -323,6 +333,12 @@ export class DriveHud {
               <button type="button" data-convoy>Julkaravan</button>
               <button type="button" data-tunnel aria-pressed="false">Boring-tunneln</button>
               <button type="button" data-cinema-drawer>🎬 Rymdbio</button>
+            </div>
+            <div class="drawer-label">Rymdbio-läge</div>
+            <div class="segmented cols-4">
+              ${SKY_CINEMA_MODES.map(
+                m => `<button type="button" data-cinema-mode="${m.id}" title="${m.description}">${m.shortLabel}</button>`
+              ).join('')}
             </div>
             <div class="drawer-row-2">
               <button type="button" class="toggle-chip" data-auto-magic aria-pressed="true">✨ Automatisk julmagi</button>
@@ -628,6 +644,18 @@ export class DriveHud {
       this.setDrawerOpen(false);
     };
 
+    this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-mode]').forEach(btn => {
+      btn.onclick = () => {
+        const mode = btn.dataset.cinemaMode as SkyCinemaMode;
+        this.festivities.setSkyCinemaMode(mode);
+        if (!this.festivities.skyCinema.isActive() && btn.closest('.drive-drawer')) {
+          this.festivities.startSkyCinema(0, false);
+        }
+        this.syncCinemaUi();
+        this.syncSettings();
+      };
+    });
+
     q('[data-auto-magic]').onclick = () => {
       this.festivities.setAutomaticMagic(!this.festivities.isAutomaticMagic());
       this.syncSettings();
@@ -834,8 +862,14 @@ export class DriveHud {
     const cinema = this.festivities.skyCinema;
     const active = cinema.isActive();
     const info = cinema.getActiveClip();
+    const mode = this.festivities.getSkyCinemaMode();
     this.cinemaBtn.setAttribute('aria-pressed', String(active));
     this.cinemaBarEl.hidden = !active || !info;
+    this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-mode]').forEach(btn => {
+      const isCur = btn.dataset.cinemaMode === mode;
+      btn.classList.toggle('active', isCur);
+      btn.setAttribute('aria-pressed', String(isCur));
+    });
     if (active && info) {
       const titleText = `🎬 ${info.clip.titleSv}`;
       if (this.cinemaTitleEl.textContent !== titleText) {

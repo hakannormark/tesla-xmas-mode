@@ -81,46 +81,57 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
 }
 .cinema-bar {
   position: fixed;
-  top: 0.85rem;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 1rem;
+  bottom: 6.9rem;
   z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  max-width: min(40vw, 28rem);
-  padding: 0.36rem 0.55rem 0.36rem 0.78rem;
-  border-radius: 999px;
-  border: 1px solid rgba(108, 244, 204, 0.45);
-  background: rgba(8, 20, 44, 0.82);
+  display: grid;
+  gap: 0.42rem;
+  width: min(23.5rem, calc(100vw - 2rem));
+  padding: 0.55rem 0.72rem;
+  border-radius: 15px;
+  border: 1px solid rgba(108, 244, 204, 0.42);
+  background: rgba(8, 20, 44, 0.84);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 28px rgba(4, 10, 26, 0.52), 0 0 22px rgba(72, 232, 188, 0.18);
+  box-shadow: 0 10px 28px rgba(4, 10, 26, 0.55), 0 0 22px rgba(72, 232, 188, 0.16);
   pointer-events: auto;
+}
+.cinema-bar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.cinema-bar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
 }
 .cinema-bar-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #ecfff8;
+  min-width: 0;
 }
 .cinema-bar-count {
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
   color: #84ffe0;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .cinema-bar-btn {
-  min-height: 32px;
-  padding: 0.22rem 0.58rem;
+  min-height: 30px;
+  padding: 0.2rem 0.52rem;
   border-radius: 999px;
   border: 1px solid rgba(154, 224, 248, 0.32);
   background: rgba(24, 48, 82, 0.84);
   color: #f4fbff;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -130,6 +141,33 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   border-color: rgba(255, 222, 128, 0.72);
   background: rgba(132, 84, 18, 0.88);
   color: #fff6d6;
+}
+.cinema-mode-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+.cinema-mode-btn {
+  min-height: 30px;
+  padding: 0.22rem 0.28rem;
+  border-radius: 9px;
+  border: 1px solid rgba(154, 224, 248, 0.24);
+  background: rgba(18, 36, 68, 0.78);
+  color: #cde8fa;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.cinema-mode-btn:hover { border-color: rgba(120, 246, 206, 0.68); }
+.cinema-mode-btn.active {
+  border-color: #6ff7cb;
+  background: linear-gradient(135deg, rgba(16, 86, 80, 0.9), rgba(24, 52, 98, 0.94));
+  color: #e4fff6;
+  box-shadow: 0 0 12px rgba(84, 242, 198, 0.28);
 }
 
 /* Street Board */
@@ -874,12 +912,11 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
 @media (max-width: 640px) {
   .drive-header { inset: 0.65rem 0.65rem auto; }
   .cinema-bar {
-    top: 3.65rem;
+    top: auto;
     left: 0.65rem;
     right: 0.65rem;
-    transform: none;
-    max-width: none;
-    justify-content: space-between;
+    bottom: 9.6rem;
+    width: auto;
   }
   .glass-pill { padding: 0.4rem 0.65rem; font-size: 0.82rem; min-height: 40px; }
   .street-board { left: 0.65rem; top: 3.7rem; max-width: calc(100vw - 1.3rem); padding: 0.55rem 0.78rem; }
