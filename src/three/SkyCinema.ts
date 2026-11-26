@@ -7,6 +7,17 @@ import {
 } from '../core/skyCinemaClips';
 
 export type SkyCinemaMode = 'skyvault' | 'aurora' | 'oblique' | 'classic';
+export type SkyCinemaSurface = 'sky' | 'giga' | 'both';
+
+export const SKY_CINEMA_SURFACES: ReadonlyArray<{
+  id: SkyCinemaSurface;
+  label: string;
+  shortLabel: string;
+}> = [
+  { id: 'sky', label: 'Himmel', shortLabel: '✦ Himmel' },
+  { id: 'giga', label: 'Giga-fasad', shortLabel: '▣ Giga-fasad' },
+  { id: 'both', label: 'Båda', shortLabel: '◈ Båda' },
+];
 
 export interface SkyCinemaModeSpec {
   id: SkyCinemaMode;
@@ -330,6 +341,7 @@ export class SkyCinema {
   private hasVideoFrame = false;
   private playToken = 0;
   private hasRequestedPlayback = false;
+  private skyVisible = true;
 
   private mode: SkyCinemaMode = loadSavedMode();
   private curRadius: number;
@@ -656,6 +668,23 @@ export class SkyCinema {
     return this.reveal;
   }
 
+  setSkyVisible(visible: boolean): void {
+    this.skyVisible = visible;
+    if (!visible) {
+      this.group.visible = false;
+    } else if (this.state !== 'idle') {
+      this.group.visible = true;
+    }
+  }
+
+  getVideoTexture(): THREE.VideoTexture {
+    return this.videoTex;
+  }
+
+  getHasVideoFrame(): boolean {
+    return this.hasVideoFrame || this.video.readyState >= 2;
+  }
+
   getActiveClip(): { clip: SkyCinemaClip; index: number; total: number } | null {
     if (!this.isActive() && this.reveal <= 0.01) return null;
     const clip = SKY_CINEMA_TEST_CLIPS[this.activeIndex];
@@ -719,7 +748,7 @@ export class SkyCinema {
       return;
     }
 
-    this.group.visible = true;
+    this.group.visible = this.skyVisible;
     const targetSpec = getModeSpec(this.mode);
 
     if (!this.hasPlaced) {

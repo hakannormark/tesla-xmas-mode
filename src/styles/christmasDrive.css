@@ -142,6 +142,17 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   background: rgba(132, 84, 18, 0.88);
   color: #fff6d6;
 }
+.cinema-surface-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+.cinema-surface-btn.active {
+  border-color: #ff6b81;
+  background: linear-gradient(135deg, rgba(120, 22, 42, 0.88), rgba(24, 52, 98, 0.94));
+  color: #fff2f4;
+  box-shadow: 0 0 12px rgba(255, 84, 114, 0.32);
+}
 .cinema-mode-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

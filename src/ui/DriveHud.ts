@@ -14,7 +14,12 @@ import type {
   MagicUnlockId,
 } from '../three/DriveFestivities';
 import { MAGIC_POWERS, MAGIC_UNLOCKS } from '../three/DriveFestivities';
-import { SKY_CINEMA_MODES, type SkyCinemaMode } from '../three/SkyCinema';
+import {
+  SKY_CINEMA_MODES,
+  SKY_CINEMA_SURFACES,
+  type SkyCinemaMode,
+  type SkyCinemaSurface,
+} from '../three/SkyCinema';
 
 export type CameraMode = 'chase' | 'map' | 'cinematic';
 export type VehicleKind = 'sleigh' | 'semi' | 'cybertruck' | 'starman';
@@ -61,6 +66,7 @@ export class DriveHud {
   private readonly followBtn: HTMLButtonElement;
   private readonly cinemaBtn: HTMLButtonElement;
   private readonly cinemaBarEl: HTMLElement;
+  private readonly cinemaModeRowEl: HTMLElement;
   private readonly cinemaTitleEl: HTMLElement;
   private readonly cinemaCountEl: HTMLElement;
   private readonly cinemaUnmuteBtn: HTMLButtonElement;
@@ -115,7 +121,12 @@ export class DriveHud {
             <button type="button" class="cinema-bar-btn" data-cinema-stop aria-label="Stäng Rymdbio">✕</button>
           </div>
         </div>
-        <div class="cinema-mode-row" role="group" aria-label="Rymdbio-läge">
+        <div class="cinema-surface-row" role="group" aria-label="Visningsyta">
+          ${SKY_CINEMA_SURFACES.map(
+            s => `<button type="button" class="cinema-mode-btn cinema-surface-btn" data-cinema-surface="${s.id}">${s.shortLabel}</button>`
+          ).join('')}
+        </div>
+        <div class="cinema-mode-row" data-cinema-mode-row role="group" aria-label="Rymdbio-läge">
           ${SKY_CINEMA_MODES.map(
             m => `<button type="button" class="cinema-mode-btn" data-cinema-mode="${m.id}" title="${m.description}">${m.shortLabel}</button>`
           ).join('')}
@@ -333,6 +344,13 @@ export class DriveHud {
               <button type="button" data-convoy>Julkaravan</button>
               <button type="button" data-tunnel aria-pressed="false">Boring-tunneln</button>
               <button type="button" data-cinema-drawer>🎬 Rymdbio</button>
+              <button type="button" data-giga-cinema-drawer>▣ Giga-bio</button>
+            </div>
+            <div class="drawer-label">Visningsyta</div>
+            <div class="segmented cols-3">
+              ${SKY_CINEMA_SURFACES.map(
+                s => `<button type="button" data-cinema-surface="${s.id}">${s.shortLabel}</button>`
+              ).join('')}
             </div>
             <div class="drawer-label">Rymdbio-läge</div>
             <div class="segmented cols-4">
@@ -378,6 +396,7 @@ export class DriveHud {
     this.followBtn = q('[data-follow]');
     this.cinemaBtn = q('[data-cinema-toggle]');
     this.cinemaBarEl = q('[data-cinema-bar]');
+    this.cinemaModeRowEl = q('[data-cinema-mode-row]');
     this.cinemaTitleEl = q('[data-cinema-title]');
     this.cinemaCountEl = q('[data-cinema-count]');
     this.cinemaUnmuteBtn = q('[data-cinema-unmute]');
@@ -644,6 +663,25 @@ export class DriveHud {
       this.setDrawerOpen(false);
     };
 
+    q('[data-giga-cinema-drawer]').onclick = () => {
+      this.festivities.startGigaCinema();
+      this.syncCinemaUi();
+      this.syncSettings();
+      this.setDrawerOpen(false);
+    };
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-surface]').forEach(btn => {
+      btn.onclick = () => {
+        const surface = btn.dataset.cinemaSurface as SkyCinemaSurface;
+        this.festivities.setSkyCinemaSurface(surface);
+        if (!this.festivities.skyCinema.isActive() && btn.closest('.drive-drawer')) {
+          this.festivities.startSkyCinema(0, false);
+        }
+        this.syncCinemaUi();
+        this.syncSettings();
+      };
+    });
+
     this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-mode]').forEach(btn => {
       btn.onclick = () => {
         const mode = btn.dataset.cinemaMode as SkyCinemaMode;
@@ -863,8 +901,16 @@ export class DriveHud {
     const active = cinema.isActive();
     const info = cinema.getActiveClip();
     const mode = this.festivities.getSkyCinemaMode();
+    const surface = this.festivities.getSkyCinemaSurface();
     this.cinemaBtn.setAttribute('aria-pressed', String(active));
     this.cinemaBarEl.hidden = !active || !info;
+    this.cinemaModeRowEl.hidden = surface === 'giga';
+    this.root.querySelector('[data-giga-cinema-drawer]')?.setAttribute('aria-pressed', String(active && surface !== 'sky'));
+    this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-surface]').forEach(btn => {
+      const isCur = btn.dataset.cinemaSurface === surface;
+      btn.classList.toggle('active', isCur);
+      btn.setAttribute('aria-pressed', String(isCur));
+    });
     this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-mode]').forEach(btn => {
       const isCur = btn.dataset.cinemaMode === mode;
       btn.classList.toggle('active', isCur);

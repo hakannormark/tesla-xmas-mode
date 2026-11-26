@@ -967,6 +967,19 @@ function disposeResourceBag(bag: ResourceBag): void {
   bag.superchargers = [];
 }
 
+export interface GigaFacadeSlot {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  nx: number;
+  nz: number;
+  yaw: number;
+  width: number;
+  height: number;
+  isMainFace: boolean;
+}
+
 interface CrossingEntry {
   name: string;
   distance: number;
@@ -1037,6 +1050,7 @@ interface MapBuildJob {
   smoke?: THREE.Points;
   superchargers: SuperchargerPlazaHandle[];
   superchargerSpots: Array<{ x: number; z: number; radius: number }>;
+  gigaFacadeSlots: GigaFacadeSlot[];
 }
 
 const detailTransform = new THREE.Object3D();
@@ -1067,6 +1081,7 @@ export class ChristmasMap {
   private crossings = new Map<OsmRoadRibbon, CrossingEntry[]>();
   private signalLenses?: THREE.InstancedMesh;
   private signalLensMeta: Array<{ role: 'red' | 'amber' | 'green'; phase: number }> = [];
+  private gigaFacadeSlots: GigaFacadeSlot[] = [];
 
   constructor() {
     this.activeContent.add(this.celebrationGroup);
@@ -1171,6 +1186,20 @@ export class ChristmasMap {
       return a.dist - b.dist;
     });
     return scored.map(entry => entry.target);
+  }
+
+  getGigaFacadeSlots(center: OsmPoint2D, maxDist = 200): GigaFacadeSlot[] {
+    const ox = this.activeContent.position.x;
+    const oz = this.activeContent.position.z;
+    const out: GigaFacadeSlot[] = [];
+    for (const slot of this.gigaFacadeSlots) {
+      const wx = slot.x + ox;
+      const wz = slot.z + oz;
+      if (Math.hypot(wx - center.x, wz - center.z) <= maxDist) {
+        out.push({ ...slot, x: wx, z: wz });
+      }
+    }
+    return out;
   }
 
   private addJobSurface(job: MapBuildJob, geometry: THREE.BufferGeometry, material: THREE.Material, height = 0, castShadow = false): void {
@@ -1793,6 +1822,76 @@ export class ChristmasMap {
               const rt = r / ribCount;
               if (dockPositions.some(dtPos => Math.abs(rt - dtPos) * length < 2.2)) continue;
               detail(gigaRibMat, rt, (height - 0.4) * 0.5, 0.24, height - 0.5, 0.16, 0.07);
+            }
+          }
+
+          if (height >= 6.2) {
+            const slotInset = 0.24;
+            if (i !== mainFace && length >= 6.8) {
+              const minY = length >= 10 ? 3.88 : 1.85;
+              const maxY = height - 0.56;
+              const availH = maxY - minY;
+              const availW = length - 1.5;
+              const screenH = Math.min(availH, availW / 1.778, 8.4);
+              const screenW = screenH * 1.778;
+              if (screenW >= 3.8 && screenH >= 2.1) {
+                job.gigaFacadeSlots.push({
+                  id: `${b.id}-f${i}`,
+                  x: a.x + dx * 0.5 + nx * slotInset,
+                  y: base + minY + availH * 0.5,
+                  z: a.z + dz * 0.5 + nz * slotInset,
+                  nx,
+                  nz,
+                  yaw,
+                  width: screenW,
+                  height: screenH,
+                  isMainFace: false,
+                });
+              }
+            } else if (i === mainFace && length >= 7.0) {
+              const atriumW = Math.min(11.5, Math.max(4.4, length * 0.42));
+              const wingW = (length - atriumW) * 0.5;
+              if (wingW >= 4.2) {
+                const availW = wingW - 1.0;
+                const minY = 2.45;
+                const maxY = height - 0.65;
+                const availH = maxY - minY;
+                const screenH = Math.min(availH, availW / 1.778, 6.2);
+                const screenW = screenH * 1.778;
+                if (screenW >= 3.2 && screenH >= 1.8) {
+                  for (const side of [-1, 1]) {
+                    const wingT = 0.5 + (side * (atriumW * 0.5 + wingW * 0.5)) / length;
+                    job.gigaFacadeSlots.push({
+                      id: `${b.id}-f${i}-w${side > 0 ? 'r' : 'l'}`,
+                      x: a.x + dx * wingT + nx * slotInset,
+                      y: base + minY + availH * 0.5,
+                      z: a.z + dz * wingT + nz * slotInset,
+                      nx,
+                      nz,
+                      yaw,
+                      width: screenW,
+                      height: screenH,
+                      isMainFace: true,
+                    });
+                  }
+                }
+              } else {
+                const screenW = Math.min(length * 0.68, 7.8);
+                const screenH = screenW / 1.778;
+                const crownY = height + 0.58 + screenH * 0.5;
+                job.gigaFacadeSlots.push({
+                  id: `${b.id}-f${i}-crown`,
+                  x: a.x + dx * 0.5 + nx * slotInset,
+                  y: base + crownY,
+                  z: a.z + dz * 0.5 + nz * slotInset,
+                  nx,
+                  nz,
+                  yaw,
+                  width: screenW,
+                  height: screenH,
+                  isMainFace: true,
+                });
+              }
             }
           }
         } else if (factory && length >= 6) {
@@ -2687,6 +2786,7 @@ export class ChristmasMap {
     this.buildingTargets = job.buildingTargets;
     this.signalLenses = job.signalLenses;
     this.signalLensMeta = job.signalLensEntries.map(({ role, phase }) => ({ role, phase }));
+    this.gigaFacadeSlots = job.gigaFacadeSlots;
     this.mapData.snapshot = job.snapshot;
     this.mapData.clearance = job.clearance;
     this.mapData.churches = job.churches;
@@ -2760,6 +2860,7 @@ export class ChristmasMap {
         detailIdx: 0,
         superchargers: [],
         superchargerSpots: [],
+        gigaFacadeSlots: [],
       };
     }
 

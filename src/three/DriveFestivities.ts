@@ -17,13 +17,24 @@ import { pointAlongStreet, streetAtCar } from './mappedRoads';
 import { PixarElonRig } from './pixarElonEvents';
 import { getSoftGlowTexture } from './pixarMaterials';
 import type { PixarSleighHandle } from './pixarModels';
-import { SKY_CINEMA_MODES, SkyCinema, type SkyCinemaMode } from './SkyCinema';
+import { GigaFacadeCinema } from './GigaFacadeCinema';
+import { SKY_CINEMA_MODES, SKY_CINEMA_SURFACES, SkyCinema, type SkyCinemaMode, type SkyCinemaSurface } from './SkyCinema';
 import {
   createAccurateCybertruck,
   createAccurateOptimusGen2,
   createAccurateTeslaSemi,
 } from './teslaModels';
 import { moonDirection } from './winterSurfaces';
+
+function loadCinemaSurface(): SkyCinemaSurface {
+  try {
+    const raw = localStorage.getItem('tesla-xmas-cinema-surface');
+    if (raw === 'sky' || raw === 'giga' || raw === 'both') return raw;
+  } catch {
+    // Ignore
+  }
+  return 'sky';
+}
 
 const BURST_COUNT = 160;
 const CHIMNEY_SPARK_COUNT = 72;
@@ -335,6 +346,7 @@ export class DriveFestivities {
   readonly livingWorld: MapLivingWorld;
   readonly frost = new FrostCanvasOverlay();
   readonly skyCinema = new SkyCinema();
+  readonly gigaCinema = new GigaFacadeCinema();
 
   private readonly sky = new LiveSkyRig();
   private readonly events = new PixarElonRig();
@@ -471,6 +483,7 @@ export class DriveFestivities {
   private sleighAlert = 0;
   private elonCycleIdx = 0;
   private lastCinemaIdx = 0;
+  private cinemaSurface: SkyCinemaSurface = loadCinemaSurface();
   private lastChurchBellTime = -30;
 
   private statusText = '';
@@ -499,7 +512,7 @@ export class DriveFestivities {
 
     this.audio.setMixMode('muted');
     this.effects.add(this.sky.group, this.events.group);
-    scene.add(this.effects, this.skyCinema.group);
+    scene.add(this.effects, this.skyCinema.group, this.gigaCinema.group);
 
     // 12-slot glossy wrapped Gift Cannon Pool (supports rapid Klappregn bursts)
     const giftColors = ['#e01b3a', '#188a50', '#2b67d6'];
@@ -1313,7 +1326,34 @@ export class DriveFestivities {
   }
 
   getSkyCinemaIntensity(): number {
-    return this.skyCinema.getIntensity();
+    return this.cinemaSurface === 'giga' ? 0 : this.skyCinema.getIntensity();
+  }
+
+  getSkyCinemaSurface(): SkyCinemaSurface {
+    return this.cinemaSurface;
+  }
+
+  setSkyCinemaSurface(surface: SkyCinemaSurface): void {
+    this.cinemaSurface = surface;
+    try {
+      localStorage.setItem('tesla-xmas-cinema-surface', surface);
+    } catch {
+      // Ignore
+    }
+    this.skyCinema.setSkyVisible(surface !== 'giga');
+    const spec = SKY_CINEMA_SURFACES.find((s) => s.id === surface);
+    if (this.skyCinema.isActive() && spec) {
+      this.announce(`🎬 Visningsyta · ${spec.label}`, 3.2);
+    }
+  }
+
+  startGigaCinema(): void {
+    this.setSkyCinemaSurface('giga');
+    if (!this.skyCinema.isActive()) {
+      this.startSkyCinema(this.lastCinemaIdx, false);
+    } else {
+      this.announce('▣ Giga-fasadbio aktiv', 3.4);
+    }
   }
 
   getSkyCinemaMode(): SkyCinemaMode {
@@ -1829,7 +1869,23 @@ export class DriveFestivities {
     this.frost.update(dt, env);
     this.sky.update(dt, time, traveled, env, live, ZERO_ELEV, 0, false);
     this.skyCinema.setVolume(Math.max(0.75, this.audio.getVolume()));
+    this.skyCinema.setSkyVisible(this.cinemaSurface !== 'giga');
     this.skyCinema.update(dt, time, center, heading, env.daylightFactor, env.theme);
+    const cinemaReveal = this.skyCinema.getIntensity();
+    if (this.cinemaSurface !== 'sky' && cinemaReveal > 0.001) {
+      this.gigaCinema.update(
+        time,
+        center,
+        heading,
+        env.daylightFactor,
+        cinemaReveal,
+        this.skyCinema.getHasVideoFrame(),
+        this.skyCinema.getVideoTexture(),
+        this.map.getGigaFacadeSlots(center, 200)
+      );
+    } else {
+      this.gigaCinema.group.visible = false;
+    }
     this.audio.setSpeechDucking(this.skyCinema.isActive() && !this.skyCinema.isMuted());
     this.launchText = live.spaceXLive ? `🚀 ${live.nextSpaceXName} · ${live.nextSpaceXCountdown}` : '';
 
@@ -2411,6 +2467,7 @@ export class DriveFestivities {
     this.livingWorld.dispose();
     this.sky.dispose();
     this.skyCinema.dispose();
+    this.gigaCinema.dispose();
     this.chimneyPts.geometry.dispose();
     this.chimneyMat.dispose();
     this.burstPts.geometry.dispose();

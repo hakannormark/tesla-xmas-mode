@@ -618,6 +618,14 @@ if (!stage) {
     follow();
   }
   const urlParams = new URLSearchParams(window.location.search);
+  const cinemaSurfaceParam = urlParams.get('cinemaSurface');
+  if (
+    cinemaSurfaceParam === 'sky' ||
+    cinemaSurfaceParam === 'giga' ||
+    cinemaSurfaceParam === 'both'
+  ) {
+    festivities.setSkyCinemaSurface(cinemaSurfaceParam);
+  }
   const cinemaModeParam = normalizeSkyCinemaMode(urlParams.get('cinemaMode'));
   if (cinemaModeParam) {
     festivities.setSkyCinemaMode(cinemaModeParam);
