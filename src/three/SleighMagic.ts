@@ -11,6 +11,7 @@ const CLOUD_COUNT = 14;
 const CLOUD_PUFFS_PER_CLOUD = 3;
 
 export type MagicTrailStyle = 'classic' | 'aurora' | 'plaid' | 'candycane';
+export type CompanionOwlStyle = 'off' | 'snow' | 'cyber';
 
 const SOFT_PARTICLE_VERT = /* glsl */ `
   attribute float aLife;
@@ -208,7 +209,20 @@ export class SleighMagic {
   private readonly owlTailPivot = new THREE.Group();
   private readonly owlHaloSprite: THREE.Sprite;
   private readonly owlDisposables: Array<{ dispose(): void }> = [];
-  private companionOwlEnabled = false;
+  private readonly owlPlumageMeshes: THREE.Mesh[] = [];
+  private readonly owlAccentMeshes: THREE.Mesh[] = [];
+  private readonly owlEyeMeshes: THREE.Mesh[] = [];
+  private owlBeakMesh: THREE.Mesh | null = null;
+  private readonly owlCyberExtras: THREE.Object3D[] = [];
+  private owlSnowPlumageMat!: THREE.Material;
+  private owlSnowAccentMat!: THREE.Material;
+  private owlSnowEyeMat!: THREE.Material;
+  private owlSnowBeakMat!: THREE.Material;
+  private owlCyberArmorMat!: THREE.Material;
+  private owlCyberDarkMat!: THREE.Material;
+  private owlCyberCyanMat!: THREE.Material;
+  private owlCyberChromeMat!: THREE.Material;
+  private owlStyle: CompanionOwlStyle = 'off';
   private owlInitialized = false;
   private readonly owlPos = new THREE.Vector3();
   private owlHeading = 0;
@@ -366,7 +380,7 @@ export class SleighMagic {
   }
 
   private buildCompanionOwl(): THREE.Sprite {
-    const plumageMat = this.trackOwlDisposable(
+    this.owlSnowPlumageMat = this.trackOwlDisposable(
       new THREE.MeshPhysicalMaterial({
         color: '#f8fbff',
         roughness: 0.64,
@@ -376,7 +390,7 @@ export class SleighMagic {
         emissiveIntensity: 0.22,
       })
     );
-    const featherAccentMat = this.trackOwlDisposable(
+    this.owlSnowAccentMat = this.trackOwlDisposable(
       new THREE.MeshStandardMaterial({
         color: '#cdd8e8',
         roughness: 0.72,
@@ -384,16 +398,59 @@ export class SleighMagic {
         emissiveIntensity: 0.16,
       })
     );
-    const eyeGoldMat = this.trackOwlDisposable(
+    this.owlSnowEyeMat = this.trackOwlDisposable(
       new THREE.MeshBasicMaterial({ color: '#ffd24a', toneMapped: false })
     );
     const darkMat = this.trackOwlDisposable(
       new THREE.MeshPhysicalMaterial({ color: '#14151c', roughness: 0.1, clearcoat: 0.9 })
     );
-    const beakMat = this.trackOwlDisposable(
+    this.owlSnowBeakMat = this.trackOwlDisposable(
       new THREE.MeshStandardMaterial({ color: '#f2b63d', roughness: 0.35 })
     );
     const catchlightMat = this.trackOwlDisposable(new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+
+    this.owlCyberArmorMat = this.trackOwlDisposable(
+      new THREE.MeshStandardMaterial({
+        color: '#c8d6e6',
+        metalness: 0.9,
+        roughness: 0.22,
+        flatShading: true,
+        emissive: '#0c2438',
+        emissiveIntensity: 0.35,
+      })
+    );
+    this.owlCyberDarkMat = this.trackOwlDisposable(
+      new THREE.MeshStandardMaterial({
+        color: '#1e2838',
+        metalness: 0.84,
+        roughness: 0.3,
+        flatShading: true,
+      })
+    );
+    this.owlCyberCyanMat = this.trackOwlDisposable(
+      new THREE.MeshBasicMaterial({ color: '#2ef2ff', toneMapped: false })
+    );
+    const cyberCrimsonMat = this.trackOwlDisposable(
+      new THREE.MeshBasicMaterial({ color: '#ff2448', toneMapped: false })
+    );
+    this.owlCyberChromeMat = this.trackOwlDisposable(
+      new THREE.MeshStandardMaterial({
+        color: '#6b7e96',
+        metalness: 0.94,
+        roughness: 0.14,
+      })
+    );
+
+    const plumageMat = this.owlSnowPlumageMat;
+    const featherAccentMat = this.owlSnowAccentMat;
+    const eyeGoldMat = this.owlSnowEyeMat;
+    const beakMat = this.owlSnowBeakMat;
+
+    const addCyberExtra = (obj: THREE.Object3D, parent: THREE.Object3D) => {
+      obj.visible = false;
+      this.owlCyberExtras.push(obj);
+      parent.add(obj);
+    };
 
     this.owlGroup.add(this.owlBodyGroup);
 
@@ -401,12 +458,25 @@ export class SleighMagic {
     const torsoGeo = this.trackOwlDisposable(new THREE.SphereGeometry(0.22, 14, 12));
     const torso = new THREE.Mesh(torsoGeo, plumageMat);
     torso.scale.set(0.92, 0.80, 1.42);
+    this.owlPlumageMeshes.push(torso);
     this.owlBodyGroup.add(torso);
 
     const chestGeo = this.trackOwlDisposable(new THREE.SphereGeometry(0.165, 10, 10));
     const chest = new THREE.Mesh(chestGeo, plumageMat);
     chest.position.set(0, -0.04, -0.20);
+    this.owlPlumageMeshes.push(chest);
     this.owlBodyGroup.add(chest);
+
+    // Cyber Owl dorsal titanium armor spine + cyan core strip
+    const spineGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.11, 0.045, 0.36));
+    const spine = new THREE.Mesh(spineGeo, this.owlCyberDarkMat);
+    spine.position.set(0, 0.17, 0.02);
+    addCyberExtra(spine, this.owlBodyGroup);
+
+    const spineCoreGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.032, 0.02, 0.31));
+    const spineCore = new THREE.Mesh(spineCoreGeo, this.owlCyberCyanMat);
+    spineCore.position.set(0, 0.194, 0.02);
+    addCyberExtra(spineCore, this.owlBodyGroup);
 
     // Tucked talons beneath belly
     const talonGeo = this.trackOwlDisposable(new THREE.SphereGeometry(0.042, 6, 6));
@@ -422,12 +492,14 @@ export class SleighMagic {
     const headGeo = this.trackOwlDisposable(new THREE.SphereGeometry(0.165, 14, 12));
     const headMesh = new THREE.Mesh(headGeo, plumageMat);
     headMesh.scale.set(1.04, 0.96, 1.0);
+    this.owlPlumageMeshes.push(headMesh);
     this.owlHeadGroup.add(headMesh);
 
     const beakGeo = this.trackOwlDisposable(new THREE.ConeGeometry(0.036, 0.10, 6));
     const beak = new THREE.Mesh(beakGeo, beakMat);
     beak.rotation.x = -Math.PI * 0.54;
     beak.position.set(0, -0.025, -0.185);
+    this.owlBeakMesh = beak;
     this.owlHeadGroup.add(beak);
 
     const eyeGeo = this.trackOwlDisposable(new THREE.SphereGeometry(0.048, 10, 10));
@@ -442,14 +514,38 @@ export class SleighMagic {
       const glint = new THREE.Mesh(glintGeo, catchlightMat);
       glint.position.set(side * 0.01, 0.012, -0.044);
       eye.add(pupil, glint);
+      this.owlEyeMeshes.push(eye);
       this.owlHeadGroup.add(eye);
 
       const tuft = new THREE.Mesh(tuftGeo, featherAccentMat);
       tuft.position.set(side * 0.105, 0.135, -0.01);
       tuft.rotation.z = -side * 0.52;
       tuft.rotation.x = 0.28;
+      this.owlAccentMeshes.push(tuft);
       this.owlHeadGroup.add(tuft);
     }
+
+    // Cyber Owl holographic cyan visor + dark frame + crimson crown fin
+    const visorFrameGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.26, 0.052, 0.042));
+    const visorFrame = new THREE.Mesh(visorFrameGeo, this.owlCyberDarkMat);
+    visorFrame.position.set(0, 0.032, -0.155);
+    addCyberExtra(visorFrame, this.owlHeadGroup);
+
+    const visorBarGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.24, 0.034, 0.045));
+    const visorBar = new THREE.Mesh(visorBarGeo, this.owlCyberCyanMat);
+    visorBar.position.set(0, 0.032, -0.165);
+    addCyberExtra(visorBar, this.owlHeadGroup);
+
+    const crownFinGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.042, 0.068, 0.16));
+    const crownFin = new THREE.Mesh(crownFinGeo, this.owlCyberDarkMat);
+    crownFin.position.set(0, 0.175, -0.02);
+    addCyberExtra(crownFin, this.owlHeadGroup);
+
+    const crownLedGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.02, 0.018, 0.15));
+    const crownLed = new THREE.Mesh(crownLedGeo, cyberCrimsonMat);
+    crownLed.position.set(0, 0.212, -0.02);
+    addCyberExtra(crownLed, this.owlHeadGroup);
+
     this.owlBodyGroup.add(this.owlHeadGroup);
 
     // Double-jointed articulated flapping wings (inner + swept outer primaries)
@@ -458,42 +554,84 @@ export class SleighMagic {
     const outerWingGeoL = this.trackOwlDisposable(createOwlWingGeo(-1, 0.30, 0.09, 0.15, 0.04, 0.21, 0.018));
     const outerWingGeoR = this.trackOwlDisposable(createOwlWingGeo(1, 0.30, 0.09, 0.15, 0.04, 0.21, 0.018));
     const primaryTipGeo = this.trackOwlDisposable(new THREE.CapsuleGeometry(0.024, 0.14, 4, 6));
+    const innerWingLedGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.28, 0.016, 0.022));
+    const outerWingLedGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.26, 0.014, 0.02));
 
     this.owlWingLeft.position.set(-0.16, 0.05, -0.04);
-    this.owlWingLeft.add(new THREE.Mesh(innerWingGeoL, plumageMat));
+    const innerMeshL = new THREE.Mesh(innerWingGeoL, plumageMat);
+    this.owlPlumageMeshes.push(innerMeshL);
+    this.owlWingLeft.add(innerMeshL);
+    const innerLedL = new THREE.Mesh(innerWingLedGeo, this.owlCyberCyanMat);
+    innerLedL.position.set(-0.16, 0.01, -0.10);
+    innerLedL.rotation.y = -0.18;
+    addCyberExtra(innerLedL, this.owlWingLeft);
+
     this.owlWingTipLeft.position.set(-0.30, 0, 0.01);
-    this.owlWingTipLeft.add(new THREE.Mesh(outerWingGeoL, plumageMat));
+    const outerMeshL = new THREE.Mesh(outerWingGeoL, plumageMat);
+    this.owlPlumageMeshes.push(outerMeshL);
+    this.owlWingTipLeft.add(outerMeshL);
+    const outerLedL = new THREE.Mesh(outerWingLedGeo, this.owlCyberCyanMat);
+    outerLedL.position.set(-0.14, 0.008, -0.02);
+    outerLedL.rotation.y = 0.38;
+    addCyberExtra(outerLedL, this.owlWingTipLeft);
+
     for (let f = 0; f < 3; f++) {
       const feather = new THREE.Mesh(primaryTipGeo, featherAccentMat);
       feather.rotation.z = Math.PI * 0.5;
       feather.rotation.y = 0.22 + f * 0.14;
       feather.position.set(-0.27 - f * 0.02, -0.005, 0.04 + f * 0.055);
+      this.owlAccentMeshes.push(feather);
       this.owlWingTipLeft.add(feather);
     }
     this.owlWingLeft.add(this.owlWingTipLeft);
 
     this.owlWingRight.position.set(0.16, 0.05, -0.04);
-    this.owlWingRight.add(new THREE.Mesh(innerWingGeoR, plumageMat));
+    const innerMeshR = new THREE.Mesh(innerWingGeoR, plumageMat);
+    this.owlPlumageMeshes.push(innerMeshR);
+    this.owlWingRight.add(innerMeshR);
+    const innerLedR = new THREE.Mesh(innerWingLedGeo, this.owlCyberCyanMat);
+    innerLedR.position.set(0.16, 0.01, -0.10);
+    innerLedR.rotation.y = 0.18;
+    addCyberExtra(innerLedR, this.owlWingRight);
+
     this.owlWingTipRight.position.set(0.30, 0, 0.01);
-    this.owlWingTipRight.add(new THREE.Mesh(outerWingGeoR, plumageMat));
+    const outerMeshR = new THREE.Mesh(outerWingGeoR, plumageMat);
+    this.owlPlumageMeshes.push(outerMeshR);
+    this.owlWingTipRight.add(outerMeshR);
+    const outerLedR = new THREE.Mesh(outerWingLedGeo, this.owlCyberCyanMat);
+    outerLedR.position.set(0.14, 0.008, -0.02);
+    outerLedR.rotation.y = -0.38;
+    addCyberExtra(outerLedR, this.owlWingTipRight);
+
     for (let f = 0; f < 3; f++) {
       const feather = new THREE.Mesh(primaryTipGeo, featherAccentMat);
       feather.rotation.z = Math.PI * 0.5;
       feather.rotation.y = -(0.22 + f * 0.14);
       feather.position.set(0.27 + f * 0.02, -0.005, 0.04 + f * 0.055);
+      this.owlAccentMeshes.push(feather);
       this.owlWingTipRight.add(feather);
     }
     this.owlWingRight.add(this.owlWingTipRight);
     this.owlBodyGroup.add(this.owlWingLeft, this.owlWingRight);
 
-    // Articulated fanned tail
+    // Articulated fanned tail + Cyber Owl twin micro ion thruster rings
     this.owlTailPivot.position.set(0, 0.01, 0.27);
     const tailGeo = this.trackOwlDisposable(createOwlTailGeo());
-    this.owlTailPivot.add(new THREE.Mesh(tailGeo, plumageMat));
+    const tailMesh = new THREE.Mesh(tailGeo, plumageMat);
+    this.owlPlumageMeshes.push(tailMesh);
+    this.owlTailPivot.add(tailMesh);
     const tailBarGeo = this.trackOwlDisposable(new THREE.BoxGeometry(0.22, 0.018, 0.05));
     const tailBar = new THREE.Mesh(tailBarGeo, featherAccentMat);
     tailBar.position.set(0, 0.002, 0.26);
+    this.owlAccentMeshes.push(tailBar);
     this.owlTailPivot.add(tailBar);
+
+    const thrusterGeo = this.trackOwlDisposable(new THREE.TorusGeometry(0.036, 0.009, 6, 12));
+    for (const sx of [-0.06, 0.06]) {
+      const thruster = new THREE.Mesh(thrusterGeo, this.owlCyberCyanMat);
+      thruster.position.set(sx, -0.022, 0.12);
+      addCyberExtra(thruster, this.owlTailPivot);
+    }
     this.owlBodyGroup.add(this.owlTailPivot);
 
     // Subtle magical moonlit aura behind owl
@@ -523,6 +661,18 @@ export class SleighMagic {
   ): void {
     const o = idx * 3;
     if (isOwlSparkle) {
+      if (this.owlStyle === 'cyber') {
+        if (seq % 2 === 0) {
+          this.trailColors[o] = 0.14;
+          this.trailColors[o + 1] = 0.95;
+          this.trailColors[o + 2] = 1.0;
+        } else {
+          this.trailColors[o] = 0.68;
+          this.trailColors[o + 1] = 0.34;
+          this.trailColors[o + 2] = 1.0;
+        }
+        return;
+      }
       if (seq % 2 === 0) {
         this.trailColors[o] = 0.88;
         this.trailColors[o + 1] = 0.96;
@@ -662,14 +812,30 @@ export class SleighMagic {
     this.applyTrailUniforms();
   }
 
-  setCompanionOwl(enabled: boolean): void {
-    const next = !!enabled;
-    if (next === this.companionOwlEnabled) return;
-    this.companionOwlEnabled = next;
-    this.owlGroup.visible = next;
-    if (!next) {
+  setCompanionOwl(style: boolean | CompanionOwlStyle): void {
+    const next: CompanionOwlStyle =
+      typeof style === 'boolean' ? (style ? 'snow' : 'off') : style;
+    if (next === this.owlStyle) return;
+    this.owlStyle = next;
+    const enabled = next !== 'off';
+    this.owlGroup.visible = enabled;
+    if (!enabled) {
       this.owlInitialized = false;
+      return;
     }
+    const isCyber = next === 'cyber';
+    const plumageMat = isCyber ? this.owlCyberArmorMat : this.owlSnowPlumageMat;
+    const accentMat = isCyber ? this.owlCyberDarkMat : this.owlSnowAccentMat;
+    const eyeMat = isCyber ? this.owlCyberCyanMat : this.owlSnowEyeMat;
+    const beakMat = isCyber ? this.owlCyberChromeMat : this.owlSnowBeakMat;
+    for (const m of this.owlPlumageMeshes) m.material = plumageMat;
+    for (const m of this.owlAccentMeshes) m.material = accentMat;
+    for (const m of this.owlEyeMeshes) m.material = eyeMat;
+    if (this.owlBeakMesh) this.owlBeakMesh.material = beakMat;
+    for (const extra of this.owlCyberExtras) extra.visible = isCyber;
+    (this.owlHaloSprite.material as THREE.SpriteMaterial).color.set(
+      isCyber ? '#38f2ff' : '#d8f2ff'
+    );
   }
 
   setSuperAuroraBoost(active: boolean): void {
@@ -845,8 +1011,8 @@ export class SleighMagic {
       }
     }
 
-    // 2b. Gliding Companion Snowy Owl (beside & slightly ahead/above vehicle, banking + flapping + sparkles)
-    const showOwl = visible && this.companionOwlEnabled;
+    // 2b. Gliding Companion Snowy / Cyber Owl (beside & slightly ahead/above vehicle, banking + flapping + sparkles)
+    const showOwl = visible && this.owlStyle !== 'off';
     this.owlGroup.visible = showOwl;
     if (showOwl) {
       const swayPhase = time * 0.68;

@@ -58,7 +58,9 @@ if (!stage) {
   const magic = new SleighMagic();
   const applyEquippedCosmetics = (eq: JulmagiState['equipped']): void => {
     (magic as { setTrailStyle?: (s: 'classic' | 'aurora' | 'plaid' | 'candycane') => void }).setTrailStyle?.(eq.trailStyle);
-    (magic as { setCompanionOwl?: (on: boolean) => void }).setCompanionOwl?.(eq.companionOwl);
+    (magic as { setCompanionOwl?: (style: 'off' | 'snow' | 'cyber') => void }).setCompanionOwl?.(
+      eq.companionOwl ? (eq.cyberOwl ? 'cyber' : 'snow') : 'off'
+    );
     (sleigh as { setStyle?: (o: { goldenSleigh: boolean; cyberReindeer: boolean }) => void }).setStyle?.({
       goldenSleigh: eq.goldenSleigh,
       cyberReindeer: eq.cyberReindeer,

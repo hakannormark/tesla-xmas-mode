@@ -28,12 +28,12 @@ import { moonDirection } from './winterSurfaces';
 
 function loadCinemaSurface(): SkyCinemaSurface {
   try {
-    const raw = localStorage.getItem('tesla-xmas-cinema-surface');
+    const raw = localStorage.getItem('tesla-xmas-cinema-surface-v2');
     if (raw === 'sky' || raw === 'giga' || raw === 'both') return raw;
   } catch {
     // Ignore
   }
-  return 'sky';
+  return 'both';
 }
 
 const BURST_COUNT = 160;
@@ -45,7 +45,7 @@ const ZERO_ELEV = () => 0;
 const MAGIC_STORAGE_KEY = 'tesla-xmas-magic-v1';
 
 export type TrailStyle = 'classic' | 'aurora' | 'plaid' | 'candycane';
-export type MagicPowerId = 'giftRain' | 'superAurora' | 'escortConvoy' | 'grandFinale';
+export type MagicPowerId = 'giftRain' | 'superAurora' | 'grandFinale';
 export type MagicUnlockId = 'magicTrail' | 'megaSnowball' | 'royalSleigh' | 'companionOwl';
 
 export interface JulmagiState {
@@ -63,6 +63,7 @@ export interface JulmagiState {
     goldenSleigh: boolean;
     cyberReindeer: boolean;
     companionOwl: boolean;
+    cyberOwl: boolean;
   };
 }
 
@@ -109,14 +110,6 @@ export const MAGIC_POWERS: readonly MagicPowerSpec[] = [
     durationSec: 30,
   },
   {
-    id: 'escortConvoy',
-    icon: '🚛',
-    label: 'Semi-konvoj & Plog',
-    description: 'Kallar in glödande Semi-konvoj & Cybertruck-plog (45s)',
-    cost: 60,
-    durationSec: 45,
-  },
-  {
     id: 'grandFinale',
     icon: '🎆',
     label: 'Fyrverkerifinal',
@@ -145,7 +138,7 @@ export const MAGIC_UNLOCKS: readonly MagicUnlockSpec[] = [
     id: 'companionOwl',
     icon: '🦉',
     label: 'Följe-uggla',
-    description: 'En magisk glidande snöuggla flyger bredvid släden',
+    description: 'Växla mellan magisk snöuggla och futuristisk Cyber-uggla',
     cost: 90,
   },
   {
@@ -172,6 +165,12 @@ const ROYAL_SLEIGH_MODES: ReadonlyArray<{ goldenSleigh: boolean; cyberReindeer: 
   { goldenSleigh: false, cyberReindeer: false, label: 'Klassisk' },
 ];
 
+const OWL_MODES: ReadonlyArray<{ companionOwl: boolean; cyberOwl: boolean; label: string }> = [
+  { companionOwl: true, cyberOwl: false, label: 'Snöuggla' },
+  { companionOwl: true, cyberOwl: true, label: 'Cyber-uggla' },
+  { companionOwl: false, cyberOwl: false, label: 'Av' },
+];
+
 function createDefaultMagicState(): JulmagiState {
   return {
     points: 0,
@@ -188,6 +187,7 @@ function createDefaultMagicState(): JulmagiState {
       goldenSleigh: false,
       cyberReindeer: false,
       companionOwl: false,
+      cyberOwl: false,
     },
   };
 }
@@ -226,6 +226,7 @@ function loadMagicState(): JulmagiState {
         goldenSleigh: unlocked.royalSleigh && Boolean(e?.goldenSleigh),
         cyberReindeer: unlocked.royalSleigh && Boolean(e?.cyberReindeer),
         companionOwl: unlocked.companionOwl && Boolean(e?.companionOwl),
+        cyberOwl: unlocked.companionOwl && Boolean(e?.companionOwl) && Boolean(e?.cyberOwl),
       },
     };
   } catch {
@@ -356,8 +357,8 @@ export class DriveFestivities {
   private readonly effects = new THREE.Group();
 
   private readonly convoy = [
-    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 98, active: false, worldX: 0, worldZ: 0, heading: 0, aheadMeters: 98, mode: 'oncoming' as 'same' | 'oncoming', escortExit: false },
-    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 152, active: false, worldX: 0, worldZ: 0, heading: 0, aheadMeters: 152, mode: 'oncoming' as 'same' | 'oncoming', escortExit: false },
+    { handle: createAccurateTeslaSemi('coca_cola'), dir: -1 as const, baseOffset: 98, active: false, worldX: 0, worldZ: 0, heading: 0, aheadMeters: 98 },
+    { handle: createAccurateTeslaSemi('tesla'), dir: -1 as const, baseOffset: 152, active: false, worldX: 0, worldZ: 0, heading: 0, aheadMeters: 152 },
   ];
   readonly convoyPositions: Array<{ x: number; y: number; z: number; heading: number }> = [];
   private readonly convoyPosPool = [
@@ -371,7 +372,6 @@ export class DriveFestivities {
   private readonly redLightPlow = createAccurateCybertruck(true, true);
   private stoppedSec = 0;
   private plowActive = false;
-  private plowEscortMode = false;
   private plowProgress = 90;
   private plowCooldown = 0;
   private plowWorldX = 0;
@@ -457,7 +457,6 @@ export class DriveFestivities {
   private readonly powerTimers: Record<MagicPowerId, number> = {
     giftRain: 0,
     superAurora: 0,
-    escortConvoy: 0,
     grandFinale: 0,
   };
   private giftRainCooldown = 0;
@@ -1059,7 +1058,13 @@ export class DriveFestivities {
       return eq.megaSnowball ? { label: 'På ✓', isOff: false } : { label: 'Av', isOff: true };
     }
     if (id === 'companionOwl') {
-      return eq.companionOwl ? { label: 'På ✓', isOff: false } : { label: 'Av', isOff: true };
+      const owlMode = OWL_MODES.find(
+        m => m.companionOwl === eq.companionOwl && m.cyberOwl === eq.cyberOwl
+      ) ?? OWL_MODES[2];
+      return {
+        label: `${owlMode.label} ↻`,
+        isOff: !eq.companionOwl,
+      };
     }
     const mode = ROYAL_SLEIGH_MODES.find(
       m => m.goldenSleigh === eq.goldenSleigh && m.cyberReindeer === eq.cyberReindeer
@@ -1113,23 +1118,6 @@ export class DriveFestivities {
       this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
       this.spawnRingBurst(['#2dffaa', '#3ce8ff', '#ff4fa8', '#a855ff'], 1.18);
       this.announce(`🌌 Super-Norrsken aktiverat! (${spec.durationSec}s)`, 4.5);
-    } else if (id === 'escortConvoy') {
-      this.convoyTime = Math.max(this.convoyTime, spec.durationSec);
-      this.convoy[0].active = false;
-      this.convoy[0].mode = 'same';
-      this.convoy[0].aheadMeters = 36;
-      this.convoy[0].escortExit = false;
-      this.convoy[1].active = false;
-      this.convoy[1].mode = this.matchedStreet?.oneway ? 'same' : 'oncoming';
-      this.convoy[1].aheadMeters = this.convoy[1].mode === 'same' ? 54 : 64;
-      this.convoy[1].escortExit = false;
-      this.plowActive = false;
-      this.plowHasPose = false;
-      this.plowEscortMode = true;
-      this.plowCooldown = 0;
-      this.sleigh.triggerReaction('hohoho');
-      this.audio.playConvoyHorn();
-      this.announce(`🚛 Semi-konvoj & Plog kallad in! (${spec.durationSec}s)`, 4.8);
     } else if (id === 'grandFinale') {
       this.lightShowTimer = Math.max(this.lightShowTimer, spec.durationSec);
       this.hornFlashTimer = Math.max(this.hornFlashTimer, spec.durationSec);
@@ -1164,6 +1152,7 @@ export class DriveFestivities {
         this.magicState.equipped.cyberReindeer = true;
       } else if (id === 'companionOwl') {
         this.magicState.equipped.companionOwl = true;
+        this.magicState.equipped.cyberOwl = false;
       }
       this.saveMagicState();
       this.notifyCosmetics();
@@ -1194,9 +1183,22 @@ export class DriveFestivities {
       this.magicState.equipped.cyberReindeer = next.cyberReindeer;
       this.announce(`👑 Släde: ${next.label}`, 3.2);
     } else if (id === 'companionOwl') {
-      const next = !this.magicState.equipped.companionOwl;
-      this.magicState.equipped.companionOwl = next;
-      this.announce(`🦉 Följe-uggla: ${next ? 'PÅ' : 'AV'}`, 3.2);
+      const curIdx = OWL_MODES.findIndex(
+        m =>
+          m.companionOwl === this.magicState.equipped.companionOwl &&
+          m.cyberOwl === this.magicState.equipped.cyberOwl
+      );
+      const next = OWL_MODES[(curIdx + 1 + OWL_MODES.length) % OWL_MODES.length];
+      this.magicState.equipped.companionOwl = next.companionOwl;
+      this.magicState.equipped.cyberOwl = next.cyberOwl;
+      this.announce(
+        next.cyberOwl
+          ? '🤖 Cyber-uggla aktiverad!'
+          : next.companionOwl
+            ? '🦉 Följe-uggla: Snöuggla'
+            : '🦉 Följe-uggla: Av',
+        3.2
+      );
     }
     this.saveMagicState();
     this.notifyCosmetics();
@@ -1336,7 +1338,7 @@ export class DriveFestivities {
   setSkyCinemaSurface(surface: SkyCinemaSurface): void {
     this.cinemaSurface = surface;
     try {
-      localStorage.setItem('tesla-xmas-cinema-surface', surface);
+      localStorage.setItem('tesla-xmas-cinema-surface-v2', surface);
     } catch {
       // Ignore
     }
@@ -1770,7 +1772,7 @@ export class DriveFestivities {
     }
 
     // Active Julmagi Instant Power timers & choreographed spectacles
-    for (const key of ['giftRain', 'superAurora', 'escortConvoy', 'grandFinale'] as const) {
+    for (const key of ['giftRain', 'superAurora', 'grandFinale'] as const) {
       if (this.powerTimers[key] > 0) {
         this.powerTimers[key] = Math.max(0, this.powerTimers[key] - dt);
       }
@@ -1988,88 +1990,29 @@ export class DriveFestivities {
     // Coca-Cola & Tesla Convoy on Real Mapped Lanes (cleanly offset in oncoming lane; never clips player!)
     const eastCar = Math.sin(heading);
     const northCar = Math.cos(heading);
-    const rightCarX = northCar;
-    const rightCarZ = eastCar;
-    const escortActive = this.powerTimers.escortConvoy > 0;
-    if (escortActive) {
-      this.convoyTime = Math.max(this.convoyTime, this.powerTimers.escortConvoy);
-    }
     this.convoyTime = Math.max(0, this.convoyTime - dt);
     this.convoyPositions.length = 0;
     const beat = this.audio.getBeatEnergy();
     const hornPulse = this.hornFlashTimer > 0 ? Math.max(0, Math.sin(this.hornFlashTimer * 12) * 0.4 + 0.85) : 0;
-    const lightShowBoost = beat * 0.65 + (this.hornFlashTimer > 0 ? 0.85 : 0) + (escortActive ? 0.9 : 0);
+    const lightShowBoost = beat * 0.65 + (this.hornFlashTimer > 0 ? 0.85 : 0);
     for (let index = 0; index < this.convoy.length; index++) {
       const entry = this.convoy[index];
       if (!entry.active) {
-        if (this.convoyTime <= 0 || (!street && !escortActive)) {
+        if (this.convoyTime <= 0 || !street) {
           entry.handle.group.visible = false;
           continue;
         }
-        if (escortActive) {
-          entry.mode = index === 0 || street?.oneway ? 'same' : 'oncoming';
-          entry.aheadMeters = index === 0 ? 36 : (entry.mode === 'same' ? 54 : 64);
-          entry.escortExit = false;
-        } else {
-          entry.mode = 'oncoming';
-          entry.escortExit = false;
-          entry.aheadMeters -= 15 * dt;
-        }
-        const spawnSlot = street && entry.aheadMeters > 16 && pointAlongStreet(street, center, heading, entry.aheadMeters);
-        const laneOffset = street
-          ? (entry.mode === 'same'
-              ? this.oncomingLaneOffset(street.widthM, 0.36)
-              : this.oncomingLaneOffset(street.widthM, 0.35))
-          : -4.0;
-        if (spawnSlot && street) {
+        entry.aheadMeters -= 15 * dt;
+        const spawnSlot = entry.aheadMeters > 16 && pointAlongStreet(street, center, heading, entry.aheadMeters);
+        const laneOffset = this.oncomingLaneOffset(street.widthM, 0.35);
+        if (spawnSlot) {
           entry.worldX = spawnSlot.x + Math.cos(spawnSlot.heading) * laneOffset;
           entry.worldZ = spawnSlot.z + Math.sin(spawnSlot.heading) * laneOffset;
-          entry.heading = entry.mode === 'same' ? spawnSlot.heading : spawnSlot.heading + Math.PI;
-          entry.active = true;
-        } else if (escortActive && hasActiveWorld) {
-          const fallbackAhead = entry.aheadMeters;
-          const fallbackLat = index === 0 ? -4.1 : 4.1;
-          entry.worldX = center.x + eastCar * fallbackAhead + rightCarX * fallbackLat;
-          entry.worldZ = center.z - northCar * fallbackAhead + rightCarZ * fallbackLat;
-          entry.heading = entry.mode === 'same' ? heading : heading + Math.PI;
+          entry.heading = spawnSlot.heading + Math.PI;
           entry.active = true;
         } else {
           entry.handle.group.visible = false;
           continue;
-        }
-      } else if (entry.mode === 'same') {
-        if (escortActive) {
-          // Cruise smoothly ahead in adjacent lane matching road curves
-          const targetCruise = (index === 0 ? 34 : 52) + Math.sin(time * 0.55 + index * 2.1) * 3.5;
-          entry.aheadMeters = THREE.MathUtils.damp(entry.aheadMeters, targetCruise, 1.8, dt);
-          const candSlot = street && pointAlongStreet(street, center, heading, entry.aheadMeters);
-          if (candSlot && street) {
-            const laneOffset = index === 0
-              ? this.oncomingLaneOffset(street.widthM, 0.36)
-              : Math.min(street.widthM * 0.34, 2.8);
-            const cx = candSlot.x + Math.cos(candSlot.heading) * laneOffset;
-            const cz = candSlot.z + Math.sin(candSlot.heading) * laneOffset;
-            const followAlpha = 1 - Math.exp(-dt * 5.0);
-            entry.worldX = THREE.MathUtils.lerp(entry.worldX, cx, followAlpha);
-            entry.worldZ = THREE.MathUtils.lerp(entry.worldZ, cz, followAlpha);
-            const dHead = Math.atan2(Math.sin(candSlot.heading - entry.heading), Math.cos(candSlot.heading - entry.heading));
-            entry.heading += dHead * followAlpha;
-          } else {
-            const fallbackLat = index === 0 ? -4.1 : 4.1;
-            const tx = center.x + eastCar * entry.aheadMeters + rightCarX * fallbackLat;
-            const tz = center.z - northCar * entry.aheadMeters + rightCarZ * fallbackLat;
-            const followAlpha = 1 - Math.exp(-dt * 4.5);
-            entry.worldX = THREE.MathUtils.lerp(entry.worldX, tx, followAlpha);
-            entry.worldZ = THREE.MathUtils.lerp(entry.worldZ, tz, followAlpha);
-            const dHead = Math.atan2(Math.sin(heading - entry.heading), Math.cos(heading - entry.heading));
-            entry.heading += dHead * followAlpha;
-          }
-        } else {
-          // Escort ended: drive cleanly ahead out of sight before disappearing
-          entry.escortExit = true;
-          const exitSpeed = Math.max(16, frame.speedKmh / 3.6 + 14);
-          entry.worldX += Math.sin(entry.heading) * exitSpeed * dt;
-          entry.worldZ -= Math.cos(entry.heading) * exitSpeed * dt;
         }
       } else {
         entry.aheadMeters -= 15 * dt;
@@ -2092,21 +2035,14 @@ export class DriveFestivities {
         }
       }
 
-      const safeConvoy =
-        entry.mode === 'oncoming' || index === 0
-          ? this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 4.0, center, heading)
-          : { x: entry.worldX, z: entry.worldZ };
+      const safeConvoy = this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 4.0, center, heading);
       const dx = safeConvoy.x - center.x;
       const dz = safeConvoy.z - center.z;
       const ahead = dx * eastCar - dz * northCar;
       const dist = Math.hypot(dx, dz);
-      const shouldDespawn = entry.mode === 'same'
-        ? (entry.escortExit && (ahead > 135 || dist > 165))
-        : (ahead < -40 || dist > 210);
-      if (shouldDespawn) {
+      if (ahead < -40 || dist > 210) {
         entry.active = false;
-        entry.escortExit = false;
-        entry.aheadMeters = escortActive ? (entry.mode === 'same' ? 36 : 64) : entry.baseOffset;
+        entry.aheadMeters = entry.baseOffset;
         entry.handle.group.visible = false;
         continue;
       }
@@ -2149,50 +2085,8 @@ export class DriveFestivities {
       this.redLightOptimus.group.visible = false;
     }
 
-    // Red-Light Oncoming Plow OR Escort Lead Cybertruck Snowplow right ahead on the road!
-    if (escortActive && hasActiveWorld) {
-      if (!this.plowActive || !this.plowEscortMode) {
-        const startLead = 21;
-        const leadSpot = street && pointAlongStreet(street, center, heading, startLead);
-        if (leadSpot && street) {
-          const lane = Math.min(street.widthM * 0.24, 1.8);
-          this.plowWorldX = leadSpot.x + Math.cos(leadSpot.heading) * lane;
-          this.plowWorldZ = leadSpot.z + Math.sin(leadSpot.heading) * lane;
-          this.plowHeading = leadSpot.heading;
-        } else {
-          this.plowWorldX = center.x + eastCar * startLead + rightCarX * 1.6;
-          this.plowWorldZ = center.z - northCar * startLead + rightCarZ * 1.6;
-          this.plowHeading = heading;
-        }
-        this.plowProgress = startLead;
-        this.plowHasPose = true;
-        this.plowActive = true;
-        this.plowEscortMode = true;
-      } else {
-        const targetLead = 20.5 + Math.sin(time * 0.7) * 2.0;
-        this.plowProgress = THREE.MathUtils.damp(this.plowProgress, targetLead, 2.2, dt);
-        const leadSpot = street && pointAlongStreet(street, center, heading, this.plowProgress);
-        if (leadSpot && street) {
-          const lane = Math.min(street.widthM * 0.24, 1.8);
-          const tx = leadSpot.x + Math.cos(leadSpot.heading) * lane;
-          const tz = leadSpot.z + Math.sin(leadSpot.heading) * lane;
-          const followAlpha = 1 - Math.exp(-dt * 5.2);
-          this.plowWorldX = THREE.MathUtils.lerp(this.plowWorldX, tx, followAlpha);
-          this.plowWorldZ = THREE.MathUtils.lerp(this.plowWorldZ, tz, followAlpha);
-          const dHead = Math.atan2(Math.sin(leadSpot.heading - this.plowHeading), Math.cos(leadSpot.heading - this.plowHeading));
-          this.plowHeading += dHead * followAlpha;
-        } else {
-          const tx = center.x + eastCar * this.plowProgress + rightCarX * 1.6;
-          const tz = center.z - northCar * this.plowProgress + rightCarZ * 1.6;
-          const followAlpha = 1 - Math.exp(-dt * 4.8);
-          this.plowWorldX = THREE.MathUtils.lerp(this.plowWorldX, tx, followAlpha);
-          this.plowWorldZ = THREE.MathUtils.lerp(this.plowWorldZ, tz, followAlpha);
-          const dHead = Math.atan2(Math.sin(heading - this.plowHeading), Math.cos(heading - this.plowHeading));
-          this.plowHeading += dHead * followAlpha;
-        }
-      }
-    } else if (!this.plowActive && this.stoppedSec > 3.8 && this.plowCooldown <= 0 && hasActiveWorld) {
-      this.plowEscortMode = false;
+    // Red-Light Oncoming Plow cameo
+    if (!this.plowActive && this.stoppedSec > 3.8 && this.plowCooldown <= 0 && hasActiveWorld) {
       const startD = street ? [112, 88, 64, 48].find(d => pointAlongStreet(street, center, heading, d)) : undefined;
       if (street && startD !== undefined) {
         const spawnSpot = pointAlongStreet(street, center, heading, startD);
@@ -2208,47 +2102,34 @@ export class DriveFestivities {
         }
       }
     } else if (this.plowActive && this.plowHasPose) {
-      if (this.plowEscortMode) {
-        // Escort ended: smoothly accelerate ahead out of view
-        const exitSpeed = Math.max(16, frame.speedKmh / 3.6 + 15);
-        this.plowWorldX += Math.sin(this.plowHeading) * exitSpeed * dt;
-        this.plowWorldZ -= Math.cos(this.plowHeading) * exitSpeed * dt;
-      } else {
-        this.plowProgress -= 14 * dt;
-        const plowSpot = street && pointAlongStreet(street, center, heading, this.plowProgress);
-        let followedStreet = false;
-        if (plowSpot && street) {
-          const lane = this.oncomingLaneOffset(street.widthM, 0.2);
-          const cx = plowSpot.x + Math.cos(plowSpot.heading) * lane;
-          const cz = plowSpot.z + Math.sin(plowSpot.heading) * lane;
-          if (Math.hypot(cx - this.plowWorldX, cz - this.plowWorldZ) < 8.5) {
-            this.plowWorldX = cx;
-            this.plowWorldZ = cz;
-            this.plowHeading = plowSpot.heading + Math.PI;
-            followedStreet = true;
-          }
+      this.plowProgress -= 14 * dt;
+      const plowSpot = street && pointAlongStreet(street, center, heading, this.plowProgress);
+      let followedStreet = false;
+      if (plowSpot && street) {
+        const lane = this.oncomingLaneOffset(street.widthM, 0.2);
+        const cx = plowSpot.x + Math.cos(plowSpot.heading) * lane;
+        const cz = plowSpot.z + Math.sin(plowSpot.heading) * lane;
+        if (Math.hypot(cx - this.plowWorldX, cz - this.plowWorldZ) < 8.5) {
+          this.plowWorldX = cx;
+          this.plowWorldZ = cz;
+          this.plowHeading = plowSpot.heading + Math.PI;
+          followedStreet = true;
         }
-        if (!followedStreet) {
-          this.plowWorldX += Math.sin(this.plowHeading) * 14 * dt;
-          this.plowWorldZ -= Math.cos(this.plowHeading) * 14 * dt;
-        }
+      }
+      if (!followedStreet) {
+        this.plowWorldX += Math.sin(this.plowHeading) * 14 * dt;
+        this.plowWorldZ -= Math.cos(this.plowHeading) * 14 * dt;
       }
     }
 
     if (this.plowActive && this.plowHasPose) {
-      const safePlow = this.plowEscortMode
-        ? { x: this.plowWorldX, z: this.plowWorldZ }
-        : this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 3.4, center, heading);
+      const safePlow = this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 3.4, center, heading);
       const pdx = safePlow.x - center.x;
       const pdz = safePlow.z - center.z;
       const plowAhead = pdx * eastCar - pdz * northCar;
       const plowDist = Math.hypot(pdx, pdz);
-      const shouldHidePlow = this.plowEscortMode
-        ? (!escortActive && (plowAhead > 130 || plowDist > 160))
-        : (plowAhead < -38 || plowDist > 210);
-      if (shouldHidePlow) {
+      if (plowAhead < -38 || plowDist > 210) {
         this.plowActive = false;
-        this.plowEscortMode = false;
         this.plowHasPose = false;
         this.redLightPlow.group.visible = false;
       } else {

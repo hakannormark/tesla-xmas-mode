@@ -46,63 +46,63 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
     id: 'skyvault',
     label: 'Himlavalv',
     shortLabel: 'Himlavalv',
-    description: 'Stor duk på själva himlavalvet bakom bergen, lätt vinklad',
+    description: 'Stor duk som fyller himlen ned bakom bergen, lätt vinklad',
     radius: 670,
-    elevation: 0.215,
-    azimuth: 0.08,
-    roll: -0.055,
-    heightRad: 0.265,
-    widthRad: 0.472,
+    elevation: 0.19,
+    azimuth: 0.05,
+    roll: -0.035,
+    heightRad: 0.43,
+    widthRad: 0.765,
     domeWrap: 1.0,
-    edgeSoftness: 0.92,
-    ovalMix: 0.34,
-    frameStrength: 0.05,
-    minAlpha: 0.24,
-    maxAlpha: 0.95,
-    vibrance: 1.08,
-    veilOpacity: 0.42,
+    edgeSoftness: 0.88,
+    ovalMix: 0.22,
+    frameStrength: 0.04,
+    minAlpha: 0.26,
+    maxAlpha: 0.96,
+    vibrance: 1.1,
+    veilOpacity: 0.44,
     captionOpacity: 0.0,
   },
   {
     id: 'aurora',
     label: 'Norrsken',
     shortLabel: 'Norrsken',
-    description: 'Tydligare norrskensbio rakt fram på himlavalvet',
+    description: 'Tydlig, stor norrskensbio rakt fram ned mot horisonten',
     radius: 670,
-    elevation: 0.21,
+    elevation: 0.185,
     azimuth: 0.0,
-    roll: 0.012,
-    heightRad: 0.255,
-    widthRad: 0.454,
-    domeWrap: 0.95,
-    edgeSoftness: 0.78,
-    ovalMix: 0.24,
-    frameStrength: 0.09,
+    roll: 0.0,
+    heightRad: 0.42,
+    widthRad: 0.748,
+    domeWrap: 0.98,
+    edgeSoftness: 0.76,
+    ovalMix: 0.16,
+    frameStrength: 0.07,
     minAlpha: 0.3,
     maxAlpha: 0.96,
-    vibrance: 1.12,
-    veilOpacity: 0.48,
+    vibrance: 1.14,
+    veilOpacity: 0.5,
     captionOpacity: 0.0,
   },
   {
     id: 'oblique',
     label: 'Sned sky',
     shortLabel: 'Sned sky',
-    description: 'Längre åt sidan och snett krökt över natthimlen',
+    description: 'Stor duk åt sidan och snett krökt över himlavalvet',
     radius: 670,
-    elevation: 0.225,
-    azimuth: -0.165,
-    roll: 0.115,
-    heightRad: 0.26,
-    widthRad: 0.463,
-    domeWrap: 1.15,
-    edgeSoftness: 1.05,
-    ovalMix: 0.5,
+    elevation: 0.2,
+    azimuth: -0.14,
+    roll: 0.095,
+    heightRad: 0.41,
+    widthRad: 0.73,
+    domeWrap: 1.12,
+    edgeSoftness: 0.96,
+    ovalMix: 0.38,
     frameStrength: 0.04,
-    minAlpha: 0.22,
-    maxAlpha: 0.94,
-    vibrance: 1.08,
-    veilOpacity: 0.38,
+    minAlpha: 0.24,
+    maxAlpha: 0.95,
+    vibrance: 1.1,
+    veilOpacity: 0.4,
     captionOpacity: 0.0,
   },
   {
@@ -197,6 +197,7 @@ const SCREEN_FRAG = /* glsl */ `
   uniform float uDaylight;
   uniform float uThemeMode;
   uniform float uHasVideo;
+  uniform float uDomeWrap;
   uniform float uEdgeSoftness;
   uniform float uOvalMix;
   uniform float uFrameStrength;
@@ -233,7 +234,10 @@ const SCREEN_FRAG = /* glsl */ `
     float wispB = vNoise(vec2(vUv.x * 10.5 - uTime * 0.18, vUv.y * 9.0 + uTime * 0.14));
     float auroraWisp = (wispA * 0.65 + wispB * 0.35) - 0.5;
 
-    float boxDist = sdRoundedBox(centered, vec2(0.455, 0.445), 0.045);
+    float skyBlend = smoothstep(0.5, 1.0, uDomeWrap);
+    vec2 boxCenter = vec2(0.0, -0.055 * skyBlend);
+    vec2 boxHalf = vec2(0.455, mix(0.445, 0.51, skyBlend));
+    float boxDist = sdRoundedBox(centered - boxCenter, boxHalf, 0.045);
     float ovalDist = length(centered * vec2(2.08, 2.12)) * 0.48 - 0.415;
     float shapeDist = mix(boxDist, ovalDist, clamp(uOvalMix, 0.0, 1.0));
     shapeDist += auroraWisp * (0.015 + 0.052 * uEdgeSoftness);
@@ -800,7 +804,7 @@ export class SkyCinema {
     this.veilMat.uniforms.uElevation.value = this.curElevation - 0.025 + driftEl;
     this.veilMat.uniforms.uAzimuth.value = this.curAzimuth;
     this.veilMat.uniforms.uRoll.value = (this.curRoll + driftRoll) * 0.7;
-    this.veilMat.uniforms.uAngularSize.value.set(this.curWidthRad * 1.75, this.curHeightRad * 1.85);
+    this.veilMat.uniforms.uAngularSize.value.set(this.curWidthRad * 1.45, this.curHeightRad * 1.5);
     this.veilMat.uniforms.uDomeWrap.value = this.curDomeWrap;
     this.veilMat.uniforms.uVeilOpacity.value = this.curVeilOpacity;
 
