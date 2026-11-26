@@ -55,10 +55,13 @@ export interface OsmForestPatch {
   density: number;
 }
 
+export type OsmChargerSource = 'charging_station' | 'fuel' | 'rest_area' | 'parking';
+
 export interface OsmPoi {
   x: number;
   z: number;
   kind: 'charger' | 'landmark' | 'church' | 'station';
+  chargerSource?: OsmChargerSource;
   tesla?: boolean;
   name: string;
 }
@@ -421,7 +424,14 @@ function buildDemoSnapshot(stopIndex: number, version: number): OsmMapSnapshot {
     );
     addBoxBuilding('giga-office-2', 28, -148, 22, 18, 12.0, 'large_building', 'Giga Design Hub');
     addBoxBuilding('giga-cottage-gate', 22, -46, 8, 6.5, 5.4, 'small_cottage', 'Entrévakt', -0.15);
-    pois.push({ x: 15, z: -96, kind: 'charger', name: 'Supercharger Giga Nord' });
+    pois.push({
+      x: 15,
+      z: -96,
+      kind: 'charger',
+      chargerSource: 'charging_station',
+      tesla: true,
+      name: 'Supercharger Giga Nord',
+    });
     roads.push({ points: [{ x: -75, z: -64 }, { x: 75, z: -64 }], widthM: 8, isMajor: true, name: 'Giga Allé' });
     forests.push({ centerX: 46, centerZ: -64, radiusM: 14, density: 0.45 });
   } else if (stop.placeName === 'Sigtuna') {
@@ -510,7 +520,7 @@ interface OverpassEl {
   tags?: Record<string, string>;
 }
 
-const OSM_CACHE_KEY = 'tesla-xmas-osm-cache-v2';
+const OSM_CACHE_KEY = 'tesla-xmas-osm-cache-v3';
 
 const DRIVABLE_HIGHWAY_RE =
   /^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$/;
@@ -678,6 +688,8 @@ async function fetchOsmMapJson(
           tags.highway === 'traffic_signals' ||
           tags.highway === 'crossing' ||
           tags.highway === 'street_lamp' ||
+          tags.highway === 'services' ||
+          tags.highway === 'rest_area' ||
           tags.amenity ||
           tags.tourism === 'attraction' ||
           tags.railway === 'station'
@@ -685,6 +697,15 @@ async function fetchOsmMapJson(
     }
     if (e.type === 'way') {
       if (tags.building) return true;
+      if (
+        tags.amenity === 'charging_station' ||
+        tags.amenity === 'fuel' ||
+        tags.amenity === 'parking' ||
+        tags.highway === 'services' ||
+        tags.highway === 'rest_area'
+      ) {
+        return true;
+      }
       // Never let railway tracks through as road ways
       if (tags.railway && tags.railway !== 'no') return false;
       if (tags.highway) return isDrivableRoadTags(tags);
@@ -1005,11 +1026,13 @@ export class OsmWorldDirector {
         `way["waterway"~"river|canal|stream"];` +
         `way["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];` +
         `way["leisure"="park"];` +
-        `node["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];` +
+        `node["amenity"~"^(charging_station|fuel|place_of_worship|cafe|restaurant|school|library)$"];` +
+        `way["amenity"~"^(charging_station|fuel|parking)$"];` +
         `node["tourism"="attraction"];` +
         `node["railway"="station"];` +
         `node["natural"="tree"];` +
-        `node["highway"~"^(traffic_signals|crossing|street_lamp)$"];` +
+        `node["highway"~"^(traffic_signals|crossing|street_lamp|services|rest_area)$"];` +
+        `way["highway"~"^(services|rest_area)$"];` +
         `);out body geom;`;
 
       const els = await streetElements(overpassQuery, fetchLat, fetchLon, ctrl.signal);
@@ -1022,7 +1045,8 @@ export class OsmWorldDirector {
       let nextCharger: string | null = null;
       let nextTunnel = false;
 
-      const buildings: OsmBuilding[] = [];
+      const rawBuildings: Array<{ building: OsmBuilding; isFuelCanopy: boolean }> = [];
+      const fuelChargerSpots: OsmPoint2D[] = [];
       const roads: OsmRoadRibbon[] = [];
       const waters: OsmWaterFeature[] = [];
       const forests: OsmForestPatch[] = [];
@@ -1033,6 +1057,33 @@ export class OsmWorldDirector {
       const trafficSignals: OsmPoint2D[] = [];
       const crossings: OsmPoint2D[] = [];
       const seenWays = new Set<number>();
+
+      const formatChargerName = (tags: Record<string, string>, fallback: string): string => {
+        const raw = (tags.name || tags.brand || tags.operator || '').trim();
+        if (!raw) return fallback;
+        return /supercharger/i.test(raw) ? raw : `Supercharger · ${raw}`;
+      };
+      const isTeslaTagged = (tags: Record<string, string>): boolean =>
+        /tesla|supercharger/i.test([tags.name, tags.brand, tags.operator, tags.network].join(' '));
+      const stripClosingPoint = (pts: OsmPoint2D[]): OsmPoint2D[] =>
+        pts.length > 3 &&
+        Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].z - pts[pts.length - 1].z) < 0.5
+          ? pts.slice(0, -1)
+          : pts;
+      const wayCentroid = (pts: OsmPoint2D[]): { cx: number; cz: number; area: number } => {
+        const ring = stripClosingPoint(pts);
+        if (ring.length >= 3) {
+          const stats = polygonStats(ring);
+          return { cx: stats.cx, cz: stats.cz, area: stats.area };
+        }
+        let cx = 0;
+        let cz = 0;
+        for (const p of pts) {
+          cx += p.x;
+          cz += p.z;
+        }
+        return { cx: cx / Math.max(1, pts.length), cz: cz / Math.max(1, pts.length), area: 0 };
+      };
 
       {
         let hasWater = false;
@@ -1056,9 +1107,36 @@ export class OsmWorldDirector {
             } else if (tags.highway === 'crossing') {
               crossings.push(pt);
             } else if (tags.amenity === 'charging_station') {
-              const cname = tags.name || tags.operator || 'Laddstation';
-              if (!nextCharger) nextCharger = cname;
-              pois.push({ x: pt.x, z: pt.z, kind: 'charger', name: cname, tesla: /tesla|supercharger/i.test([tags.name, tags.brand, tags.operator, tags.network].join(' ')) });
+              const cname = tags.name || tags.operator || 'Tesla Supercharger';
+              pois.push({
+                x: pt.x,
+                z: pt.z,
+                kind: 'charger',
+                chargerSource: 'charging_station',
+                name: cname,
+                tesla: isTeslaTagged(tags),
+              });
+            } else if (tags.amenity === 'fuel') {
+              const cname = formatChargerName(tags, 'Tesla Supercharger');
+              fuelChargerSpots.push({ x: pt.x, z: pt.z });
+              pois.push({
+                x: pt.x,
+                z: pt.z,
+                kind: 'charger',
+                chargerSource: 'fuel',
+                tesla: true,
+                name: cname,
+              });
+            } else if (tags.highway === 'services' || tags.highway === 'rest_area') {
+              const cname = formatChargerName(tags, 'Tesla Supercharger');
+              pois.push({
+                x: pt.x,
+                z: pt.z,
+                kind: 'charger',
+                chargerSource: 'rest_area',
+                tesla: true,
+                name: cname,
+              });
             } else if (tags.amenity === 'place_of_worship' && tags.name) {
               if (!nextLandmark) nextLandmark = tags.name;
               pois.push({ x: pt.x, z: pt.z, kind: 'church', name: tags.name });
@@ -1077,6 +1155,63 @@ export class OsmWorldDirector {
           seenWays.add(el.id);
           const pts = el.geometry.map((g) => geoDeltaMeters(fetchLat, fetchLon, g.lat, g.lon));
 
+          if (tags.amenity === 'charging_station') {
+            const c = wayCentroid(pts);
+            const cname = tags.name || tags.operator || 'Tesla Supercharger';
+            pois.push({
+              x: c.cx,
+              z: c.cz,
+              kind: 'charger',
+              chargerSource: 'charging_station',
+              name: cname,
+              tesla: isTeslaTagged(tags),
+            });
+          } else if (tags.amenity === 'fuel') {
+            const c = wayCentroid(pts);
+            const cname = formatChargerName(tags, 'Tesla Supercharger');
+            fuelChargerSpots.push({ x: c.cx, z: c.cz });
+            pois.push({
+              x: c.cx,
+              z: c.cz,
+              kind: 'charger',
+              chargerSource: 'fuel',
+              tesla: true,
+              name: cname,
+            });
+          } else if (tags.highway === 'services' || tags.highway === 'rest_area') {
+            const c = wayCentroid(pts);
+            const cname = formatChargerName(tags, 'Tesla Supercharger');
+            pois.push({
+              x: c.cx,
+              z: c.cz,
+              kind: 'charger',
+              chargerSource: 'rest_area',
+              tesla: true,
+              name: cname,
+            });
+          } else if (tags.amenity === 'parking' && !tags.building) {
+            const access = tags.access?.toLowerCase();
+            const pType = tags.parking?.toLowerCase();
+            if (
+              access !== 'private' &&
+              access !== 'no' &&
+              pType !== 'underground' &&
+              pType !== 'multi-storey'
+            ) {
+              const c = wayCentroid(pts);
+              if (c.area >= 450 && c.area <= 25000) {
+                pois.push({
+                  x: c.cx,
+                  z: c.cz,
+                  kind: 'charger',
+                  chargerSource: 'parking',
+                  tesla: true,
+                  name: formatChargerName(tags, 'Tesla Supercharger'),
+                });
+              }
+            }
+          }
+
           if (tags.building) {
             const ring =
               pts.length > 3 &&
@@ -1087,22 +1222,28 @@ export class OsmWorldDirector {
             const stats = polygonStats(ring);
             if (stats.area < 8) continue;
             const cls = classifyBuilding(tags, stats.area);
-            buildings.push({
-              id: `w-${el.id}`,
-              footprint: ring,
-              centerX: stats.cx,
-              centerZ: stats.cz,
-              widthM: stats.widthM,
-              depthM: stats.depthM,
-              areaM2: stats.area,
-              heightM: cls.heightM,
-              levels: Number.parseFloat(tags['building:levels'] ?? '') || undefined,
-              roofShape: tags['roof:shape'],
-              kind: cls.kind,
-              tesla: /tesla|gigafactory/i.test([tags.name, tags.brand, tags.operator].join(' ')) &&
-                /industrial|warehouse|factory|commercial/.test(tags.building + ' ' + tags.landuse) ||
-                /gigafactory/i.test(tags.name ?? ''),
-              name: tags.name ?? null,
+            const isFuelCanopy =
+              tags.building === 'roof' || tags.building === 'canopy' || tags.amenity === 'fuel';
+            rawBuildings.push({
+              isFuelCanopy,
+              building: {
+                id: `w-${el.id}`,
+                footprint: ring,
+                centerX: stats.cx,
+                centerZ: stats.cz,
+                widthM: stats.widthM,
+                depthM: stats.depthM,
+                areaM2: stats.area,
+                heightM: cls.heightM,
+                levels: Number.parseFloat(tags['building:levels'] ?? '') || undefined,
+                roofShape: tags['roof:shape'],
+                kind: cls.kind,
+                tesla:
+                  (/tesla|gigafactory/i.test([tags.name, tags.brand, tags.operator].join(' ')) &&
+                    /industrial|warehouse|factory|commercial/.test(tags.building + ' ' + tags.landuse)) ||
+                  /gigafactory/i.test(tags.name ?? ''),
+                name: tags.name ?? null,
+              },
             });
             if (cls.kind === 'church' && tags.name) {
               nextLandmark = tags.name;
@@ -1173,67 +1314,107 @@ export class OsmWorldDirector {
           }
         }
 
+        // Suppress raw fuel canopy roofs overlapping within ~20m of an amenity=fuel Supercharger POI
+        const buildings: OsmBuilding[] = [];
+        for (const item of rawBuildings) {
+          if (item.isFuelCanopy && fuelChargerSpots.length > 0) {
+            const b = item.building;
+            const overlapsFuel = fuelChargerSpots.some(
+              f =>
+                Math.hypot(b.centerX - f.x, b.centerZ - f.z) <= 20 ||
+                b.footprint.some(pt => Math.hypot(pt.x - f.x, pt.z - f.z) <= 20)
+            );
+            if (overlapsFuel) continue;
+          }
+          buildings.push(item.building);
+        }
+
         // Strict Street-View land-use reflection: NO fake forests injected in open land!
         if (hasWater && waters.length > 0) nextBiome = 'water';
         else if (hasForest && buildings.length < 7) nextBiome = 'forest';
         else if (buildings.length >= 4 || hasUrban) nextBiome = 'village';
         else if (hasOpenFields || (!hasForest && buildings.length <= 3 && !hasHighwayOnly)) nextBiome = 'open';
         else nextBiome = 'highway';
-      }
 
-      const distSq = (x: number, z: number) => x * x + z * z;
-      buildings.sort((a, b) => distSq(a.centerX, a.centerZ) - distSq(b.centerX, b.centerZ));
-      forests.sort((a, b) => distSq(a.centerX, a.centerZ) - distSq(b.centerX, b.centerZ));
-      pois.sort((a, b) => distSq(a.x, a.z) - distSq(b.x, b.z));
+        const distSq = (x: number, z: number) => x * x + z * z;
+        buildings.sort((a, b) => distSq(a.centerX, a.centerZ) - distSq(b.centerX, b.centerZ));
+        forests.sort((a, b) => distSq(a.centerX, a.centerZ) - distSq(b.centerX, b.centerZ));
 
-      const placeChanged =
-        nextPlace !== this.placeName || nextBiome !== this.biome || nextLandmark !== this.nearbyLandmark;
-      const originLat = fetchLat;
-      const originLon = fetchLon;
-      if (ctrl.signal.aborted) return;
-      this.retryMap = false;
-      this.isLiveOsm = true;
-      this.placeName = nextPlace;
-      this.roadName = nextRoad;
-      this.biome = nextBiome;
-      this.nearbyLandmark = nextLandmark;
-      this.nearbyChargerName = nextCharger;
-      this.isNearRealTunnel = nextTunnel;
-      this.snapshotVersion++;
-      this.snapshot = {
-        version: this.snapshotVersion,
-        biome: nextBiome,
-        originLat,
-        originLon,
-        buildings: buildings.slice(0, 220),
-        trees,
-        woodland,
-        streetLamps: streetLamps.slice(0, 120),
-        trafficSignals: trafficSignals.slice(0, 24),
-        crossings: crossings.slice(0, 32),
-        roads,
-        waters: waters.slice(0, 10),
-        forests: forests.slice(0, 14),
-        pois: pois.slice(0, 8),
-      };
+        const chargerRank = (p: OsmPoi): number =>
+          p.chargerSource === 'charging_station'
+            ? 0
+            : p.chargerSource === 'fuel'
+              ? 1
+              : p.chargerSource === 'rest_area'
+                ? 2
+                : 3;
+        const chargerPois = pois
+          .filter(p => p.kind === 'charger')
+          .sort((a, b) => chargerRank(a) - chargerRank(b) || distSq(a.x, a.z) - distSq(b.x, b.z));
+        const dedupedChargers: OsmPoi[] = [];
+        for (const cp of chargerPois) {
+          if (dedupedChargers.some(q => Math.hypot(q.x - cp.x, q.z - cp.z) < 24)) continue;
+          dedupedChargers.push(cp);
+          if (dedupedChargers.length >= 12) break;
+        }
+        const otherPois = pois
+          .filter(p => p.kind !== 'charger')
+          .sort((a, b) => distSq(a.x, a.z) - distSq(b.x, b.z))
+          .slice(0, 8);
+        const finalPois = [...dedupedChargers, ...otherPois];
+        if (!nextCharger && dedupedChargers.length > 0) {
+          nextCharger = dedupedChargers[0].name;
+        }
 
-      this.saveToCache({
-        cellKey: osmCellKey(lat, lon),
-        savedAtMs: Date.now(),
-        lat,
-        lon,
-        placeName: nextPlace,
-        roadName: nextRoad,
-        biome: nextBiome,
-        nearbyLandmark: nextLandmark,
-        nearbyChargerName: nextCharger,
-        isNearRealTunnel: nextTunnel,
-        snapshot: this.snapshot,
-      });
+        const placeChanged =
+          nextPlace !== this.placeName || nextBiome !== this.biome || nextLandmark !== this.nearbyLandmark;
+        const originLat = fetchLat;
+        const originLon = fetchLon;
+        if (ctrl.signal.aborted) return;
+        this.retryMap = false;
+        this.isLiveOsm = true;
+        this.placeName = nextPlace;
+        this.roadName = nextRoad;
+        this.biome = nextBiome;
+        this.nearbyLandmark = nextLandmark;
+        this.nearbyChargerName = nextCharger;
+        this.isNearRealTunnel = nextTunnel;
+        this.snapshotVersion++;
+        this.snapshot = {
+          version: this.snapshotVersion,
+          biome: nextBiome,
+          originLat,
+          originLon,
+          buildings: buildings.slice(0, 220),
+          trees,
+          woodland,
+          streetLamps: streetLamps.slice(0, 120),
+          trafficSignals: trafficSignals.slice(0, 24),
+          crossings: crossings.slice(0, 32),
+          roads,
+          waters: waters.slice(0, 10),
+          forests: forests.slice(0, 14),
+          pois: finalPois,
+        };
 
-      if (placeChanged) {
-        this.landmarkPulse = 1.0;
-        this.emitPlaceChange();
+        this.saveToCache({
+          cellKey: osmCellKey(lat, lon),
+          savedAtMs: Date.now(),
+          lat,
+          lon,
+          placeName: nextPlace,
+          roadName: nextRoad,
+          biome: nextBiome,
+          nearbyLandmark: nextLandmark,
+          nearbyChargerName: nextCharger,
+          isNearRealTunnel: nextTunnel,
+          snapshot: this.snapshot,
+        });
+
+        if (placeChanged) {
+          this.landmarkPulse = 1.0;
+          this.emitPlaceChange();
+        }
       }
     } catch {
       this.retryMap = true;

@@ -33,7 +33,7 @@ const buildings: OsmBuilding[] = district.buildings.map(({ ring, height }, index
 
 const map: OsmWorldState = {
   enabled: true, isLiveOsm: true, placeName: 'Djursholm', roadName: 'Lokevägen',
-  biome: 'village', nearbyLandmark: null, nearbyChargerName: null, isNearRealTunnel: false,
+  biome: 'village', nearbyLandmark: null, nearbyChargerName: 'Supercharger Djursholm', isNearRealTunnel: false,
   landmarkPulse: 0, buildingCount: buildings.length, waterCount: 0, forestCount: 0, demoTravelM: 0,
   snapshot: {
     version: -1, biome: 'village', originLat: district.origin[0], originLon: district.origin[1],
@@ -48,7 +48,16 @@ const map: OsmWorldState = {
     buildings,
     waters: [],
     forests: [],
-    pois: [],
+    pois: [
+      {
+        x: 39.6,
+        z: 64.3,
+        kind: 'charger',
+        chargerSource: 'charging_station',
+        tesla: true,
+        name: 'Supercharger Djursholm',
+      },
+    ],
     trafficSignals: [
       { x: 82.7, z: 116.4 },
       { x: 264.5, z: 366.3 },

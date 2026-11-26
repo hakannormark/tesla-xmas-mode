@@ -3,6 +3,7 @@ import { ActiveElonEvent } from '../core/elonEvents';
 import { getSoftGlowTexture, getStarSpriteTexture } from './pixarMaterials';
 import {
   AccurateCybertruckHandle,
+  SuperchargerPlazaHandle,
   createAccurateCybertruck,
   createAccurateStarmanRoadster,
   createAccurateStarshipStack,
@@ -32,7 +33,7 @@ export class PixarElonRig {
   private starlinkGroup: THREE.Group;
   private starshipGroup: THREE.Group;
   private starshipStar: THREE.Sprite;
-  private superchargerPlaza: { group: THREE.Group; update(time: number): void };
+  private superchargerPlaza: SuperchargerPlazaHandle;
   private cybertruck: AccurateCybertruckHandle;
 
   private tempPos = new THREE.Vector3();
@@ -146,13 +147,10 @@ export class PixarElonRig {
       }
     }
 
-    // 4. Tesla V4 Nordpolen Supercharger Oasis + waving Optimus Gen 2 Elf (planted at true road speed!)
-    this.superchargerPlaza.group.visible = type === 'supercharger' && anchors.mappedSupercharger !== null;
+    // 4. Festive Tesla V4 Supercharger Winter Plaza (ChristmasMap permanently renders mapped plazas, so avoid duplicating when mappedSupercharger is passed)
+    this.superchargerPlaza.group.visible = type === 'supercharger' && anchors.mappedSupercharger === undefined;
     if (this.superchargerPlaza.group.visible) {
-      if (anchors.mappedSupercharger) {
-        this.superchargerPlaza.group.position.copy(anchors.mappedSupercharger);
-        this.superchargerPlaza.group.rotation.y = 0;
-      } else if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
+      if (anchors.forwardStep !== undefined && anchors.getRoadCurveX) {
         this.superchargerZ += anchors.forwardStep;
         const wrapZ = anchors.superchargerWrapZ ?? 24;
         if (this.superchargerZ > wrapZ) this.superchargerZ = anchors.superchargerStartZ ?? -132;
@@ -167,7 +165,7 @@ export class PixarElonRig {
         this.superchargerPlaza.group.position.copy(this.tempPos);
         this.superchargerPlaza.group.rotation.y = 0;
       }
-      this.superchargerPlaza.update(time);
+      this.superchargerPlaza.update(time, 0.85, 0);
     }
 
     // 5. Cybertruck Snowplow hauling glowing tree in oncoming lane

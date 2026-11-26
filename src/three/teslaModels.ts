@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { tryLoadOptionalGlb } from './glbModelLoader';
 import {
   createCocaColaTrailerTexture,
+  createGigaSolarRoofTexture,
   createSparklingSnowMaterial,
   createTeslaTrailerTexture,
   createTruckRearDoorTexture,
@@ -1471,192 +1472,969 @@ export function createAccurateOptimusGen2(): AccurateOptimusHandle {
 }
 
 /**
- * 5B. NORDPOLENS SUPERCHARGER-OAS (V4 Monoliths + Candy-Cane Arch + Glöggbod + Optimus Gen 2 Elf)
+ * 5B. FESTIVE TESLA V4 SUPERCHARGER WINTER PLAZA (0 PointLights — GPU-shared geometry & textures)
+ * Local coordinates:
+ * - X: width along the street (-7.25 .. +7.25, 14.5m total)
+ * - Z: depth perpendicular to the street (-3.75 .. +3.75, 7.5m total); +Z faces the street!
+ * - Y: ground = 0 (pad foundation extends down to -0.35m for clean anchoring on slopes)
  */
-let sharedOasisHeaderTex: THREE.CanvasTexture | null = null;
-function getOasisHeaderTex(): THREE.CanvasTexture {
-  if (sharedOasisHeaderTex) return sharedOasisHeaderTex;
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 96;
-  const ctx = c.getContext('2d')!;
-  const grad = ctx.createLinearGradient(0, 0, 512, 96);
-  grad.addColorStop(0, '#8f0a20');
-  grad.addColorStop(0.5, '#c8122f');
-  grad.addColorStop(1, '#780819');
-  ctx.fillStyle = grad;
+export interface SuperchargerPlazaHandle {
+  group: THREE.Group;
+  update(time: number, lightShow?: number, daylight?: number): void;
+  dispose(): void;
+}
+
+let sharedScPadTex: THREE.CanvasTexture | null = null;
+let sharedScTotemTex: THREE.CanvasTexture | null = null;
+let sharedScValanceTex: THREE.CanvasTexture | null = null;
+
+function drawSuperchargerCrest(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = '#e81b38';
   ctx.beginPath();
-  ctx.roundRect(4, 4, 504, 88, 16);
+  ctx.moveTo(-size * 0.68, -size * 0.28);
+  ctx.quadraticCurveTo(0, -size * 0.46, size * 0.68, -size * 0.28);
+  ctx.lineTo(size * 0.56, -size * 0.16);
+  ctx.quadraticCurveTo(0, -size * 0.31, -size * 0.56, -size * 0.16);
+  ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = '#ffe08a';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.fillStyle = '#fff9ea';
-  ctx.font = '700 28px "Cinzel", Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('⚡ NORDPOLEN SUPERCHARGER', 256, 36);
-  ctx.fillStyle = '#ffe08a';
-  ctx.font = '600 18px Inter, sans-serif';
-  ctx.fillText('GLÖGG · PEPPARKAKOR · 250 kW JULKRAFT', 256, 68);
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.52, -size * 0.08);
+  ctx.quadraticCurveTo(0, -size * 0.21, size * 0.52, -size * 0.08);
+  ctx.lineTo(size * 0.14, size * 0.04);
+  ctx.lineTo(0, size * 0.68);
+  ctx.lineTo(-size * 0.14, size * 0.04);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function getHeatedPadTex(): THREE.CanvasTexture {
+  if (sharedScPadTex) return sharedScPadTex;
+  const w = 512;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#181f2b');
+  grad.addColorStop(0.5, '#1e2736');
+  grad.addColorStop(1, '#151c27');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle heated concrete expansion joints & winter asphalt micro-grain
+  ctx.strokeStyle = 'rgba(8, 12, 20, 0.48)';
+  ctx.lineWidth = 2;
+  for (let x = 64; x < w; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 64; y < h; y += 64) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 650; i++) {
+    const px = ((i * 73) % w);
+    const py = ((i * 41) % h);
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(150, 175, 210, 0.06)' : 'rgba(6, 10, 16, 0.16)';
+    ctx.fillRect(px, py, 2, 2);
+  }
+  // Subtle perimeter frost rim
+  ctx.strokeStyle = 'rgba(205, 224, 248, 0.18)';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(4, 4, w - 8, h - 8);
+
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  sharedOasisHeaderTex = tex;
+  tex.anisotropy = 4;
+  sharedScPadTex = tex;
   return tex;
 }
 
-export function createAccurateSuperchargerPlaza(): { group: THREE.Group; update(time: number): void } {
+function getSuperchargerTotemTex(): THREE.CanvasTexture {
+  if (sharedScTotemTex) return sharedScTotemTex;
+  const w = 256;
+  const h = 512;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#0c121e');
+  bg.addColorStop(0.55, '#141d2e');
+  bg.addColorStop(1, '#090e18');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle brushed aluminum frame & left vertical crimson accent bar
+  ctx.strokeStyle = 'rgba(195, 212, 236, 0.28)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(8, 8, w - 16, h - 16);
+  ctx.fillStyle = '#ff1f3d';
+  ctx.fillRect(14, 24, 10, h - 48);
+
+  // Red Tesla T-crest medallion at top
+  drawSuperchargerCrest(ctx, w * 0.54, 132, 74);
+
+  // Glowing crimson divider
+  ctx.fillStyle = '#ff2442';
+  ctx.fillRect(46, 228, w - 72, 5);
+
+  // Crisp SUPERCHARGER wordmark
+  ctx.fillStyle = '#f6f9ff';
+  ctx.font = '800 26px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('SUPERCHARGER', w * 0.54, 276);
+
+  ctx.fillStyle = '#b9cbe4';
+  ctx.font = '600 18px Inter, system-ui, sans-serif';
+  ctx.fillText('V4 · 250 kW', w * 0.54, 316);
+
+  // Festive winter badge at bottom
+  ctx.fillStyle = 'rgba(255, 224, 146, 0.92)';
+  ctx.font = '600 15px Inter, system-ui, sans-serif';
+  ctx.fillText('✦  WINTER LOUNGE  ✦', w * 0.54, 384);
+
+  ctx.fillStyle = '#ff2442';
+  ctx.fillRect(46, 442, w - 72, 6);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  sharedScTotemTex = tex;
+  return tex;
+}
+
+function getCanopyFrontValanceTex(): THREE.CanvasTexture {
+  if (sharedScValanceTex) return sharedScValanceTex;
+  const w = 1024;
+  const h = 96;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#0f1624');
+  bg.addColorStop(1, '#192336');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(206, 222, 245, 0.25)';
+  ctx.fillRect(0, 0, w, 4);
+
+  drawSuperchargerCrest(ctx, 210, 48, 30);
+
+  ctx.fillStyle = '#f5f8ff';
+  ctx.font = '700 34px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('T E S L A   S U P E R C H A R G E R', w * 0.54, 50);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  sharedScValanceTex = tex;
+  return tex;
+}
+
+interface SuperchargerSharedAssets {
+  // Static materials
+  padMat: THREE.MeshStandardMaterial;
+  curbMat: THREE.MeshStandardMaterial;
+  stripeMat: THREE.MeshStandardMaterial;
+  wheelStopMat: THREE.MeshStandardMaterial;
+  wheelStopRedMat: THREE.MeshBasicMaterial;
+  graphiteMat: THREE.MeshStandardMaterial;
+  solarRoofMat: THREE.MeshStandardMaterial;
+  valanceMat: THREE.MeshBasicMaterial;
+  snowMat: THREE.MeshStandardMaterial;
+  icicleMat: THREE.MeshStandardMaterial;
+  v4WhiteMat: THREE.MeshPhysicalMaterial;
+  v4BlackGlassMat: THREE.MeshStandardMaterial;
+  v4CableMat: THREE.MeshStandardMaterial;
+  v4BadgeMat: THREE.MeshBasicMaterial;
+  wreathMat: THREE.MeshStandardMaterial;
+  crimsonMat: THREE.MeshStandardMaterial;
+  goldMat: THREE.MeshBasicMaterial;
+  santaFurMat: THREE.MeshStandardMaterial;
+  totemFaceMat: THREE.MeshBasicMaterial;
+  pineMat: THREE.MeshStandardMaterial;
+  trunkMat: THREE.MeshStandardMaterial;
+  megapackMat: THREE.MeshStandardMaterial;
+  cyberSteelMat: THREE.MeshPhysicalMaterial;
+  cyberGlassMat: THREE.MeshStandardMaterial;
+  cyberTrimMat: THREE.MeshStandardMaterial;
+  cyberDrlMat: THREE.MeshBasicMaterial;
+  cyberTailMat: THREE.MeshBasicMaterial;
+  // Shared geometries
+  padGeo: THREE.BoxGeometry;
+  curbGeo: THREE.BoxGeometry;
+  snowRimGeo: THREE.SphereGeometry;
+  bayLineGeo: THREE.BoxGeometry;
+  entryLineGeo: THREE.BoxGeometry;
+  wheelStopGeo: THREE.BoxGeometry;
+  wheelStopRedGeo: THREE.BoxGeometry;
+  glowPlaneGeo: THREE.PlaneGeometry;
+  colPlinthGeo: THREE.BoxGeometry;
+  colShaftGeo: THREE.BoxGeometry;
+  colBeamGeo: THREE.BoxGeometry;
+  roofDeckGeo: THREE.BoxGeometry;
+  roofSolarGeo: THREE.PlaneGeometry;
+  valanceGeo: THREE.PlaneGeometry;
+  canopyRedBarGeo: THREE.BoxGeometry;
+  soffitStripGeo: THREE.BoxGeometry;
+  snowRidgeLobeGeo: THREE.SphereGeometry;
+  icicleGeo: THREE.ConeGeometry;
+  fairyBulbGeo: THREE.SphereGeometry;
+  stallBodyGeo: THREE.BoxGeometry;
+  stallGlassGeo: THREE.BoxGeometry;
+  stallLedSlitGeo: THREE.BoxGeometry;
+  stallLedTopGeo: THREE.BoxGeometry;
+  stallBadgeGeo: THREE.PlaneGeometry;
+  stallCableGeo: THREE.TubeGeometry;
+  connectedCableGeo: THREE.TubeGeometry;
+  wreathGeo: THREE.TorusGeometry;
+  bowGeo: THREE.BoxGeometry;
+  santaBrimGeo: THREE.TorusGeometry;
+  santaConeGeo: THREE.ConeGeometry;
+  santaPomGeo: THREE.SphereGeometry;
+  totemPlinthGeo: THREE.BoxGeometry;
+  totemBodyGeo: THREE.BoxGeometry;
+  totemFaceGeo: THREE.PlaneGeometry;
+  totemRedStripGeo: THREE.BoxGeometry;
+  totemSnowGeo: THREE.SphereGeometry;
+  treeTrunkGeo: THREE.CylinderGeometry;
+  treeTierGeos: THREE.ConeGeometry[];
+  treeStarGeo: THREE.OctahedronGeometry;
+  megapackGeo: THREE.BoxGeometry;
+  megaRibbonHGeo: THREE.BoxGeometry;
+  megaRibbonVGeo: THREE.BoxGeometry;
+  cyberHullGeo: THREE.BufferGeometry;
+  cyberGlassGeo: THREE.BufferGeometry;
+  cyberArchGeo: THREE.BoxGeometry;
+  cyberWheelGeo: THREE.CylinderGeometry;
+  cyberDrlGeo: THREE.BoxGeometry;
+  cyberTailGeo: THREE.BoxGeometry;
+  chargePortBarGeo: THREE.BoxGeometry;
+}
+
+let cachedScAssets: SuperchargerSharedAssets | null = null;
+
+function buildLightweightCybertruckGeos(): { hull: THREE.BufferGeometry; glass: THREE.BufferGeometry } {
+  // Compact parked Cybertruck facing +Z (rear toward -Z V4 stall at z = -2.25)
+  const hw = 0.94;
+  const rw = 0.66;
+  const stations: THREE.Vector3[][] = [
+    // Rear tailgate (z = -2.42)
+    [
+      new THREE.Vector3(-0.88, 0.42, -2.42),
+      new THREE.Vector3(-0.94, 1.24, -2.42),
+      new THREE.Vector3(-0.88, 1.28, -2.42),
+      new THREE.Vector3(0.88, 1.28, -2.42),
+      new THREE.Vector3(0.94, 1.24, -2.42),
+      new THREE.Vector3(0.88, 0.42, -2.42),
+    ],
+    // Roof apex behind cab (z = +0.15)
+    [
+      new THREE.Vector3(-hw * 0.94, 0.40, 0.15),
+      new THREE.Vector3(-hw, 1.28, 0.15),
+      new THREE.Vector3(-rw, 1.74, 0.15),
+      new THREE.Vector3(rw, 1.74, 0.15),
+      new THREE.Vector3(hw, 1.28, 0.15),
+      new THREE.Vector3(hw * 0.94, 0.40, 0.15),
+    ],
+    // Windshield base (z = +1.48)
+    [
+      new THREE.Vector3(-hw * 0.94, 0.40, 1.48),
+      new THREE.Vector3(-hw, 1.26, 1.48),
+      new THREE.Vector3(-0.84, 1.28, 1.48),
+      new THREE.Vector3(0.84, 1.28, 1.48),
+      new THREE.Vector3(hw, 1.26, 1.48),
+      new THREE.Vector3(hw * 0.94, 0.40, 1.48),
+    ],
+    // Blunt front nose (z = +2.44)
+    [
+      new THREE.Vector3(-0.86, 0.42, 2.44),
+      new THREE.Vector3(-0.92, 0.98, 2.44),
+      new THREE.Vector3(-0.88, 1.00, 2.44),
+      new THREE.Vector3(0.88, 1.00, 2.44),
+      new THREE.Vector3(0.92, 0.98, 2.44),
+      new THREE.Vector3(0.86, 0.42, 2.44),
+    ],
+  ];
+  const hull = buildLoftedHull(stations, false);
+
+  // Sloped windshield + side windows with outward normals
+  const gPos: number[] = [];
+  const interior = new THREE.Vector3(0, 1.0, 0.4);
+  pushOutwardQuad(
+    gPos,
+    new THREE.Vector3(-0.82, 1.30, 1.48),
+    new THREE.Vector3(0.82, 1.30, 1.48),
+    new THREE.Vector3(0.64, 1.75, 0.18),
+    new THREE.Vector3(-0.64, 1.75, 0.18),
+    interior
+  );
+  for (const s of [-1, 1]) {
+    pushOutwardQuad(
+      gPos,
+      new THREE.Vector3(s * 0.95, 1.26, 1.32),
+      new THREE.Vector3(s * 0.70, 1.69, 0.15),
+      new THREE.Vector3(s * 0.78, 1.54, -0.78),
+      new THREE.Vector3(s * 0.95, 1.24, -0.78),
+      interior
+    );
+  }
+  const glass = new THREE.BufferGeometry();
+  glass.setAttribute('position', new THREE.Float32BufferAttribute(gPos, 3));
+  glass.computeVertexNormals();
+  return { hull, glass };
+}
+
+function getSuperchargerSharedAssets(): SuperchargerSharedAssets {
+  if (cachedScAssets) return cachedScAssets;
+
+  const solarTex = createGigaSolarRoofTexture();
+  const { hull: cyberHullGeo, glass: cyberGlassGeo } = buildLightweightCybertruckGeos();
+
+  const stallCableCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.24, 2.12, 0.04),
+    new THREE.Vector3(0.39, 1.42, 0.14),
+    new THREE.Vector3(0.27, 0.88, 0.06),
+  ]);
+  // Cable arcing from bay #2 stall (z = -2.25) to parked Cybertruck rear-left fender charge port
+  const connectedCableCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.24, 2.10, 0.05),
+    new THREE.Vector3(0.56, 1.25, 0.42),
+    new THREE.Vector3(0.82, 0.74, 0.92),
+    new THREE.Vector3(0.95, 0.96, 1.18),
+  ]);
+
+  cachedScAssets = {
+    padMat: new THREE.MeshStandardMaterial({
+      map: getHeatedPadTex(),
+      roughness: 0.74,
+      metalness: 0.08,
+      envMapIntensity: 0.35,
+    }),
+    curbMat: new THREE.MeshStandardMaterial({
+      color: '#2d3748',
+      roughness: 0.84,
+      metalness: 0.12,
+    }),
+    stripeMat: new THREE.MeshStandardMaterial({
+      color: '#e8effa',
+      roughness: 0.65,
+      metalness: 0.05,
+    }),
+    wheelStopMat: new THREE.MeshStandardMaterial({
+      color: '#19202d',
+      roughness: 0.78,
+      metalness: 0.15,
+    }),
+    wheelStopRedMat: new THREE.MeshBasicMaterial({ color: '#e81f3c', toneMapped: false }),
+    graphiteMat: new THREE.MeshStandardMaterial({
+      color: '#161e2c',
+      roughness: 0.38,
+      metalness: 0.56,
+      envMapIntensity: 0.42,
+    }),
+    solarRoofMat: new THREE.MeshStandardMaterial({
+      map: solarTex,
+      roughness: 0.42,
+      metalness: 0.20,
+      envMapIntensity: 0.35,
+    }),
+    valanceMat: new THREE.MeshBasicMaterial({
+      map: getCanopyFrontValanceTex(),
+      toneMapped: false,
+    }),
+    snowMat: createSparklingSnowMaterial('#c2d6f0'),
+    icicleMat: new THREE.MeshStandardMaterial({
+      color: '#cceaff',
+      roughness: 0.14,
+      metalness: 0.10,
+      transparent: true,
+      opacity: 0.78,
+    }),
+    v4WhiteMat: new THREE.MeshPhysicalMaterial({
+      color: '#f2f6fc',
+      roughness: 0.22,
+      metalness: 0.10,
+      clearcoat: 0.65,
+      clearcoatRoughness: 0.16,
+      envMapIntensity: 0.5,
+    }),
+    v4BlackGlassMat: new THREE.MeshStandardMaterial({
+      color: '#0d121c',
+      roughness: 0.16,
+      metalness: 0.32,
+      envMapIntensity: 0.45,
+    }),
+    v4CableMat: new THREE.MeshStandardMaterial({
+      color: '#12161f',
+      roughness: 0.82,
+      metalness: 0.1,
+    }),
+    v4BadgeMat: new THREE.MeshBasicMaterial({
+      map: getTeslaSignTex(),
+      toneMapped: false,
+    }),
+    wreathMat: new THREE.MeshStandardMaterial({ color: '#1b583f', roughness: 0.88 }),
+    crimsonMat: new THREE.MeshStandardMaterial({ color: '#d81632', roughness: 0.52 }),
+    goldMat: new THREE.MeshBasicMaterial({ color: '#ffe38c', toneMapped: false }),
+    santaFurMat: new THREE.MeshStandardMaterial({ color: '#f6f9ff', roughness: 0.85 }),
+    totemFaceMat: new THREE.MeshBasicMaterial({
+      map: getSuperchargerTotemTex(),
+      toneMapped: false,
+    }),
+    pineMat: new THREE.MeshStandardMaterial({ color: '#154d3c', roughness: 0.86 }),
+    trunkMat: new THREE.MeshStandardMaterial({ color: '#4a2e22', roughness: 0.92 }),
+    megapackMat: new THREE.MeshStandardMaterial({ color: '#eef3fa', roughness: 0.42, metalness: 0.16 }),
+    cyberSteelMat: new THREE.MeshPhysicalMaterial({
+      color: '#b8c6dc',
+      metalness: 0.86,
+      roughness: 0.26,
+      clearcoat: 0.42,
+      flatShading: true,
+      envMapIntensity: 0.55,
+    }),
+    cyberGlassMat: new THREE.MeshStandardMaterial({
+      color: '#121d2e',
+      emissive: new THREE.Color('#ffaa55'),
+      emissiveIntensity: 0.34,
+      roughness: 0.12,
+      metalness: 0.35,
+    }),
+    cyberTrimMat: new THREE.MeshStandardMaterial({ color: '#12161e', roughness: 0.82 }),
+    cyberDrlMat: new THREE.MeshBasicMaterial({ color: '#d8e8ff', toneMapped: false }),
+    cyberTailMat: new THREE.MeshBasicMaterial({ color: '#c4182e', toneMapped: false }),
+
+    padGeo: new THREE.BoxGeometry(14.5, 0.18, 7.5),
+    curbGeo: new THREE.BoxGeometry(14.88, 0.45, 7.88),
+    snowRimGeo: new THREE.SphereGeometry(0.95, 10, 7),
+    bayLineGeo: new THREE.BoxGeometry(0.11, 0.015, 4.75),
+    entryLineGeo: new THREE.BoxGeometry(11.1, 0.015, 0.11),
+    wheelStopGeo: new THREE.BoxGeometry(1.62, 0.11, 0.18),
+    wheelStopRedGeo: new THREE.BoxGeometry(1.18, 0.025, 0.07),
+    glowPlaneGeo: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI * 0.5),
+    colPlinthGeo: new THREE.BoxGeometry(0.76, 0.24, 0.88),
+    colShaftGeo: new THREE.BoxGeometry(0.38, 4.35, 0.52),
+    colBeamGeo: new THREE.BoxGeometry(0.34, 0.28, 5.15),
+    roofDeckGeo: new THREE.BoxGeometry(13.6, 0.26, 5.8),
+    roofSolarGeo: new THREE.PlaneGeometry(13.0, 4.7).rotateX(-Math.PI * 0.5),
+    valanceGeo: new THREE.PlaneGeometry(11.6, 0.36),
+    canopyRedBarGeo: new THREE.BoxGeometry(13.5, 0.11, 0.09),
+    soffitStripGeo: new THREE.BoxGeometry(11.6, 0.045, 0.16),
+    snowRidgeLobeGeo: new THREE.SphereGeometry(1.0, 10, 7),
+    icicleGeo: new THREE.ConeGeometry(0.036, 0.38, 5).rotateZ(Math.PI),
+    fairyBulbGeo: new THREE.SphereGeometry(0.068, 6, 6),
+    stallBodyGeo: new THREE.BoxGeometry(0.54, 2.38, 0.26),
+    stallGlassGeo: new THREE.BoxGeometry(0.36, 1.92, 0.04),
+    stallLedSlitGeo: new THREE.BoxGeometry(0.032, 1.88, 0.045),
+    stallLedTopGeo: new THREE.BoxGeometry(0.42, 0.04, 0.045),
+    stallBadgeGeo: new THREE.PlaneGeometry(0.34, 0.09),
+    stallCableGeo: new THREE.TubeGeometry(stallCableCurve, 10, 0.028, 6, false),
+    connectedCableGeo: new THREE.TubeGeometry(connectedCableCurve, 12, 0.030, 6, false),
+    wreathGeo: new THREE.TorusGeometry(0.145, 0.042, 6, 12),
+    bowGeo: new THREE.BoxGeometry(0.11, 0.06, 0.05),
+    santaBrimGeo: new THREE.TorusGeometry(0.19, 0.048, 6, 12).rotateX(Math.PI * 0.5),
+    santaConeGeo: new THREE.ConeGeometry(0.18, 0.44, 10),
+    santaPomGeo: new THREE.SphereGeometry(0.06, 8, 8),
+    totemPlinthGeo: new THREE.BoxGeometry(1.14, 0.24, 0.46),
+    totemBodyGeo: new THREE.BoxGeometry(0.96, 3.72, 0.24),
+    totemFaceGeo: new THREE.PlaneGeometry(0.90, 3.58),
+    totemRedStripGeo: new THREE.BoxGeometry(0.06, 3.55, 0.27),
+    totemSnowGeo: new THREE.SphereGeometry(0.48, 10, 6),
+    treeTrunkGeo: new THREE.CylinderGeometry(0.10, 0.14, 0.55, 7),
+    treeTierGeos: [
+      new THREE.ConeGeometry(0.84, 1.05, 10),
+      new THREE.ConeGeometry(0.64, 0.92, 10),
+      new THREE.ConeGeometry(0.42, 0.78, 10),
+    ],
+    treeStarGeo: new THREE.OctahedronGeometry(0.16, 0),
+    megapackGeo: new THREE.BoxGeometry(1.16, 1.38, 0.78),
+    megaRibbonHGeo: new THREE.BoxGeometry(1.20, 0.18, 0.82),
+    megaRibbonVGeo: new THREE.BoxGeometry(0.18, 1.42, 0.82),
+    cyberHullGeo,
+    cyberGlassGeo,
+    cyberArchGeo: new THREE.BoxGeometry(0.14, 0.22, 1.02),
+    cyberWheelGeo: new THREE.CylinderGeometry(0.42, 0.42, 0.28, 14).rotateZ(Math.PI * 0.5),
+    cyberDrlGeo: new THREE.BoxGeometry(1.80, 0.055, 0.06),
+    cyberTailGeo: new THREE.BoxGeometry(1.82, 0.065, 0.06),
+    chargePortBarGeo: new THREE.BoxGeometry(0.05, 0.16, 0.26),
+  };
+
+  return cachedScAssets;
+}
+
+const _scLightShowPalette = [
+  new THREE.Color('#ff1e3e'),
+  new THREE.Color('#ffd84d'),
+  new THREE.Color('#24ff9c'),
+  new THREE.Color('#4de8ff'),
+  new THREE.Color('#ff5ce8'),
+];
+
+export function createAccurateSuperchargerPlaza(): SuperchargerPlazaHandle {
   const group = new THREE.Group();
+  const a = getSuperchargerSharedAssets();
+  const ownedMaterials: THREE.Material[] = [];
+  const ownedInstanced: THREE.InstancedMesh[] = [];
 
-  const whiteSlabMat = new THREE.MeshPhysicalMaterial({
-    color: '#f0f4fa',
-    roughness: 0.2,
-    clearcoat: 0.9,
-  });
-  const blackMat = new THREE.MeshStandardMaterial({ color: '#141720', roughness: 0.7 });
-  const signMat = new THREE.MeshStandardMaterial({
-    map: getTeslaSignTex(),
-    emissiveMap: getTeslaSignTex(),
-    emissive: new THREE.Color('#ff384c'),
-    emissiveIntensity: 1.2,
-  });
-  const snowMat = createSparklingSnowMaterial('#b8cee8');
-  const redCaneMat = new THREE.MeshStandardMaterial({ color: '#d91632', roughness: 0.4 });
-  const whiteCaneMat = new THREE.MeshStandardMaterial({ color: '#f8f9fc', roughness: 0.35 });
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    ownedMaterials.push(m);
+    return m;
+  };
 
-  // Snowy wide oasis pad
-  const pad = new THREE.Mesh(new THREE.BoxGeometry(10.6, 0.2, 4.4), snowMat);
-  pad.position.set(0.4, 0.1, 0);
+  // --- 1. HEATED SNOW-FREE PAD (14.5m x 7.5m) + CURB + BAY STRIPES + WHEEL STOPS ---
+  const curb = new THREE.Mesh(a.curbGeo, a.curbMat);
+  curb.position.set(0, -0.125, 0);
+  curb.receiveShadow = true;
+  group.add(curb);
+
+  const pad = new THREE.Mesh(a.padGeo, a.padMat);
+  pad.position.set(0, 0.05, 0);
+  pad.receiveShadow = true;
   group.add(pad);
 
-  // Candy-cane striped corner posts + festive arch beam supporting Nordpolen Supercharger sign
-  for (const bx of [-3.6, 1.8]) {
-    for (let seg = 0; seg < 6; seg++) {
-      const part = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.14, 0.14, 0.56, 10),
-        seg % 2 === 0 ? redCaneMat : whiteCaneMat
-      );
-      part.position.set(bx, 0.45 + seg * 0.54, 1.35);
-      group.add(part);
-    }
-  }
-  const archSign = new THREE.Mesh(
-    new THREE.PlaneGeometry(5.6, 1.08),
-    new THREE.MeshBasicMaterial({ map: getOasisHeaderTex(), toneMapped: false, side: THREE.DoubleSide })
-  );
-  archSign.position.set(-0.9, 3.85, 1.35);
-  group.add(archSign);
-
-  // 3 Tall V4 Supercharger Monoliths
-  for (let i = 0; i < 3; i++) {
-    const sx = (i - 1.55) * 2.0;
-    const monolith = new THREE.Mesh(new THREE.BoxGeometry(0.84, 2.45, 0.34), whiteSlabMat);
-    monolith.position.set(sx, 1.34, -0.35);
-    group.add(monolith);
-
-    const channel = new THREE.Mesh(new THREE.BoxGeometry(0.28, 2.15, 0.36), blackMat);
-    channel.position.set(sx + 0.2, 1.32, -0.35);
-    group.add(channel);
-
-    const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.68, 0.18), signMat);
-    badge.position.set(sx, 2.36, -0.17);
-    group.add(badge);
-
-    const cableCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(sx + 0.22, 2.17, -0.21),
-      new THREE.Vector3(sx + 0.44, 1.37, -0.09),
-      new THREE.Vector3(sx + 0.32, 0.97, -0.19),
-    ]);
-    group.add(new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 12, 0.032, 6, false), blackMat));
-
-    const snowCap = new THREE.Mesh(new THREE.SphereGeometry(0.46, 10, 8), snowMat);
-    snowCap.scale.set(1.05, 0.32, 0.65);
-    snowCap.position.set(sx, 2.6, -0.35);
-    group.add(snowCap);
-
-    const bow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), redCaneMat);
-    bow.position.set(sx, 2.54, -0.15);
-    group.add(bow);
+  // Subtle snow drift shoulders tucked against rear & side outer curb corners
+  for (const [sx, sz, rx, rz] of [
+    [-6.6, -3.95, 1.4, 0.65],
+    [-2.2, -4.02, 2.2, 0.55],
+    [2.6, -4.00, 2.1, 0.58],
+    [6.7, -3.92, 1.3, 0.68],
+    [-7.55, -1.6, 0.6, 1.7],
+    [7.55, -1.5, 0.6, 1.7],
+  ] as const) {
+    const rim = new THREE.Mesh(a.snowRimGeo, a.snowMat);
+    rim.position.set(sx, 0.02, sz);
+    rim.scale.set(rx, 0.34, rz);
+    group.add(rim);
   }
 
-  // Cozy Falu-Red Glögg & Pepparkaksbod on right side of Oasis!
-  const faluMat = new THREE.MeshStandardMaterial({ color: '#7a1924', roughness: 0.78 });
-  const warmCounterMat = new THREE.MeshBasicMaterial({ color: '#ffcf70', toneMapped: false });
-  const booth = new THREE.Mesh(new THREE.BoxGeometry(2.1, 1.9, 1.9), faluMat);
-  booth.position.set(3.8, 1.15, -0.2);
-  const boothWindow = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.62, 0.12), warmCounterMat);
-  boothWindow.position.set(3.8, 1.3, 0.76);
-  const boothRoof = new THREE.Mesh(new THREE.ConeGeometry(1.75, 1.05, 4), snowMat);
-  boothRoof.rotation.y = Math.PI * 0.25;
-  boothRoof.position.set(3.8, 2.58, -0.2);
-  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.75, 0.28), blackMat);
-  chimney.position.set(4.25, 2.85, -0.5);
-  group.add(booth, boothWindow, boothRoof, chimney);
+  // 5 charging bay stall stripes (6 divider lines) + front entry edge line
+  const stallXs = [-4.4, -2.2, 0, 2.2, 4.4];
+  for (let i = 0; i <= 5; i++) {
+    const lx = -5.5 + i * 2.2;
+    const stripe = new THREE.Mesh(a.bayLineGeo, a.stripeMat);
+    stripe.position.set(lx, 0.148, 0.85);
+    group.add(stripe);
+  }
+  const entryLine = new THREE.Mesh(a.entryLineGeo, a.stripeMat);
+  entryLine.position.set(0, 0.148, 3.22);
+  group.add(entryLine);
 
-  // Subtle glögg chimney steam soft radial sprites
-  const steamTex = getSoftGlowTexture();
-  const steams: THREE.Sprite[] = [];
-  for (let s = 0; s < 3; s++) {
-    const puff = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: steamTex,
-        color: '#eef6ff',
-        transparent: true,
-        opacity: 0.4,
-        depthWrite: false,
-      })
-    );
-    puff.scale.set(0.42, 0.42, 1);
-    puff.position.set(4.25, 3.3 + s * 0.35, -0.5);
-    group.add(puff);
-    steams.push(puff);
+  // 5 crimson-accented wheel stops
+  for (const sx of stallXs) {
+    const stop = new THREE.Mesh(a.wheelStopGeo, a.wheelStopMat);
+    stop.position.set(sx, 0.195, -1.48);
+    const stopRed = new THREE.Mesh(a.wheelStopRedGeo, a.wheelStopRedMat);
+    stopRed.position.set(sx, 0.258, -1.48);
+    group.add(stop, stopRed);
   }
 
-  // Twinkling oasis mini pine tree
-  const treeMat = new THREE.MeshStandardMaterial({ color: '#0f3c2d', roughness: 0.85 });
-  for (let c = 0; c < 3; c++) {
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.72 - c * 0.18, 0.9, 8), treeMat);
-    cone.position.set(-4.3, 0.9 + c * 0.52, -0.1);
-    group.add(cone);
-  }
-  const treeStar = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.16, 0),
-    new THREE.MeshBasicMaterial({ color: '#ffe688', toneMapped: false })
-  );
-  treeStar.position.set(-4.3, 2.52, -0.1);
-  group.add(treeStar);
-
-  // Subtle warm halo
-  const glow = new THREE.Sprite(
-    new THREE.SpriteMaterial({
+  // Warm-gold + subtle crimson additive ground-glow decals illuminating surrounding snow (0 PointLights!)
+  const goldGlowMat = trackMat(
+    new THREE.MeshBasicMaterial({
       map: getSoftGlowTexture(),
-      color: '#ff6678',
+      color: '#ffbe62',
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.42,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
   );
-  glow.scale.set(9.5, 5.2, 1);
-  glow.position.set(0.2, 1.8, 0.4);
-  group.add(glow);
+  const goldGlow = new THREE.Mesh(a.glowPlaneGeo, goldGlowMat);
+  goldGlow.position.set(0, 0.165, 0.35);
+  goldGlow.scale.set(17.8, 1, 10.6);
+  group.add(goldGlow);
 
-  const optimus = createAccurateOptimusGen2();
-  optimus.group.position.set(1.9, 0.2, 0.65);
-  group.add(optimus.group);
+  const redGlowMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      map: getSoftGlowTexture(),
+      color: '#ff2848',
+      transparent: true,
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  const redGlow = new THREE.Mesh(a.glowPlaneGeo, redGlowMat);
+  redGlow.position.set(0, 0.172, -1.2);
+  redGlow.scale.set(15.0, 1, 5.4);
+  group.add(redGlow);
+
+  // --- 2. ARCHITECTURAL DARK CYBER-CANOPY (TWIN ANGLED COLUMNS + PV SOLAR ROOF) ---
+  for (const cx of [-3.75, 3.75]) {
+    const plinth = new THREE.Mesh(a.colPlinthGeo, a.curbMat);
+    plinth.position.set(cx, 0.24, -2.65);
+    const shaft = new THREE.Mesh(a.colShaftGeo, a.graphiteMat);
+    shaft.position.set(cx, 2.26, -2.22);
+    shaft.rotation.x = 0.21;
+    shaft.castShadow = true;
+    const beam = new THREE.Mesh(a.colBeamGeo, a.graphiteMat);
+    beam.position.set(cx, 4.18, -0.25);
+    beam.rotation.x = -0.07;
+    beam.castShadow = true;
+    group.add(plinth, shaft, beam);
+  }
+
+  // Cantilevered roof assembly pitched cleanly backward (-0.07 rad) so front lip welcomes the street
+  const canopyPivot = new THREE.Group();
+  canopyPivot.position.set(0, 4.40, -0.35);
+  canopyPivot.rotation.x = -0.07;
+  group.add(canopyPivot);
+
+  const roofDeck = new THREE.Mesh(a.roofDeckGeo, a.graphiteMat);
+  roofDeck.castShadow = true;
+  roofDeck.receiveShadow = true;
+  canopyPivot.add(roofDeck);
+
+  const roofSolar = new THREE.Mesh(a.roofSolarGeo, a.solarRoofMat);
+  roofSolar.position.set(0, 0.145, 0.28);
+  roofSolar.receiveShadow = true;
+  canopyPivot.add(roofSolar);
+
+  // Front fascia valance with TESLA SUPERCHARGER wordmark
+  const valance = new THREE.Mesh(a.valanceGeo, a.valanceMat);
+  valance.position.set(0, 0.02, 2.915);
+  canopyPivot.add(valance);
+
+  // Crisp glowing crimson Tesla LED accent bar along front canopy lip
+  const canopyRedLedMat = trackMat(
+    new THREE.MeshBasicMaterial({ color: '#ff1e3e', toneMapped: false })
+  );
+  const canopyRedBar = new THREE.Mesh(a.canopyRedBarGeo, canopyRedLedMat);
+  canopyRedBar.position.set(0, -0.14, 2.91);
+  canopyPivot.add(canopyRedBar);
+
+  // 3 warm-white glowing recessed soffit downlight strips underneath
+  const soffitMat = trackMat(
+    new THREE.MeshBasicMaterial({ color: '#ffe9be', toneMapped: false })
+  );
+  for (const sz of [-1.35, 0.05, 1.45]) {
+    const strip = new THREE.Mesh(a.soffitStripGeo, soffitMat);
+    strip.position.set(0, -0.142, sz);
+    canopyPivot.add(strip);
+  }
+
+  // Sculpted snow drift ridge along the lower back slope of the canopy (keeps front PV panels clean!)
+  for (let i = 0; i < 7; i++) {
+    const lx = -5.6 + i * 1.86;
+    const lobe = new THREE.Mesh(a.snowRidgeLobeGeo, a.snowMat);
+    lobe.position.set(lx, 0.24, -2.42 + (i % 2) * 0.14);
+    lobe.scale.set(1.28, 0.24 + (i % 3) * 0.05, 0.56);
+    canopyPivot.add(lobe);
+  }
+
+  // Delicate translucent icicles along front & rear eaves (1 InstancedMesh)
+  const icicleCoords: Array<[number, number, number, number]> = [];
+  for (let i = 0; i < 15; i++) {
+    const ix = -6.3 + (i / 14) * 12.6;
+    const lenScale = 0.72 + ((i * 7) % 5) * 0.18;
+    icicleCoords.push([ix, -0.22 - lenScale * 0.12, 2.86, lenScale]);
+  }
+  for (let i = 0; i < 11; i++) {
+    const ix = -5.8 + (i / 10) * 11.6;
+    const lenScale = 0.85 + ((i * 5) % 4) * 0.2;
+    icicleCoords.push([ix, -0.22 - lenScale * 0.12, -2.86, lenScale]);
+  }
+  const icicleInst = new THREE.InstancedMesh(a.icicleGeo, a.icicleMat, icicleCoords.length);
+  for (let i = 0; i < icicleCoords.length; i++) {
+    const [ix, iy, iz, sc] = icicleCoords[i];
+    _tmpMatrix.makeTranslation(ix, iy, iz);
+    _tmpMatrix.scale(new THREE.Vector3(1, sc, 1));
+    icicleInst.setMatrixAt(i, _tmpMatrix);
+  }
+  icicleInst.instanceMatrix.needsUpdate = true;
+  icicleInst.computeBoundingSphere();
+  canopyPivot.add(icicleInst);
+  ownedInstanced.push(icicleInst);
+
+  // --- 3. FIVE TALL SLEEK WHITE V4 SUPERCHARGER STALLS ---
+  const stallLedMats: THREE.MeshBasicMaterial[] = [];
+  for (let i = 0; i < stallXs.length; i++) {
+    const sx = stallXs[i];
+    const stallGroup = new THREE.Group();
+    stallGroup.position.set(sx, 0.14, -2.25);
+
+    const body = new THREE.Mesh(a.stallBodyGeo, a.v4WhiteMat);
+    body.position.set(0, 1.19, 0);
+    body.castShadow = true;
+    const faceplate = new THREE.Mesh(a.stallGlassGeo, a.v4BlackGlassMat);
+    faceplate.position.set(0, 1.16, 0.125);
+    const badge = new THREE.Mesh(a.stallBadgeGeo, a.v4BadgeMat);
+    badge.position.set(0, 2.22, 0.138);
+
+    // Per-stall crimson vertical LED light slits + crown bar (enables wave chase during Light Show!)
+    const ledMat = trackMat(new THREE.MeshBasicMaterial({ color: '#ff1e3e', toneMapped: false }));
+    stallLedMats.push(ledMat);
+    const slitL = new THREE.Mesh(a.stallLedSlitGeo, ledMat);
+    slitL.position.set(-0.20, 1.16, 0.132);
+    const slitR = new THREE.Mesh(a.stallLedSlitGeo, ledMat);
+    slitR.position.set(0.20, 1.16, 0.132);
+    const slitTop = new THREE.Mesh(a.stallLedTopGeo, ledMat);
+    slitTop.position.set(0, 2.11, 0.132);
+
+    // Draped black NACS cable (bay #1 / index 1 connects to the parked Cybertruck!)
+    const cable = new THREE.Mesh(i === 1 ? a.connectedCableGeo : a.stallCableGeo, a.v4CableMat);
+
+    // Mini green holiday wreath with crimson bow on every V4 stall
+    const wreath = new THREE.Mesh(a.wreathGeo, a.wreathMat);
+    wreath.position.set(0, 1.76, 0.165);
+    const bow = new THREE.Mesh(a.bowGeo, a.crimsonMat);
+    bow.position.set(0, 1.61, 0.205);
+
+    stallGroup.add(body, faceplate, badge, slitL, slitR, slitTop, cable, wreath, bow);
+
+    // Playful tiny Santa hat perched on the end stall!
+    if (i === stallXs.length - 1) {
+      const brim = new THREE.Mesh(a.santaBrimGeo, a.santaFurMat);
+      brim.position.set(0.02, 2.40, 0.02);
+      const hatCone = new THREE.Mesh(a.santaConeGeo, a.crimsonMat);
+      hatCone.position.set(0.09, 2.60, 0.0);
+      hatCone.rotation.z = -0.34;
+      const pom = new THREE.Mesh(a.santaPomGeo, a.santaFurMat);
+      pom.position.set(0.18, 2.81, 0.0);
+      stallGroup.add(brim, hatCone, pom);
+    }
+
+    group.add(stallGroup);
+  }
+
+  // --- 4. DARK ANODIZED TESLA SUPERCHARGER ENTRY TOTEM SIGN ---
+  const totemGroup = new THREE.Group();
+  totemGroup.position.set(-6.55, 0.14, 2.72);
+  const totemPlinth = new THREE.Mesh(a.totemPlinthGeo, a.curbMat);
+  totemPlinth.position.y = 0.12;
+  const totemBody = new THREE.Mesh(a.totemBodyGeo, a.graphiteMat);
+  totemBody.position.y = 2.08;
+  totemBody.castShadow = true;
+  const totemFront = new THREE.Mesh(a.totemFaceGeo, a.totemFaceMat);
+  totemFront.position.set(0, 2.08, 0.126);
+  const totemBack = new THREE.Mesh(a.totemFaceGeo, a.totemFaceMat);
+  totemBack.position.set(0, 2.08, -0.126);
+  totemBack.rotation.y = Math.PI;
+  const totemStrip = new THREE.Mesh(a.totemRedStripGeo, canopyRedLedMat);
+  totemStrip.position.set(-0.46, 2.08, 0);
+  const totemSnow = new THREE.Mesh(a.totemSnowGeo, a.snowMat);
+  totemSnow.position.set(0, 3.98, 0);
+  totemSnow.scale.set(1.06, 0.28, 0.36);
+  totemGroup.add(totemPlinth, totemBody, totemFront, totemBack, totemStrip, totemSnow);
+  group.add(totemGroup);
+
+  // --- 5. MINI GLOWING CHRISTMAS TREE + HOLIDAY-WRAPPED MEGAPACK GIFT CRATE ---
+  const treeX = 6.32;
+  const treeZ = -0.55;
+  const treeTrunk = new THREE.Mesh(a.treeTrunkGeo, a.trunkMat);
+  treeTrunk.position.set(treeX, 0.42, treeZ);
+  group.add(treeTrunk);
+  for (let t = 0; t < a.treeTierGeos.length; t++) {
+    const tier = new THREE.Mesh(a.treeTierGeos[t], a.pineMat);
+    tier.position.set(treeX, 1.05 + t * 0.64, treeZ);
+    tier.rotation.y = t * 0.52;
+    tier.castShadow = true;
+    const snowCap = new THREE.Mesh(a.treeTierGeos[t], a.snowMat);
+    snowCap.position.set(treeX, 1.18 + t * 0.64, treeZ);
+    snowCap.scale.set(0.84, 0.42, 0.84);
+    snowCap.rotation.y = t * 0.52;
+    group.add(tier, snowCap);
+  }
+  const treeStar = new THREE.Mesh(a.treeStarGeo, a.goldMat);
+  treeStar.position.set(treeX, 2.86, treeZ);
+  group.add(treeStar);
+
+  // Holiday-wrapped Tesla Megapack battery gift crate on the right apron
+  const megaX = 6.32;
+  const megaZ = 1.62;
+  const megapack = new THREE.Mesh(a.megapackGeo, a.megapackMat);
+  megapack.position.set(megaX, 0.83, megaZ);
+  megapack.castShadow = true;
+  const megaRibH = new THREE.Mesh(a.megaRibbonHGeo, a.crimsonMat);
+  megaRibH.position.set(megaX, 0.83, megaZ);
+  const megaRibV = new THREE.Mesh(a.megaRibbonVGeo, a.crimsonMat);
+  megaRibV.position.set(megaX, 0.83, megaZ);
+  const megaBow = new THREE.Mesh(a.treeStarGeo, a.goldMat);
+  megaBow.position.set(megaX, 1.62, megaZ);
+  megaBow.scale.set(1.25, 0.85, 1.25);
+  group.add(megapack, megaRibH, megaRibV, megaBow);
+
+  // --- 6. PARKED CHARGING TESLA (LIGHTWEIGHT SCULPTED CYBERTRUCK IN BAY #2) ---
+  const parkedCar = new THREE.Group();
+  parkedCar.position.set(-2.2, 0.14, 0.42);
+  const cyberHull = new THREE.Mesh(a.cyberHullGeo, a.cyberSteelMat);
+  cyberHull.castShadow = true;
+  const cyberGlass = new THREE.Mesh(a.cyberGlassGeo, a.cyberGlassMat);
+  const cyberDrl = new THREE.Mesh(a.cyberDrlGeo, a.cyberDrlMat);
+  cyberDrl.position.set(0, 0.96, 2.46);
+  const cyberTail = new THREE.Mesh(a.cyberTailGeo, a.cyberTailMat);
+  cyberTail.position.set(0, 1.23, -2.44);
+  parkedCar.add(cyberHull, cyberGlass, cyberDrl, cyberTail);
+
+  for (const wz of [-1.52, 1.52]) {
+    for (const side of [-1, 1]) {
+      const arch = new THREE.Mesh(a.cyberArchGeo, a.cyberTrimMat);
+      arch.position.set(side * 0.94, 0.92, wz);
+      const wheel = new THREE.Mesh(a.cyberWheelGeo, a.cyberTrimMat);
+      wheel.position.set(side * 0.90, 0.42, wz);
+      parkedCar.add(arch, wheel);
+    }
+  }
+
+  // Pulsing emerald-green charge-port LED glow on rear-left fender (facing stall #2 cable)
+  const chargePortMat = trackMat(
+    new THREE.MeshBasicMaterial({ color: '#18ff7a', toneMapped: false })
+  );
+  const chargePortBar = new THREE.Mesh(a.chargePortBarGeo, chargePortMat);
+  chargePortBar.position.set(0.96, 0.94, -1.48);
+  parkedCar.add(chargePortBar);
+
+  const portHaloMat = trackMat(
+    new THREE.SpriteMaterial({
+      map: getSoftGlowTexture(),
+      color: '#22ff88',
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  const portHalo = new THREE.Sprite(portHaloMat);
+  portHalo.position.set(1.06, 0.94, -1.48);
+  portHalo.scale.set(1.35, 1.35, 1);
+  parkedCar.add(portHalo);
+  group.add(parkedCar);
+
+  // --- 7. WARM-WHITE FAIRY-LIGHT BULBS ALONG CANOPY EAVES + MINI TREE (1 InstancedMesh) ---
+  const bulbPoints: Array<{ x: number; y: number; z: number; isTree: boolean }> = [];
+  // Front canopy eave (world-space coordinates matching pitched canopyPivot at y=4.40, z=-0.35, rotX=-0.07)
+  const cosP = Math.cos(-0.07);
+  const sinP = Math.sin(-0.07);
+  const pushCanopyBulb = (lx: number, ly: number, lz: number) => {
+    const wy = 4.40 + ly * cosP - lz * sinP;
+    const wz = -0.35 + ly * sinP + lz * cosP;
+    bulbPoints.push({ x: lx, y: wy, z: wz, isTree: false });
+  };
+  for (let i = 0; i < 24; i++) {
+    const bx = -6.6 + (i / 23) * 13.2;
+    pushCanopyBulb(bx, -0.18, 2.86);
+  }
+  for (const side of [-1, 1]) {
+    for (let i = 1; i <= 8; i++) {
+      const bz = 2.86 - (i / 9) * 5.72;
+      pushCanopyBulb(side * 6.76, -0.18, bz);
+    }
+  }
+  // Mini Christmas tree fairy ornaments batched into the same InstancedMesh!
+  for (let i = 0; i < 12; i++) {
+    const f = i / 12;
+    const ang = i * 1.55;
+    const rad = 0.72 * (1 - f * 0.70);
+    bulbPoints.push({
+      x: treeX + Math.cos(ang) * rad,
+      y: 0.92 + f * 1.65,
+      z: treeZ + Math.sin(ang) * rad,
+      isTree: true,
+    });
+  }
+
+  const fairyMat = trackMat(new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }));
+  const fairyInst = new THREE.InstancedMesh(a.fairyBulbGeo, fairyMat, bulbPoints.length);
+  for (let i = 0; i < bulbPoints.length; i++) {
+    const b = bulbPoints[i];
+    _tmpMatrix.makeTranslation(b.x, b.y, b.z);
+    fairyInst.setMatrixAt(i, _tmpMatrix);
+    _tmpColor.setRGB(1.25, 0.98, 0.56);
+    fairyInst.setColorAt(i, _tmpColor);
+  }
+  fairyInst.instanceMatrix.needsUpdate = true;
+  if (fairyInst.instanceColor) fairyInst.instanceColor.needsUpdate = true;
+  fairyInst.computeBoundingSphere();
+  group.add(fairyInst);
+  ownedInstanced.push(fairyInst);
+
+  const bulbCount = bulbPoints.length;
 
   return {
     group,
-    update(time: number): void {
-      optimus.update(time);
+    update(time: number, lightShow = 0, daylight = 0): void {
+      const nightFactor = Math.max(0.22, 1 - daylight * 0.72);
+      const show = Math.max(0, lightShow);
+
+      // 1. V4 Stall vertical crimson LEDs (calm breathing at idle, festive wave chase in Light Show!)
+      for (let i = 0; i < stallLedMats.length; i++) {
+        if (show > 0.04) {
+          const wave = 0.55 + 0.45 * Math.sin(time * 9.5 - i * 1.15);
+          const palIdx = (Math.floor(time * 3.8) + i) % _scLightShowPalette.length;
+          _tmpColor.setRGB(1.0, 0.12, 0.24).lerp(_scLightShowPalette[palIdx], Math.min(0.75, show * 0.75));
+          const boost = (0.75 + wave * 0.95) * (0.65 + nightFactor * 0.65);
+          stallLedMats[i].color.copy(_tmpColor).multiplyScalar(boost);
+        } else {
+          const pulse = 0.78 + 0.22 * Math.sin(time * 2.2 + i * 0.55);
+          const scale = pulse * (0.62 + nightFactor * 0.62);
+          stallLedMats[i].color.setRGB(1.05 * scale, 0.12 * scale, 0.24 * scale);
+        }
+      }
+
+      // 2. Front canopy crimson LED bar & warm soffit strips
+      const canopyPulse = show > 0.04
+        ? 0.9 + 0.65 * Math.sin(time * 11.0)
+        : 0.88 + 0.12 * Math.sin(time * 1.8);
+      const cScale = canopyPulse * (0.65 + nightFactor * 0.60);
+      canopyRedLedMat.color.setRGB(1.05 * cScale, 0.12 * cScale, 0.24 * cScale);
+
+      const soffitScale = (0.52 + nightFactor * 0.68) * (1 + show * 0.22 * Math.sin(time * 7.5));
+      soffitMat.color.setRGB(1.0 * soffitScale, 0.91 * soffitScale, 0.74 * soffitScale);
+
+      // 3. Additive ground-glow decals modulated cleanly by daylight & Light Show
+      goldGlowMat.opacity = (0.08 + nightFactor * 0.36) * (1 + show * 0.25);
+      redGlowMat.opacity = (0.05 + nightFactor * 0.20) * (1 + show * (0.45 + 0.35 * Math.sin(time * 8.0)));
+
+      // 4. Parked Cybertruck pulsing emerald-green charge-port LED glow
+      const portWave = 0.55 + 0.45 * Math.sin(time * 3.2);
+      const portScale = (0.65 + portWave * 0.85) * (0.68 + nightFactor * 0.52);
+      chargePortMat.color.setRGB(0.12 * portScale, 1.05 * portScale, 0.48 * portScale);
+      portHaloMat.opacity = (0.28 + portWave * 0.48) * (0.35 + nightFactor * 0.75);
+      const haloSc = 1.05 + portWave * 0.45;
+      portHalo.scale.set(haloSc, haloSc, 1);
+
+      // 5. Eave & mini-tree fairy lights twinkle + Light Show wave
+      const bulbDayScale = 0.42 + nightFactor * 0.78;
+      for (let idx = 0; idx < bulbCount; idx++) {
+        const b = bulbPoints[idx];
+        const twinkle = 0.72 + 0.28 * Math.sin(time * 4.4 + idx * 0.68);
+        if (show > 0.04) {
+          const chase = 0.55 + 0.75 * Math.max(0, Math.sin(time * 10.5 - idx * 0.42));
+          const col = _scLightShowPalette[(idx + Math.floor(time * 4.2)) % _scLightShowPalette.length];
+          _tmpColor.copy(col).multiplyScalar(bulbDayScale * (0.85 + show * chase));
+        } else if (b.isTree && idx % 3 === 0) {
+          _tmpColor.setRGB(1.25 * twinkle * bulbDayScale, 0.22 * twinkle * bulbDayScale, 0.30 * twinkle * bulbDayScale);
+        } else {
+          _tmpColor.setRGB(1.26 * twinkle * bulbDayScale, 0.99 * twinkle * bulbDayScale, 0.58 * twinkle * bulbDayScale);
+        }
+        fairyInst.setColorAt(idx, _tmpColor);
+      }
+      if (fairyInst.instanceColor) fairyInst.instanceColor.needsUpdate = true;
+
       treeStar.rotation.y = time * 1.4;
-      steams.forEach((p, idx) => {
-        const cyc = (time * 0.42 + idx * 0.33) % 1;
-        p.position.set(4.25 + Math.sin(time * 2 + idx) * 0.10, 3.25 + cyc * 1.25, -0.5);
-        const sc = 0.34 + cyc * 0.72;
-        p.scale.set(sc, sc, 1);
-        p.material.opacity = Math.sin(cyc * Math.PI) * 0.46;
-      });
+    },
+    dispose(): void {
+      for (const inst of ownedInstanced) inst.dispose();
+      for (const mat of ownedMaterials) mat.dispose();
+      ownedInstanced.length = 0;
+      ownedMaterials.length = 0;
     },
   };
 }

@@ -20,6 +20,7 @@ import { mapClearance } from './mapClearance';
 import { createWinterGround, createWinterRoad, updateWinterGround, updateWinterRoad } from './winterSurfaces';
 import { buildingWallHeight, cottageModel, cottageStyles, roofProjection } from './christmasBuildingStyles';
 import { buildCottageBay } from './cottageBay';
+import { createAccurateSuperchargerPlaza, type SuperchargerPlazaHandle } from './teslaModels';
 import { VillageLights } from './VillageLights';
 
 const asphalt = createWinterRoad();
@@ -703,6 +704,7 @@ const lampOrbBaseColor = new THREE.Color('#ffd98a');
 const lanternBaseColor = new THREE.Color('#ffbe66');
 const windowEmissiveClassic = new THREE.Color('#ffcf86');
 const windowEmissiveCyber = new THREE.Color('#ffd4a8');
+const activeSuperchargerMaps = new Map<ChristmasMap, SuperchargerPlazaHandle[]>();
 
 export function updateChristmasMapAtmosphere(
   time: number,
@@ -744,6 +746,12 @@ export function updateChristmasMapAtmosphere(
     workColor.multiplyScalar(Math.max(0.28, stringDayScale * (1 + beat * 0.28) + showPulse));
     lightStrings[i].color.copy(workColor);
   }
+
+  for (const plazas of activeSuperchargerMaps.values()) {
+    for (const plaza of plazas) {
+      plaza.update(time, lightShow, daylight);
+    }
+  }
 }
 
 export interface ChristmasBuildingTarget {
@@ -778,10 +786,11 @@ interface ResourceBag {
   geometries: THREE.BufferGeometry[];
   instances: THREE.InstancedMesh[];
   dynamicAssets: Array<{ geometry?: THREE.BufferGeometry; material: THREE.Material; texture?: THREE.Texture }>;
+  superchargers: SuperchargerPlazaHandle[];
 }
 
 function createResourceBag(): ResourceBag {
-  return { geometries: [], instances: [], dynamicAssets: [] };
+  return { geometries: [], instances: [], dynamicAssets: [], superchargers: [] };
 }
 
 function disposeResourceBag(bag: ResourceBag): void {
@@ -792,9 +801,13 @@ function disposeResourceBag(bag: ResourceBag): void {
     asset.texture?.dispose();
     asset.material.dispose();
   }
+  for (const plaza of bag.superchargers) {
+    plaza.dispose();
+  }
   bag.geometries = [];
   bag.instances = [];
   bag.dynamicAssets = [];
+  bag.superchargers = [];
 }
 
 interface CrossingEntry {
@@ -865,6 +878,8 @@ interface MapBuildJob {
   detailKeys?: THREE.Material[];
   detailIdx: number;
   smoke?: THREE.Points;
+  superchargers: SuperchargerPlazaHandle[];
+  superchargerSpots: Array<{ x: number; z: number; radius: number }>;
 }
 
 const detailTransform = new THREE.Object3D();
@@ -1023,6 +1038,7 @@ export class ChristmasMap {
   }
 
   dispose(): void {
+    activeSuperchargerMaps.delete(this);
     this.discardPendingJob();
     this.flushRetiringResources();
     disposeResourceBag(this.activeResources);
@@ -2048,9 +2064,122 @@ export class ChristmasMap {
       return best;
     };
 
+    // Permanent Festive Tesla V4 Supercharger Winter Plazas from OSM charger/fuel/rest_area/parking POIs
+    const chargerPriority = (src?: string, tesla?: boolean): number => {
+      if (src === 'charging_station') return 0;
+      if (src === 'fuel') return 1;
+      if (src === 'rest_area') return 2;
+      if (src === 'parking') return 3;
+      return tesla ? 0 : 1;
+    };
+    const chargerPois = snapshot.pois
+      .filter(p => p.kind === 'charger')
+      .sort(
+        (a, b) =>
+          chargerPriority(a.chargerSource, a.tesla) - chargerPriority(b.chargerSource, b.tesla) ||
+          (a.x * a.x + a.z * a.z) - (b.x * b.x + b.z * b.z)
+      );
+
+    const isPlazaFootprintClear = (
+      cx: number,
+      cz: number,
+      parX: number,
+      parZ: number,
+      faceX: number,
+      faceZ: number
+    ): boolean => {
+      for (const u of [-6.8, -3.4, 0, 3.4, 6.8]) {
+        for (const v of [-3.4, 0, 3.4]) {
+          const px = cx + parX * u + faceX * v;
+          const pz = cz + parZ * u + faceZ * v;
+          if (!clearance.clear({ x: px, z: pz }, 0.85)) return false;
+        }
+      }
+      return true;
+    };
+
+    const plazaOffsets: ReadonlyArray<readonly [number, number]> = [
+      [0, 0],
+      [2.4, 0],
+      [5.0, 0],
+      [8.0, 0],
+      [0, 4.5],
+      [0, -4.5],
+      [2.8, 4.5],
+      [2.8, -4.5],
+      [5.5, 6.0],
+      [5.5, -6.0],
+      [11.0, 0],
+    ];
+
+    for (const poi of chargerPois) {
+      if (job.superchargers.length >= 5) break;
+      if (Math.hypot(poi.x, poi.z) > 340) continue;
+      const minSpacing = poi.chargerSource === 'parking' ? 240 : 120;
+      if (job.superchargerSpots.some(s => Math.hypot(s.x - poi.x, s.z - poi.z) < minSpacing)) continue;
+
+      const streetPt = clearance.nearestStreet(poi, 95);
+      if (!streetPt) continue;
+      const hit = nearestRoadSeg(streetPt.x, streetPt.z, 25);
+      if (!hit) continue;
+
+      const { seg } = hit;
+      const sideDot = (poi.x - streetPt.x) * seg.nx + (poi.z - streetPt.z) * seg.nz;
+      const primarySign = sideDot >= 0 ? 1 : -1;
+      const rawLat = Math.abs(sideDot);
+      const minLat = seg.widthM * 0.5 + 3.9 + 2.0;
+      const baseLat =
+        poi.chargerSource === 'parking'
+          ? Math.min(Math.max(rawLat, minLat), minLat + 14)
+          : Math.max(rawLat, minLat);
+
+      let placed: { x: number; z: number; yaw: number } | null = null;
+      const trySides = rawLat < minLat ? [primarySign, -primarySign] : [primarySign];
+      for (const sign of trySides) {
+        const outX = seg.nx * sign;
+        const outZ = seg.nz * sign;
+        const faceX = -outX;
+        const faceZ = -outZ;
+        const parX = faceZ;
+        const parZ = -faceX;
+        const yaw = Math.atan2(faceX, faceZ);
+        const startLat = sign === primarySign ? baseLat : minLat + 0.6;
+
+        for (const [outAdd, slide] of plazaOffsets) {
+          const cx = streetPt.x + outX * (startLat + outAdd) + seg.tx * slide;
+          const cz = streetPt.z + outZ * (startLat + outAdd) + seg.tz * slide;
+          if (job.superchargerSpots.some(s => Math.hypot(s.x - cx, s.z - cz) < minSpacing)) continue;
+          if (isPlazaFootprintClear(cx, cz, parX, parZ, faceX, faceZ)) {
+            placed = { x: cx, z: cz, yaw };
+            break;
+          }
+        }
+        if (placed) break;
+      }
+
+      if (!placed) continue;
+      const plaza = createAccurateSuperchargerPlaza();
+      const gy = groundY(placed.x, placed.z);
+      plaza.group.position.set(placed.x, gy, placed.z);
+      plaza.group.rotation.y = placed.yaw;
+      job.group.add(plaza.group);
+      job.superchargers.push(plaza);
+      job.resources.superchargers.push(plaza);
+      job.superchargerSpots.push({ x: placed.x, z: placed.z, radius: 9.4 });
+    }
+
+    const nearSupercharger = (p: OsmPoint2D, extra = 0) =>
+      job.superchargerSpots.some(sc => Math.hypot(sc.x - p.x, sc.z - p.z) < sc.radius + extra);
+
     const planted: OsmPoint2D[] = [];
     const plant = (p: OsmPoint2D) => {
-      if (clearance.clear(p, 2.12) && !planted.some(q => Math.hypot(p.x - q.x, p.z - q.z) < 4.4)) planted.push(p);
+      if (
+        !nearSupercharger(p, 1.4) &&
+        clearance.clear(p, 2.12) &&
+        !planted.some(q => Math.hypot(p.x - q.x, p.z - q.z) < 4.4)
+      ) {
+        planted.push(p);
+      }
     };
     for (const p of snapshot.trees ?? []) plant(p);
     for (const ring of snapshot.woodland ?? []) {
@@ -2080,7 +2209,7 @@ export class ChristmasMap {
     for (const [wIdx, spot] of job.woodlands.entries()) {
       const hit = nearestRoadSeg(spot.x, spot.z, 60);
       const faceYaw = hit ? Math.atan2(hit.cx - spot.x, hit.cz - spot.z) : wIdx * 0.8;
-      if (wIdx % 2 === 0 && marketStalls < 8 && clearance.clear(spot, 1.8) &&
+      if (wIdx % 2 === 0 && marketStalls < 8 && !nearSupercharger(spot, 2.0) && clearance.clear(spot, 1.8) &&
         !planted.some(t => Math.hypot(t.x - spot.x, t.z - spot.z) < 3.2)) {
         marketStalls++;
         plazaSpots.push({ x: spot.x, z: spot.z });
@@ -2115,7 +2244,9 @@ export class ChristmasMap {
     }
 
     const ornaments: { x: number; z: number; radius: number }[] = [];
-    const available = (p: OsmPoint2D, radius: number) => clearance.clear(p, radius) &&
+    const available = (p: OsmPoint2D, radius: number) =>
+      !nearSupercharger(p, radius) &&
+      clearance.clear(p, radius) &&
       !planted.some(tree => Math.hypot(p.x - tree.x, p.z - tree.z) < radius + 2.12) &&
       !ornaments.some(q => Math.hypot(p.x - q.x, p.z - q.z) < radius + q.radius);
     for (const [i, yard] of yards.entries()) {
@@ -2155,6 +2286,7 @@ export class ChristmasMap {
     const landscapeOccupied: OsmPoint2D[] = [...planted];
     const landscapeClear = (pt: OsmPoint2D, r: number) =>
       Math.hypot(pt.x, pt.z) < 255 &&
+      !nearSupercharger(pt, r + 1.0) &&
       clearance.clear(pt, r) &&
       !landscapeOccupied.some(q => Math.hypot(q.x - pt.x, q.z - pt.z) < r + 2.4) &&
       !ornaments.some(q => Math.hypot(q.x - pt.x, q.z - pt.z) < r + q.radius);
@@ -2389,6 +2521,7 @@ export class ChristmasMap {
 
     this.villageLights.group.position.set(0, 0, 0);
     this.activeResources = job.resources;
+    activeSuperchargerMaps.set(this, job.superchargers);
     this.crossings = job.crossings;
     this.vents = job.vents;
     this.smoke = job.smoke;
@@ -2466,6 +2599,8 @@ export class ChristmasMap {
         roadPropsDone: false,
         batchMergeIdx: 0,
         detailIdx: 0,
+        superchargers: [],
+        superchargerSpots: [],
       };
     }
 
