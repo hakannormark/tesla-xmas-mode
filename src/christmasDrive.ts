@@ -16,6 +16,7 @@ import { projectOntoRoad } from './three/mappedRoads';
 import { createBokehSnowField, createPixarSkyDome, getSoftGlowTexture } from './three/pixarMaterials';
 import { createPixarSantaSleigh } from './three/pixarModels';
 import { createPixarStageOrFallback } from './three/pixarRenderer';
+import { normalizeSkyCinemaMode } from './three/SkyCinema';
 import { SleighMagic } from './three/SleighMagic';
 import { createAccurateCybertruck, createAccurateStarmanRoadster, createAccurateTeslaSemi } from './three/teslaModels';
 import { VehicleLighting } from './three/VehicleLighting';
@@ -617,13 +618,8 @@ if (!stage) {
     follow();
   }
   const urlParams = new URLSearchParams(window.location.search);
-  const cinemaModeParam = urlParams.get('cinemaMode');
-  if (
-    cinemaModeParam === 'aurora' ||
-    cinemaModeParam === 'celestial' ||
-    cinemaModeParam === 'mist' ||
-    cinemaModeParam === 'classic'
-  ) {
+  const cinemaModeParam = normalizeSkyCinemaMode(urlParams.get('cinemaMode'));
+  if (cinemaModeParam) {
     festivities.setSkyCinemaMode(cinemaModeParam);
   }
   if (urlParams.get('cinema') === '1') {

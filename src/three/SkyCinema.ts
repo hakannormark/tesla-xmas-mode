@@ -6,84 +6,92 @@ import {
   type SkyCinemaClip,
 } from '../core/skyCinemaClips';
 
-export type SkyCinemaMode = 'aurora' | 'celestial' | 'mist' | 'classic';
+export type SkyCinemaMode = 'skyvault' | 'aurora' | 'oblique' | 'classic';
 
 export interface SkyCinemaModeSpec {
   id: SkyCinemaMode;
   label: string;
   shortLabel: string;
   description: string;
-  dist: number;
-  height: number;
-  scale: number;
-  tiltX: number;
-  curveH: number;
-  curveV: number;
+  radius: number;
+  elevation: number;
+  azimuth: number;
+  roll: number;
+  heightRad: number;
+  widthRad: number;
+  domeWrap: number;
   edgeSoftness: number;
   ovalMix: number;
   frameStrength: number;
   minAlpha: number;
   maxAlpha: number;
+  vibrance: number;
   veilOpacity: number;
   captionOpacity: number;
 }
 
 export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
   {
+    id: 'skyvault',
+    label: 'Himlavalv',
+    shortLabel: 'Himlavalv',
+    description: 'Stor duk på själva himlavalvet bakom bergen, lätt vinklad',
+    radius: 670,
+    elevation: 0.215,
+    azimuth: 0.08,
+    roll: -0.055,
+    heightRad: 0.265,
+    widthRad: 0.472,
+    domeWrap: 1.0,
+    edgeSoftness: 0.92,
+    ovalMix: 0.34,
+    frameStrength: 0.05,
+    minAlpha: 0.24,
+    maxAlpha: 0.95,
+    vibrance: 1.08,
+    veilOpacity: 0.42,
+    captionOpacity: 0.0,
+  },
+  {
     id: 'aurora',
     label: 'Norrsken',
     shortLabel: 'Norrsken',
-    description: 'Högt i himlen, mjukt integrerad i norrskenet',
-    dist: 235,
-    height: 59,
-    scale: 1.18,
-    tiltX: 0.34,
-    curveH: 1.0,
-    curveV: 0.75,
+    description: 'Tydligare norrskensbio rakt fram på himlavalvet',
+    radius: 670,
+    elevation: 0.21,
+    azimuth: 0.0,
+    roll: 0.012,
+    heightRad: 0.255,
+    widthRad: 0.454,
+    domeWrap: 0.95,
+    edgeSoftness: 0.78,
+    ovalMix: 0.24,
+    frameStrength: 0.09,
+    minAlpha: 0.3,
+    maxAlpha: 0.96,
+    vibrance: 1.12,
+    veilOpacity: 0.48,
+    captionOpacity: 0.0,
+  },
+  {
+    id: 'oblique',
+    label: 'Sned sky',
+    shortLabel: 'Sned sky',
+    description: 'Längre åt sidan och snett krökt över natthimlen',
+    radius: 670,
+    elevation: 0.225,
+    azimuth: -0.165,
+    roll: 0.115,
+    heightRad: 0.26,
+    widthRad: 0.463,
+    domeWrap: 1.15,
     edgeSoftness: 1.05,
-    ovalMix: 0.38,
-    frameStrength: 0.06,
-    minAlpha: 0.14,
-    maxAlpha: 0.88,
-    veilOpacity: 0.34,
-    captionOpacity: 0.0,
-  },
-  {
-    id: 'celestial',
-    label: 'Hög himmel',
-    shortLabel: 'Hög himmel',
-    description: 'Längre bort och högre upp, vinklad ned mot dig',
-    dist: 285,
-    height: 74,
-    scale: 1.28,
-    tiltX: 0.45,
-    curveH: 1.35,
-    curveV: 1.15,
-    edgeSoftness: 1.28,
-    ovalMix: 0.55,
-    frameStrength: 0.03,
-    minAlpha: 0.09,
-    maxAlpha: 0.84,
-    veilOpacity: 0.28,
-    captionOpacity: 0.0,
-  },
-  {
-    id: 'mist',
-    label: 'Stjärndimma',
-    shortLabel: 'Stjärndimma',
-    description: 'Mjuk oval utan hörn som smälter in i skyn',
-    dist: 215,
-    height: 53,
-    scale: 1.14,
-    tiltX: 0.26,
-    curveH: 0.9,
-    curveV: 0.65,
-    edgeSoftness: 1.2,
-    ovalMix: 0.96,
-    frameStrength: 0.02,
-    minAlpha: 0.11,
-    maxAlpha: 0.9,
-    veilOpacity: 0.36,
+    ovalMix: 0.5,
+    frameStrength: 0.04,
+    minAlpha: 0.22,
+    maxAlpha: 0.94,
+    vibrance: 1.08,
+    veilOpacity: 0.38,
     captionOpacity: 0.0,
   },
   {
@@ -91,18 +99,20 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
     label: 'Klassisk ram',
     shortLabel: 'Ram',
     description: 'Närmare bioduk med tydlig norrskensram',
-    dist: 152,
-    height: 34.5,
-    scale: 1.0,
-    tiltX: 0.08,
-    curveH: 0.55,
-    curveV: 0.0,
+    radius: 155,
+    elevation: 0.19,
+    azimuth: 0.0,
+    roll: 0.012,
+    heightRad: 0.235,
+    widthRad: 0.418,
+    domeWrap: 0.22,
     edgeSoftness: 0.22,
     ovalMix: 0.0,
     frameStrength: 0.72,
     minAlpha: 0.5,
     maxAlpha: 0.96,
-    veilOpacity: 0.42,
+    vibrance: 0.96,
+    veilOpacity: 0.4,
     captionOpacity: 1.0,
   },
 ];
@@ -113,31 +123,59 @@ function getModeSpec(mode: SkyCinemaMode): SkyCinemaModeSpec {
   return SKY_CINEMA_MODES.find((m) => m.id === mode) ?? SKY_CINEMA_MODES[0];
 }
 
+export function normalizeSkyCinemaMode(raw: string | null | undefined): SkyCinemaMode | null {
+  if (raw === 'skyvault' || raw === 'aurora' || raw === 'oblique' || raw === 'classic') {
+    return raw;
+  }
+  if (raw === 'celestial') return 'skyvault';
+  if (raw === 'mist') return 'oblique';
+  return null;
+}
+
 function loadSavedMode(): SkyCinemaMode {
   try {
-    const raw = localStorage.getItem(MODE_STORAGE_KEY);
-    if (raw === 'aurora' || raw === 'celestial' || raw === 'mist' || raw === 'classic') {
-      return raw;
-    }
+    const normalized = normalizeSkyCinemaMode(localStorage.getItem(MODE_STORAGE_KEY));
+    if (normalized) return normalized;
   } catch {
     // Ignore storage errors
   }
-  return 'aurora';
+  return 'skyvault';
 }
 
 type CinemaState = 'idle' | 'entering' | 'playing' | 'exiting';
 
-const SCREEN_VERT = /* glsl */ `
-  uniform float uCurveH;
-  uniform float uCurveV;
-  uniform vec2 uPlaneSize;
+const SKY_PATCH_VERT = /* glsl */ `
+  uniform float uRadius;
+  uniform float uElevation;
+  uniform float uAzimuth;
+  uniform float uRoll;
+  uniform vec2 uAngularSize;
+  uniform float uDomeWrap;
   varying vec2 vUv;
+
   void main() {
     vUv = uv;
-    vec3 pos = position;
-    vec2 n = (uv - 0.5) * 2.0;
-    pos.z += (n.x * n.x) * uPlaneSize.x * 0.08 * uCurveH + (n.y * n.y) * uPlaneSize.y * 0.12 * uCurveV;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    vec2 ang = position.xy * uAngularSize;
+    float cr = cos(uRoll);
+    float sr = sin(uRoll);
+    vec2 rotAng = vec2(ang.x * cr - ang.y * sr, ang.x * sr + ang.y * cr);
+    float az = uAzimuth + rotAng.x;
+    float el = uElevation + rotAng.y;
+
+    float cosEl = cos(el);
+    vec3 spherePos = vec3(sin(az) * cosEl, sin(el), -cos(az) * cosEl) * uRadius;
+
+    vec3 centerDir = vec3(
+      sin(uAzimuth) * cos(uElevation),
+      sin(uElevation),
+      -cos(uAzimuth) * cos(uElevation)
+    );
+    vec3 rightDir = normalize(vec3(cos(uAzimuth), 0.0, sin(uAzimuth)));
+    vec3 upDir = normalize(cross(rightDir, centerDir));
+    vec3 planePos = centerDir * uRadius + rightDir * (rotAng.x * uRadius) + upDir * (rotAng.y * uRadius);
+
+    vec3 finalPos = mix(planePos, spherePos, uDomeWrap);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(finalPos, 1.0);
   }
 `;
 
@@ -153,6 +191,7 @@ const SCREEN_FRAG = /* glsl */ `
   uniform float uFrameStrength;
   uniform float uMinAlpha;
   uniform float uMaxAlpha;
+  uniform float uVibrance;
   varying vec2 vUv;
 
   float hash21(vec2 p) {
@@ -186,15 +225,15 @@ const SCREEN_FRAG = /* glsl */ `
     float boxDist = sdRoundedBox(centered, vec2(0.455, 0.445), 0.045);
     float ovalDist = length(centered * vec2(2.08, 2.12)) * 0.48 - 0.415;
     float shapeDist = mix(boxDist, ovalDist, clamp(uOvalMix, 0.0, 1.0));
-    shapeDist += auroraWisp * (0.015 + 0.055 * uEdgeSoftness);
+    shapeDist += auroraWisp * (0.015 + 0.052 * uEdgeSoftness);
 
     float softNorm = clamp(uEdgeSoftness, 0.0, 1.35) / 1.35;
-    float featherIn = mix(-0.045, -0.23, softNorm);
+    float featherIn = mix(-0.045, -0.175, softNorm);
     float featherOut = mix(0.025, 0.055, softNorm);
     float innerMask = 1.0 - smoothstep(featherIn, featherOut, shapeDist);
 
     float rimBand = exp(-pow(shapeDist / 0.036, 2.0)) * uFrameStrength;
-    float outerHalo = exp(-max(0.0, shapeDist) * 14.0) * (0.28 + 0.32 * uFrameStrength);
+    float outerHalo = exp(-max(0.0, shapeDist) * 14.0) * (0.24 + 0.34 * uFrameStrength);
 
     // Curtain reveal sweep from center outward
     float curtainDist = abs(centered.y) * 1.15 + abs(centered.x) * 0.25;
@@ -213,40 +252,26 @@ const SCREEN_FRAG = /* glsl */ `
       videoCol = texture2D(uVideo, vUv).rgb;
     }
 
-    // Subtle holographic scanline shimmer (2%) without hurting face legibility
+    // Subtle holographic scanline shimmer (2%) + clear vibrant sky projection
     float scan = 0.98 + 0.02 * sin(vUv.y * 240.0 + uTime * 3.0);
-    videoCol *= scan * 0.92;
+    videoCol = min(pow(max(videoCol, vec3(0.0)), vec3(0.95)) * uVibrance * scan, vec3(1.05));
 
     float luma = dot(videoCol, vec3(0.299, 0.587, 0.114));
-    float contentAlpha = mix(uMinAlpha, uMaxAlpha, smoothstep(0.04, 0.36, luma));
+    float contentAlpha = mix(uMinAlpha, uMaxAlpha, smoothstep(0.04, 0.34, luma));
 
     // Gentle aurora tint blending along outer feathered margin so edges melt into sky
     float edgeTintMix = smoothstep(featherIn * 0.85, featherOut, shapeDist);
-    vec3 screenCol = mix(videoCol, auroraRim * 0.95, edgeTintMix * (0.36 + 0.22 * uFrameStrength));
+    vec3 screenCol = mix(videoCol, auroraRim * 0.95, edgeTintMix * (0.34 + 0.24 * uFrameStrength));
     screenCol += auroraRim * rimBand * (0.72 + 0.22 * sin(uTime * 1.8 + vUv.x * 7.0));
     screenCol += auroraRim * outerHalo * 0.36;
     screenCol += mix(emerald, vec3(1.0, 0.88, 0.54), 0.45) * revealCrest * 0.95;
 
     float dayFade = mix(1.0, 0.78, uDaylight);
-    float alpha = (innerMask * contentAlpha + rimBand * 0.65 + outerHalo * 0.28) * curtainWave * uReveal * dayFade;
+    float alpha = (innerMask * contentAlpha + rimBand * 0.65 + outerHalo * 0.26) * curtainWave * uReveal * dayFade;
     alpha = clamp(alpha, 0.0, 0.98);
     if (alpha < 0.004) discard;
 
     gl_FragColor = vec4(screenCol, alpha);
-  }
-`;
-
-const VEIL_VERT = /* glsl */ `
-  uniform float uCurveH;
-  uniform float uCurveV;
-  uniform vec2 uPlaneSize;
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    vec3 pos = position;
-    vec2 n = (uv - 0.5) * 2.0;
-    pos.z += (n.x * n.x) * uPlaneSize.x * 0.08 * uCurveH + (n.y * n.y) * uPlaneSize.y * 0.12 * uCurveV;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
   }
 `;
 
@@ -261,7 +286,6 @@ const VEIL_FRAG = /* glsl */ `
   void main() {
     vec2 p = vUv - 0.5;
     float radialX = exp(-pow(p.x / 0.34, 2.0));
-    // Rising shafts from below the screen up through the aurora canopy
     float vertical = smoothstep(-0.49, -0.05, p.y) * exp(-max(0.0, p.y - 0.04) * 4.4);
     float curtains =
       0.55 +
@@ -308,17 +332,19 @@ export class SkyCinema {
   private hasRequestedPlayback = false;
 
   private mode: SkyCinemaMode = loadSavedMode();
-  private curDist: number;
-  private curHeight: number;
-  private curScale: number;
-  private curTiltX: number;
-  private curCurveH: number;
-  private curCurveV: number;
+  private curRadius: number;
+  private curElevation: number;
+  private curAzimuth: number;
+  private curRoll: number;
+  private curHeightRad: number;
+  private curWidthRad: number;
+  private curDomeWrap: number;
   private curEdgeSoftness: number;
   private curOvalMix: number;
   private curFrameStrength: number;
   private curMinAlpha: number;
   private curMaxAlpha: number;
+  private curVibrance: number;
   private curVeilOpacity: number;
   private curCaptionOpacity: number;
 
@@ -327,17 +353,19 @@ export class SkyCinema {
     this.group.visible = false;
 
     const initial = getModeSpec(this.mode);
-    this.curDist = initial.dist;
-    this.curHeight = initial.height;
-    this.curScale = initial.scale;
-    this.curTiltX = initial.tiltX;
-    this.curCurveH = initial.curveH;
-    this.curCurveV = initial.curveV;
+    this.curRadius = initial.radius;
+    this.curElevation = initial.elevation;
+    this.curAzimuth = initial.azimuth;
+    this.curRoll = initial.roll;
+    this.curHeightRad = initial.heightRad;
+    this.curWidthRad = initial.widthRad;
+    this.curDomeWrap = initial.domeWrap;
     this.curEdgeSoftness = initial.edgeSoftness;
     this.curOvalMix = initial.ovalMix;
     this.curFrameStrength = initial.frameStrength;
     this.curMinAlpha = initial.minAlpha;
     this.curMaxAlpha = initial.maxAlpha;
+    this.curVibrance = initial.vibrance;
     this.curVeilOpacity = initial.veilOpacity;
     this.curCaptionOpacity = initial.captionOpacity;
 
@@ -372,19 +400,22 @@ export class SkyCinema {
     this.videoTex.magFilter = THREE.LinearFilter;
     this.videoTex.generateMipmaps = false;
 
-    // Layer 2: Rising aurora projection veil behind & beneath screen
-    const veilGeo = new THREE.PlaneGeometry(132, 86, 28, 16);
+    // Layer 2: Rising aurora projection veil curved behind the sky-vault patch
+    const veilGeo = new THREE.PlaneGeometry(1, 1, 32, 16);
     this.veilMat = new THREE.ShaderMaterial({
-      vertexShader: VEIL_VERT,
+      vertexShader: SKY_PATCH_VERT,
       fragmentShader: VEIL_FRAG,
       uniforms: {
         uTime: { value: 0 },
         uReveal: { value: 0 },
         uDaylight: { value: 0 },
         uThemeMode: { value: 0 },
-        uCurveH: { value: this.curCurveH },
-        uCurveV: { value: this.curCurveV },
-        uPlaneSize: { value: new THREE.Vector2(132, 86) },
+        uRadius: { value: this.curRadius + 12 },
+        uElevation: { value: this.curElevation - 0.025 },
+        uAzimuth: { value: this.curAzimuth },
+        uRoll: { value: this.curRoll * 0.7 },
+        uAngularSize: { value: new THREE.Vector2(this.curWidthRad * 1.75, this.curHeightRad * 1.85) },
+        uDomeWrap: { value: this.curDomeWrap },
         uVeilOpacity: { value: this.curVeilOpacity },
       },
       transparent: true,
@@ -394,14 +425,13 @@ export class SkyCinema {
       side: THREE.FrontSide,
     });
     const veilMesh = new THREE.Mesh(veilGeo, this.veilMat);
-    veilMesh.position.set(0, -6, -4.5);
     veilMesh.renderOrder = 1;
     veilMesh.frustumCulled = false;
 
-    // Layer 1: Curved luminous sky-integrated screen
-    const screenGeo = new THREE.PlaneGeometry(68, 38.25, 40, 16);
+    // Layer 1: Curved spherical sky-vault cinema patch
+    const screenGeo = new THREE.PlaneGeometry(1, 1, 48, 24);
     this.screenMat = new THREE.ShaderMaterial({
-      vertexShader: SCREEN_VERT,
+      vertexShader: SKY_PATCH_VERT,
       fragmentShader: SCREEN_FRAG,
       uniforms: {
         uVideo: { value: this.videoTex },
@@ -410,14 +440,18 @@ export class SkyCinema {
         uDaylight: { value: 0 },
         uThemeMode: { value: 0 },
         uHasVideo: { value: 0 },
-        uCurveH: { value: this.curCurveH },
-        uCurveV: { value: this.curCurveV },
-        uPlaneSize: { value: new THREE.Vector2(68, 38.25) },
+        uRadius: { value: this.curRadius },
+        uElevation: { value: this.curElevation },
+        uAzimuth: { value: this.curAzimuth },
+        uRoll: { value: this.curRoll },
+        uAngularSize: { value: new THREE.Vector2(this.curWidthRad, this.curHeightRad) },
+        uDomeWrap: { value: this.curDomeWrap },
         uEdgeSoftness: { value: this.curEdgeSoftness },
         uOvalMix: { value: this.curOvalMix },
         uFrameStrength: { value: this.curFrameStrength },
         uMinAlpha: { value: this.curMinAlpha },
         uMaxAlpha: { value: this.curMaxAlpha },
+        uVibrance: { value: this.curVibrance },
       },
       transparent: true,
       depthWrite: false,
@@ -444,7 +478,6 @@ export class SkyCinema {
       toneMapped: false,
     });
     this.captionMesh = new THREE.Mesh(new THREE.PlaneGeometry(48, 6.0), this.captionMat);
-    this.captionMesh.position.set(0, -21.0, 0.8);
     this.captionMesh.renderOrder = 3;
     this.captionMesh.frustumCulled = false;
     this.captionMesh.visible = this.curCaptionOpacity > 0.02;
@@ -476,34 +509,38 @@ export class SkyCinema {
   }
 
   private snapToModeSpec(spec: SkyCinemaModeSpec): void {
-    this.curDist = spec.dist;
-    this.curHeight = spec.height;
-    this.curScale = spec.scale;
-    this.curTiltX = spec.tiltX;
-    this.curCurveH = spec.curveH;
-    this.curCurveV = spec.curveV;
+    this.curRadius = spec.radius;
+    this.curElevation = spec.elevation;
+    this.curAzimuth = spec.azimuth;
+    this.curRoll = spec.roll;
+    this.curHeightRad = spec.heightRad;
+    this.curWidthRad = spec.widthRad;
+    this.curDomeWrap = spec.domeWrap;
     this.curEdgeSoftness = spec.edgeSoftness;
     this.curOvalMix = spec.ovalMix;
     this.curFrameStrength = spec.frameStrength;
     this.curMinAlpha = spec.minAlpha;
     this.curMaxAlpha = spec.maxAlpha;
+    this.curVibrance = spec.vibrance;
     this.curVeilOpacity = spec.veilOpacity;
     this.curCaptionOpacity = spec.captionOpacity;
   }
 
   private dampModeParams(dt: number, spec: SkyCinemaModeSpec): void {
-    const k = 4.5;
-    this.curDist = THREE.MathUtils.damp(this.curDist, spec.dist, k, dt);
-    this.curHeight = THREE.MathUtils.damp(this.curHeight, spec.height, k, dt);
-    this.curScale = THREE.MathUtils.damp(this.curScale, spec.scale, k, dt);
-    this.curTiltX = THREE.MathUtils.damp(this.curTiltX, spec.tiltX, k, dt);
-    this.curCurveH = THREE.MathUtils.damp(this.curCurveH, spec.curveH, k, dt);
-    this.curCurveV = THREE.MathUtils.damp(this.curCurveV, spec.curveV, k, dt);
+    const k = 4.2;
+    this.curRadius = THREE.MathUtils.damp(this.curRadius, spec.radius, k, dt);
+    this.curElevation = THREE.MathUtils.damp(this.curElevation, spec.elevation, k, dt);
+    this.curAzimuth = THREE.MathUtils.damp(this.curAzimuth, spec.azimuth, k, dt);
+    this.curRoll = THREE.MathUtils.damp(this.curRoll, spec.roll, k, dt);
+    this.curHeightRad = THREE.MathUtils.damp(this.curHeightRad, spec.heightRad, k, dt);
+    this.curWidthRad = THREE.MathUtils.damp(this.curWidthRad, spec.widthRad, k, dt);
+    this.curDomeWrap = THREE.MathUtils.damp(this.curDomeWrap, spec.domeWrap, k, dt);
     this.curEdgeSoftness = THREE.MathUtils.damp(this.curEdgeSoftness, spec.edgeSoftness, k, dt);
     this.curOvalMix = THREE.MathUtils.damp(this.curOvalMix, spec.ovalMix, k, dt);
     this.curFrameStrength = THREE.MathUtils.damp(this.curFrameStrength, spec.frameStrength, k, dt);
     this.curMinAlpha = THREE.MathUtils.damp(this.curMinAlpha, spec.minAlpha, k, dt);
     this.curMaxAlpha = THREE.MathUtils.damp(this.curMaxAlpha, spec.maxAlpha, k, dt);
+    this.curVibrance = THREE.MathUtils.damp(this.curVibrance, spec.vibrance, k, dt);
     this.curVeilOpacity = THREE.MathUtils.damp(this.curVeilOpacity, spec.veilOpacity, k, dt);
     this.curCaptionOpacity = THREE.MathUtils.damp(this.curCaptionOpacity, spec.captionOpacity, k, dt);
   }
@@ -694,21 +731,17 @@ export class SkyCinema {
         Math.sin(heading - this.cinemaHeading),
         Math.cos(heading - this.cinemaHeading)
       );
-      this.cinemaHeading += dHead * (1 - Math.exp(-dt * 1.8));
+      this.cinemaHeading += dHead * (1 - Math.exp(-dt * 1.4));
       this.dampModeParams(dt, targetSpec);
     }
 
-    const east = Math.sin(this.cinemaHeading);
-    const north = Math.cos(this.cinemaHeading);
-    const floatY = center.y + this.curHeight + Math.sin(time * 0.55) * 0.65;
+    // Center the sky-vault dome around the viewer so the projection truly sits on the celestial sphere
+    this.group.position.copy(center);
+    this.group.rotation.set(0, -this.cinemaHeading, 0);
+    this.group.scale.setScalar(1);
 
-    this.group.scale.setScalar(this.curScale);
-    this.group.position.set(center.x + east * this.curDist, floatY, center.z - north * this.curDist);
-    this.group.rotation.order = 'YXZ';
-    this.group.rotation.y = -this.cinemaHeading;
-    this.group.rotation.x = this.curTiltX;
-    this.group.rotation.z = Math.sin(time * 0.35) * 0.014 + 0.012;
-
+    const driftEl = Math.sin(time * 0.42) * 0.003;
+    const driftRoll = Math.sin(time * 0.3) * 0.008;
     const themeMode = theme === 'cyber2099' ? 2.0 : theme === 'nordic' ? 1.0 : 0.0;
     const smoothReveal = THREE.MathUtils.smoothstep(this.reveal, 0, 1);
 
@@ -717,24 +750,46 @@ export class SkyCinema {
     this.screenMat.uniforms.uDaylight.value = daylightFactor;
     this.screenMat.uniforms.uThemeMode.value = themeMode;
     this.screenMat.uniforms.uHasVideo.value = this.hasVideoFrame || this.video.readyState >= 2 ? 1 : 0;
-    this.screenMat.uniforms.uCurveH.value = this.curCurveH;
-    this.screenMat.uniforms.uCurveV.value = this.curCurveV;
+    this.screenMat.uniforms.uRadius.value = this.curRadius;
+    this.screenMat.uniforms.uElevation.value = this.curElevation + driftEl;
+    this.screenMat.uniforms.uAzimuth.value = this.curAzimuth;
+    this.screenMat.uniforms.uRoll.value = this.curRoll + driftRoll;
+    this.screenMat.uniforms.uAngularSize.value.set(this.curWidthRad, this.curHeightRad);
+    this.screenMat.uniforms.uDomeWrap.value = this.curDomeWrap;
     this.screenMat.uniforms.uEdgeSoftness.value = this.curEdgeSoftness;
     this.screenMat.uniforms.uOvalMix.value = this.curOvalMix;
     this.screenMat.uniforms.uFrameStrength.value = this.curFrameStrength;
     this.screenMat.uniforms.uMinAlpha.value = this.curMinAlpha;
     this.screenMat.uniforms.uMaxAlpha.value = this.curMaxAlpha;
+    this.screenMat.uniforms.uVibrance.value = this.curVibrance;
 
     this.veilMat.uniforms.uTime.value = time;
     this.veilMat.uniforms.uReveal.value = smoothReveal;
     this.veilMat.uniforms.uDaylight.value = daylightFactor;
     this.veilMat.uniforms.uThemeMode.value = themeMode;
-    this.veilMat.uniforms.uCurveH.value = this.curCurveH;
-    this.veilMat.uniforms.uCurveV.value = this.curCurveV;
+    this.veilMat.uniforms.uRadius.value = this.curRadius + 12.0;
+    this.veilMat.uniforms.uElevation.value = this.curElevation - 0.025 + driftEl;
+    this.veilMat.uniforms.uAzimuth.value = this.curAzimuth;
+    this.veilMat.uniforms.uRoll.value = (this.curRoll + driftRoll) * 0.7;
+    this.veilMat.uniforms.uAngularSize.value.set(this.curWidthRad * 1.75, this.curHeightRad * 1.85);
+    this.veilMat.uniforms.uDomeWrap.value = this.curDomeWrap;
     this.veilMat.uniforms.uVeilOpacity.value = this.curVeilOpacity;
 
-    this.captionMesh.visible = this.curCaptionOpacity > 0.02;
-    this.captionMat.opacity = smoothReveal * this.curCaptionOpacity * (1 - daylightFactor * 0.16);
+    const showCap = this.curCaptionOpacity > 0.02;
+    this.captionMesh.visible = showCap;
+    if (showCap) {
+      const elCap = this.curElevation - this.curHeightRad * 0.58 + driftEl;
+      const rCap = this.curRadius - 1.0;
+      const cosElCap = Math.cos(elCap);
+      this.captionMesh.position.set(
+        Math.sin(this.curAzimuth) * cosElCap * rCap,
+        Math.sin(elCap) * rCap,
+        -Math.cos(this.curAzimuth) * cosElCap * rCap
+      );
+      this.captionMesh.rotation.order = 'YXZ';
+      this.captionMesh.rotation.set(elCap, -this.curAzimuth, this.curRoll + driftRoll);
+      this.captionMat.opacity = smoothReveal * this.curCaptionOpacity * (1 - daylightFactor * 0.16);
+    }
   }
 
   dispose(): void {
