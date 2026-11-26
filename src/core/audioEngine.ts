@@ -345,7 +345,6 @@ export class HolidayAudioEngine {
   private songIdx = 0;
   private stepIdx = 0;
   private stepWaitSec = 0.25;
-  private bellTimer = 0;
   private prevBraking = false;
   private lastEventTriggered: string | null = null;
 
@@ -746,22 +745,7 @@ export class HolidayAudioEngine {
       this.windGain.gain.setTargetAtTime(gain, now, 0.15);
     }
 
-    // 3. Rhythmic Sleigh Bells synced to speed
-    this.bellTimer += dt;
-    const bellInterval =
-      telemetry.speedKmh < 2.5
-        ? 1.9
-        : telemetry.speedKmh < 35
-          ? 0.62 - (telemetry.speedKmh / 35) * 0.24
-          : Math.max(0.16, 0.38 - ((telemetry.speedKmh - 35) / 95) * 0.21);
-
-    if (this.bellTimer >= bellInterval) {
-      this.bellTimer = 0;
-      const intensity = telemetry.speedKmh < 2.5 ? 0.16 : 0.28 + speedRatio * 0.55;
-      this.triggerSleighBell(intensity, telemetry.turnRate * 0.35);
-    }
-
-    // 4. Braking bell jingle transition
+    // 3. Braking bell jingle transition
     if (telemetry.isBraking && !this.prevBraking && telemetry.speedKmh > 12) {
       this.playBrakeJingle();
     }
