@@ -88,7 +88,8 @@ export function createAlpineHorizon(): AlpineHorizonHandle {
   const rose = new THREE.Color('#f0aac0');
   const tint = new THREE.Color();
 
-  for (const layer of layers) {
+  for (let layerIdx = 0; layerIdx < layers.length; layerIdx++) {
+    const layer = layers[layerIdx];
     const positions: number[] = [];
     const colors: number[] = [];
     const normHs: number[] = [];
@@ -149,13 +150,14 @@ export function createAlpineHorizon(): AlpineHorizonHandle {
         uCyberMode: { value: 0 },
       },
       side: THREE.DoubleSide,
-      depthTest: false,
+      transparent: true,
+      depthTest: true,
       depthWrite: false,
       fog: false,
     });
     ridgeMats.push(mat);
     const mesh = new THREE.Mesh(geometry, mat);
-    mesh.renderOrder = -2;
+    mesh.renderOrder = -4 + layerIdx; // outer 655m = -4, mid 498m = -3, inner 374m = -2
     group.add(mesh);
   }
 

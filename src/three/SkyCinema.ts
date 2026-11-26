@@ -48,11 +48,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
     shortLabel: 'Himlavalv',
     description: 'Stor duk som fyller himlen ned bakom bergen, lätt vinklad',
     radius: 670,
-    elevation: 0.19,
+    elevation: 0.215,
     azimuth: 0.05,
     roll: -0.035,
-    heightRad: 0.43,
-    widthRad: 0.765,
+    heightRad: 0.36,
+    widthRad: 0.64,
     domeWrap: 1.0,
     edgeSoftness: 0.88,
     ovalMix: 0.22,
@@ -69,11 +69,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
     shortLabel: 'Norrsken',
     description: 'Tydlig, stor norrskensbio rakt fram ned mot horisonten',
     radius: 670,
-    elevation: 0.185,
+    elevation: 0.21,
     azimuth: 0.0,
     roll: 0.0,
-    heightRad: 0.42,
-    widthRad: 0.748,
+    heightRad: 0.35,
+    widthRad: 0.622,
     domeWrap: 0.98,
     edgeSoftness: 0.76,
     ovalMix: 0.16,
@@ -90,11 +90,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
     shortLabel: 'Sned sky',
     description: 'Stor duk åt sidan och snett krökt över himlavalvet',
     radius: 670,
-    elevation: 0.2,
+    elevation: 0.22,
     azimuth: -0.14,
     roll: 0.095,
-    heightRad: 0.41,
-    widthRad: 0.73,
+    heightRad: 0.345,
+    widthRad: 0.614,
     domeWrap: 1.12,
     edgeSoftness: 0.96,
     ovalMix: 0.38,
@@ -111,7 +111,7 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
     shortLabel: 'Ram',
     description: 'Närmare bioduk med tydlig norrskensram',
     radius: 155,
-    elevation: 0.19,
+    elevation: 0.21,
     azimuth: 0.0,
     roll: 0.012,
     heightRad: 0.235,
@@ -235,8 +235,8 @@ const SCREEN_FRAG = /* glsl */ `
     float auroraWisp = (wispA * 0.65 + wispB * 0.35) - 0.5;
 
     float skyBlend = smoothstep(0.5, 1.0, uDomeWrap);
-    vec2 boxCenter = vec2(0.0, -0.055 * skyBlend);
-    vec2 boxHalf = vec2(0.455, mix(0.445, 0.51, skyBlend));
+    vec2 boxCenter = vec2(0.0, -0.045 * skyBlend);
+    vec2 boxHalf = vec2(0.455, mix(0.445, 0.50, skyBlend));
     float boxDist = sdRoundedBox(centered - boxCenter, boxHalf, 0.045);
     float ovalDist = length(centered * vec2(2.08, 2.12)) * 0.48 - 0.415;
     float shapeDist = mix(boxDist, ovalDist, clamp(uOvalMix, 0.0, 1.0));
@@ -331,6 +331,8 @@ export class SkyCinema {
   private readonly videoTex: THREE.VideoTexture;
   private readonly screenMat: THREE.ShaderMaterial;
   private readonly veilMat: THREE.ShaderMaterial;
+  private readonly veilMesh: THREE.Mesh;
+  private readonly screenMesh: THREE.Mesh;
   private readonly captionCanvas: HTMLCanvasElement;
   private readonly captionCtx: CanvasRenderingContext2D;
   private readonly captionTex: THREE.CanvasTexture;
@@ -440,9 +442,8 @@ export class SkyCinema {
       fog: false,
       side: THREE.FrontSide,
     });
-    const veilMesh = new THREE.Mesh(veilGeo, this.veilMat);
-    veilMesh.renderOrder = 1;
-    veilMesh.frustumCulled = false;
+    this.veilMesh = new THREE.Mesh(veilGeo, this.veilMat);
+    this.veilMesh.frustumCulled = false;
 
     // Layer 1: Curved spherical sky-vault cinema patch
     const screenGeo = new THREE.PlaneGeometry(1, 1, 48, 24);
@@ -474,9 +475,8 @@ export class SkyCinema {
       fog: false,
       side: THREE.FrontSide,
     });
-    const screenMesh = new THREE.Mesh(screenGeo, this.screenMat);
-    screenMesh.renderOrder = 2;
-    screenMesh.frustumCulled = false;
+    this.screenMesh = new THREE.Mesh(screenGeo, this.screenMat);
+    this.screenMesh.frustumCulled = false;
 
     // Layer 3: Floating caption plate (shown in 'classic' framed mode)
     this.captionCanvas = document.createElement('canvas');
@@ -498,7 +498,15 @@ export class SkyCinema {
     this.captionMesh.frustumCulled = false;
     this.captionMesh.visible = this.curCaptionOpacity > 0.02;
 
-    this.group.add(veilMesh, screenMesh, this.captionMesh);
+    this.group.add(this.veilMesh, this.screenMesh, this.captionMesh);
+    this.applyRenderOrder();
+  }
+
+  private applyRenderOrder(): void {
+    const behindHorizon = this.curRadius > 380;
+    this.veilMesh.renderOrder = behindHorizon ? -6 : 1;
+    this.screenMesh.renderOrder = behindHorizon ? -5 : 2;
+    this.captionMesh.renderOrder = behindHorizon ? -4 : 3;
   }
 
   getMode(): SkyCinemaMode {
@@ -611,6 +619,7 @@ export class SkyCinema {
 
     this.activeIndex = safeIdx;
     this.hasRequestedPlayback = true;
+    this.hasPlaced = false;
     this.state = 'entering';
     this.group.visible = true;
     this.hasVideoFrame = false;
@@ -760,13 +769,9 @@ export class SkyCinema {
       this.hasPlaced = true;
       this.snapToModeSpec(targetSpec);
     } else {
-      const dHead = Math.atan2(
-        Math.sin(heading - this.cinemaHeading),
-        Math.cos(heading - this.cinemaHeading)
-      );
-      this.cinemaHeading += dHead * (1 - Math.exp(-dt * 1.4));
       this.dampModeParams(dt, targetSpec);
     }
+    this.applyRenderOrder();
 
     // Center the sky-vault dome around the viewer so the projection truly sits on the celestial sphere
     this.group.position.copy(center);
