@@ -34,12 +34,18 @@ function getWinTex(): THREE.CanvasTexture {
   return warmWinTex;
 }
 
+export interface PixarSleighStyleOptions {
+  goldenSleigh: boolean;
+  cyberReindeer: boolean;
+}
+
 export interface PixarSleighHandle {
   group: THREE.Group;
   update(dt: number, speedKmh: number, turnRate: number, accel: number, time: number): void;
   triggerReaction(kind: 'hohoho' | 'landmark' | 'gift'): void;
   setStoppedMode(stoppedSec: number): void;
   setTheme(theme: HolidayThemeId): void;
+  setStyle(opts: PixarSleighStyleOptions): void;
   getTrailOrigin(out: THREE.Vector3): THREE.Vector3;
 }
 
@@ -47,9 +53,13 @@ interface ReindeerAnim {
   group: THREE.Group;
   slotX: number;
   slotZ: number;
+  row: number;
+  isRudolph: boolean;
   torsoMesh: THREE.Mesh;
   craniumMesh: THREE.Mesh;
   eyes: THREE.Mesh[];
+  catchlights: THREE.Mesh[];
+  cyberVisor: THREE.Mesh;
   ears: THREE.Mesh[];
   fl: THREE.Group;
   flShin: THREE.Group;
@@ -64,8 +74,16 @@ interface ReindeerAnim {
   blinkTimer: number;
   blinkVal: number;
   breathPuffs: THREE.Sprite[];
-  reinSegA: THREE.Mesh;
-  reinSegB: THREE.Mesh;
+}
+
+interface ReinSpan {
+  segA: THREE.Mesh;
+  segB: THREE.Mesh;
+  fromIdx: number; // -1 for Santa's mitten
+  toIdx: number;
+  side: -1 | 1;
+  sagBase: number;
+  sagSpeed: number;
 }
 
 const _segDir = new THREE.Vector3();
@@ -477,25 +495,128 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   santaTorsoPivot.add(rightArmPivot);
   sleighBodyGroup.add(santa);
 
-  // --- Sculpted 4-Reindeer Team with GPU Blend Shapes & Dynamic Live Reins ---
+  // --- Sculpted 7-Reindeer Team (3 Pairs + Centered Front Lead Rudolph) with GPU Blend Shapes & Dynamic Live Reins ---
   const furMat = new THREE.MeshPhysicalMaterial({
     color: '#8c5330',
+    metalness: 0.0,
     roughness: 0.72,
     sheen: 0.55,
     sheenColor: new THREE.Color('#c9956b'),
   });
-  const muzzleMat = new THREE.MeshPhysicalMaterial({ color: '#d8b490', roughness: 0.75 });
-  const antlerMat = new THREE.MeshStandardMaterial({ color: '#e6caa2', roughness: 0.55 });
-  const hoofMat = new THREE.MeshStandardMaterial({ color: '#1b1614', roughness: 0.35 });
+  const muzzleMat = new THREE.MeshPhysicalMaterial({ color: '#d8b490', metalness: 0.0, roughness: 0.75 });
+  const antlerMat = new THREE.MeshStandardMaterial({ color: '#e6caa2', metalness: 0.0, roughness: 0.55 });
+  const hoofMat = new THREE.MeshStandardMaterial({ color: '#1b1614', metalness: 0.0, roughness: 0.35 });
+  const reindeerTailMat = new THREE.MeshPhysicalMaterial({
+    color: '#f8f5ef',
+    metalness: 0.0,
+    roughness: 0.85,
+    sheen: 0.65,
+    sheenColor: new THREE.Color('#ffffff'),
+  });
+  const reindeerCollarMat = crimsonPaint.clone();
+  const reindeerEyeMat = new THREE.MeshPhysicalMaterial({
+    color: '#121218',
+    roughness: 0.05,
+    clearcoat: 1,
+  });
+  const catchlightMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+  const cyberVisorMat = new THREE.MeshBasicMaterial({
+    color: '#3cf4ff',
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  const rudolphNoseMat = new THREE.MeshBasicMaterial({ color: '#ff2b3d', toneMapped: false });
+  const reinMat = goldMat.clone();
+
+  // Shared geometries across all 7 reindeer (each Mesh retains independent morphTargetInfluences)
+  const torsoGeo = new THREE.CapsuleGeometry(0.24, 0.68, 10, 16);
+  addMorphTargets(torsoGeo, {
+    archSpine: (_x, y, z, out) => {
+      const mid = Math.max(0, 1 - Math.abs(y) * 2.2);
+      out.z = z - mid * 0.075; // lifts spine upward after +90deg X rotation!
+    },
+    extendSpine: (x, y, z, out) => {
+      out.y = y * 1.1;
+      out.x = x * 0.94;
+      out.z = z * 0.96;
+    },
+    breathe: (x, y, z, out) => {
+      if (y < 0.05) {
+        out.x = x * 1.07;
+        out.z = z * 1.07;
+      }
+    },
+  });
+
+  const craniumGeo = new THREE.SphereGeometry(0.18, 16, 14);
+  addMorphTargets(craniumGeo, {
+    blink: (_x, y, z, out) => {
+      if (z < -0.05 && y > 0.01 && y < 0.09) out.y -= 0.016;
+    },
+    earPerk: (_x, y, z, out) => {
+      if (y > 0.06) out.z = z - 0.025;
+    },
+    snoutFlare: (x, y, z, out) => {
+      if (z < -0.1 && y < 0) {
+        out.x = x * 1.1;
+        out.z = z - 0.018;
+      }
+    },
+  });
+
+  const chestFluffGeo = new THREE.SphereGeometry(0.22, 10, 10);
+  const tailGeo = new THREE.ConeGeometry(0.08, 0.24, 8);
+  const collarGeo = new THREE.TorusGeometry(0.25, 0.045, 8, 14);
+  const bellGeo = new THREE.SphereGeometry(0.048, 8, 8);
+  const neckGeo = new THREE.CapsuleGeometry(0.13, 0.32, 6, 10);
+  const snoutGeo = new THREE.CapsuleGeometry(0.11, 0.16, 6, 10);
+  const eyeGeo = new THREE.SphereGeometry(0.042, 8, 8);
+  const catchlightGeo = new THREE.SphereGeometry(0.015, 6, 6);
+  const earGeo = new THREE.ConeGeometry(0.06, 0.18, 6);
+  const darkNoseGeo = new THREE.SphereGeometry(0.055, 8, 8);
+  const rudolphNoseGeo = new THREE.SphereGeometry(0.098, 12, 12);
+  const cyberVisorGeo = new THREE.CylinderGeometry(
+    0.165,
+    0.165,
+    0.052,
+    14,
+    1,
+    true,
+    Math.PI * 0.68,
+    Math.PI * 0.64
+  );
+  const upperLegGeo = new THREE.CapsuleGeometry(0.058, 0.28, 4, 8);
+  const shinLegGeo = new THREE.CapsuleGeometry(0.044, 0.26, 4, 8);
+  const hoofGeo = new THREE.CylinderGeometry(0.05, 0.062, 0.07, 8);
+
+  const antlerGeos = [-1, 1].map((side) => {
+    const mainAntlerCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 0.07, 0.5, -0.16),
+      new THREE.Vector3(side * 0.19, 0.72, -0.12),
+      new THREE.Vector3(side * 0.24, 0.92, -0.02),
+    ]);
+    const tineCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 0.17, 0.68, -0.13),
+      new THREE.Vector3(side * 0.11, 0.84, -0.25),
+    ]);
+    return {
+      main: new THREE.TubeGeometry(mainAntlerCurve, 10, 0.024, 6, false),
+      tine: new THREE.TubeGeometry(tineCurve, 6, 0.018, 5, false),
+    };
+  });
 
   const reinSegGeo = new THREE.CylinderGeometry(0.015, 0.015, 1, 5);
   reinSegGeo.rotateX(Math.PI * 0.5);
 
+  // 7 Reindeer: 3 symmetric pairs (6) behind + 1 centered lead Rudolph at the very front (x = 0, -Z forward)
   const deerSlots = [
-    { x: -0.78, z: -2.65, phase: 0.35, rudolph: false },
-    { x: 0.78, z: -2.65, phase: 1.25, rudolph: false },
-    { x: -0.75, z: -5.45, phase: 2.1, rudolph: false },
-    { x: 0.75, z: -5.45, phase: 0.0, rudolph: true },
+    { x: -0.80, z: -2.55, row: 0, phase: 0.45, rudolph: false },
+    { x: 0.80, z: -2.55, row: 0, phase: 1.55, rudolph: false },
+    { x: -0.78, z: -4.85, row: 1, phase: 2.65, rudolph: false },
+    { x: 0.78, z: -4.85, row: 1, phase: 3.75, rudolph: false },
+    { x: -0.76, z: -7.15, row: 2, phase: 4.85, rudolph: false },
+    { x: 0.76, z: -7.15, row: 2, phase: 5.75, rudolph: false },
+    { x: 0.0, z: -9.45, row: 3, phase: 0.0, rudolph: true },
   ];
 
   const reindeerRigs: ReindeerAnim[] = [];
@@ -508,46 +629,27 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     const dg = new THREE.Group();
     dg.position.set(slot.x, 0.82, slot.z);
 
-    // Torso with 3 GPU Morph Targets: archSpine, extendSpine, breathe
-    const torsoGeo = new THREE.CapsuleGeometry(0.24, 0.68, 10, 16);
-    addMorphTargets(torsoGeo, {
-      archSpine: (_x, y, z, out) => {
-        const mid = Math.max(0, 1 - Math.abs(y) * 2.2);
-        out.z = z - mid * 0.075; // lifts spine upward after +90deg X rotation!
-      },
-      extendSpine: (x, y, z, out) => {
-        out.y = y * 1.1;
-        out.x = x * 0.94;
-        out.z = z * 0.96;
-      },
-      breathe: (x, y, z, out) => {
-        if (y < 0.05) {
-          out.x = x * 1.07;
-          out.z = z * 1.07;
-        }
-      },
-    });
     const torsoMesh = new THREE.Mesh(torsoGeo, furMat);
     torsoMesh.rotation.x = Math.PI * 0.5;
     torsoMesh.updateMorphTargets();
     dg.add(torsoMesh);
 
-    const chestFluff = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), muzzleMat);
+    const chestFluff = new THREE.Mesh(chestFluffGeo, muzzleMat);
     chestFluff.position.set(0, -0.02, -0.34);
     dg.add(chestFluff);
 
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.24, 8), snowFurMat);
+    const tail = new THREE.Mesh(tailGeo, reindeerTailMat);
     tail.rotation.x = 0.85;
     tail.position.set(0, 0.14, 0.52);
     dg.add(tail);
 
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.045, 8, 14), crimsonPaint);
+    const collar = new THREE.Mesh(collarGeo, reindeerCollarMat);
     collar.rotation.x = 0.35;
     collar.position.set(0, 0.1, -0.32);
     dg.add(collar);
 
     for (const bx of [-0.12, 0, 0.12]) {
-      const bell = new THREE.Mesh(new THREE.SphereGeometry(0.048, 8, 8), goldMat);
+      const bell = new THREE.Mesh(bellGeo, goldMat);
       bell.position.set(bx, -0.08, -0.45);
       dg.add(bell);
     }
@@ -555,80 +657,54 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     const headGroup = new THREE.Group();
     headGroup.position.set(0, 0.24, -0.38);
 
-    const neck = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.32, 6, 10), furMat);
+    const neck = new THREE.Mesh(neckGeo, furMat);
     neck.rotation.x = -0.45;
     neck.position.set(0, 0.14, -0.08);
     headGroup.add(neck);
 
-    // Cranium with 3 GPU Morph Targets: blink, earPerk, snoutFlare
-    const craniumGeo = new THREE.SphereGeometry(0.18, 16, 14);
-    addMorphTargets(craniumGeo, {
-      blink: (_x, y, z, out) => {
-        if (z < -0.05 && y > 0.01 && y < 0.09) out.y -= 0.016;
-      },
-      earPerk: (_x, y, z, out) => {
-        if (y > 0.06) out.z = z - 0.025;
-      },
-      snoutFlare: (x, y, z, out) => {
-        if (z < -0.1 && y < 0) {
-          out.x = x * 1.1;
-          out.z = z - 0.018;
-        }
-      },
-    });
     const craniumMesh = new THREE.Mesh(craniumGeo, furMat);
     craniumMesh.position.set(0, 0.36, -0.2);
     craniumMesh.updateMorphTargets();
     headGroup.add(craniumMesh);
 
-    const snout = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.16, 6, 10), muzzleMat);
+    const snout = new THREE.Mesh(snoutGeo, muzzleMat);
     snout.rotation.x = Math.PI * 0.5;
     snout.position.set(0, 0.31, -0.36);
     headGroup.add(snout);
 
     const eyes: THREE.Mesh[] = [];
+    const catchlights: THREE.Mesh[] = [];
     const ears: THREE.Mesh[] = [];
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(
-        new THREE.SphereGeometry(0.042, 8, 8),
-        new THREE.MeshPhysicalMaterial({ color: '#121218', roughness: 0.05, clearcoat: 1 })
-      );
+    for (let sIdx = 0; sIdx < 2; sIdx++) {
+      const side = sIdx === 0 ? -1 : 1;
+      const eye = new THREE.Mesh(eyeGeo, reindeerEyeMat);
       eye.position.set(side * 0.12, 0.41, -0.31);
-      const catchlight = new THREE.Mesh(
-        new THREE.SphereGeometry(0.015, 6, 6),
-        new THREE.MeshBasicMaterial({ color: '#ffffff' })
-      );
+      const catchlight = new THREE.Mesh(catchlightGeo, catchlightMat);
       catchlight.position.set(0.012, 0.015, -0.035);
       eye.add(catchlight);
       headGroup.add(eye);
       eyes.push(eye);
+      catchlights.push(catchlight);
 
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 6), furMat);
+      const ear = new THREE.Mesh(earGeo, furMat);
       ear.rotation.z = side * -1.1;
       ear.rotation.x = 0.25;
       ear.position.set(side * 0.19, 0.45, -0.14);
       headGroup.add(ear);
       ears.push(ear);
 
-      const mainAntlerCurve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(side * 0.07, 0.5, -0.16),
-        new THREE.Vector3(side * 0.19, 0.72, -0.12),
-        new THREE.Vector3(side * 0.24, 0.92, -0.02),
-      ]);
-      headGroup.add(new THREE.Mesh(new THREE.TubeGeometry(mainAntlerCurve, 10, 0.024, 6, false), antlerMat));
-
-      const tineCurve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(side * 0.17, 0.68, -0.13),
-        new THREE.Vector3(side * 0.11, 0.84, -0.25),
-      ]);
-      headGroup.add(new THREE.Mesh(new THREE.TubeGeometry(tineCurve, 6, 0.018, 5, false), antlerMat));
+      headGroup.add(new THREE.Mesh(antlerGeos[sIdx].main, antlerMat));
+      headGroup.add(new THREE.Mesh(antlerGeos[sIdx].tine, antlerMat));
     }
 
+    // Sleek glowing cyan Cyber-Reindeer LED visor across brow/eyes (hidden until cyberReindeer style enabled)
+    const cyberVisor = new THREE.Mesh(cyberVisorGeo, cyberVisorMat);
+    cyberVisor.position.set(0, 0.41, -0.225);
+    cyberVisor.visible = false;
+    headGroup.add(cyberVisor);
+
     if (slot.rudolph) {
-      const noseBulb = new THREE.Mesh(
-        new THREE.SphereGeometry(0.095, 12, 12),
-        new THREE.MeshBasicMaterial({ color: '#ff2b3d', toneMapped: false })
-      );
+      const noseBulb = new THREE.Mesh(rudolphNoseGeo, rudolphNoseMat);
       noseBulb.position.set(0, 0.34, -0.49);
       headGroup.add(noseBulb);
 
@@ -655,20 +731,20 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
         depthWrite: false,
       });
       rudolphGroundGlow = new THREE.Mesh(
-        new THREE.PlaneGeometry(4.8, 6.2).rotateX(-Math.PI * 0.5),
+        new THREE.PlaneGeometry(5.0, 6.4).rotateX(-Math.PI * 0.5),
         rudolphGroundGlowMat
       );
       rudolphGroundGlow.position.set(slot.x, 0.08, slot.z - 1.55);
       root.add(rudolphGroundGlow);
     } else {
-      const darkNose = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), hoofMat);
+      const darkNose = new THREE.Mesh(darkNoseGeo, hoofMat);
       darkNose.position.set(0, 0.34, -0.47);
       headGroup.add(darkNose);
     }
 
     const hoofGlow = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: getSoftGlowTexture(),
+        map: softGlowTex,
         color: '#ffe288',
         transparent: true,
         opacity: 0,
@@ -686,15 +762,15 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     const makeLeg = (lx: number, lz: number) => {
       const upper = new THREE.Group();
       upper.position.set(lx, -0.1, lz);
-      const uMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.058, 0.28, 4, 8), furMat);
+      const uMesh = new THREE.Mesh(upperLegGeo, furMat);
       uMesh.position.y = -0.16;
       upper.add(uMesh);
 
       const shin = new THREE.Group();
       shin.position.set(0, -0.32, 0);
-      const sMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.044, 0.26, 4, 8), furMat);
+      const sMesh = new THREE.Mesh(shinLegGeo, furMat);
       sMesh.position.y = -0.14;
-      const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.062, 0.07, 8), hoofMat);
+      const hoof = new THREE.Mesh(hoofGeo, hoofMat);
       hoof.position.y = -0.3;
       shin.add(sMesh, hoof);
       upper.add(shin);
@@ -724,19 +800,18 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       breathPuffs.push(puff);
     }
 
-    // Two-segment live dynamic golden rein (zero GC per frame)
-    const reinSegA = new THREE.Mesh(reinSegGeo, goldMat);
-    const reinSegB = new THREE.Mesh(reinSegGeo, goldMat);
-    root.add(reinSegA, reinSegB);
-
     root.add(dg);
     reindeerRigs.push({
       group: dg,
       slotX: slot.x,
       slotZ: slot.z,
+      row: slot.row,
+      isRudolph: slot.rudolph,
       torsoMesh,
       craniumMesh,
       eyes,
+      catchlights,
+      cyberVisor,
       ears,
       fl: fl.upper,
       flShin: fl.shin,
@@ -751,10 +826,28 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
       blinkTimer: 1.5 + Math.random() * 3.0,
       blinkVal: 0,
       breathPuffs,
-      reinSegA,
-      reinSegB,
     });
   }
+
+  // Continuous left & right dynamic golden reins threading through the 3 pairs and converging onto Rudolph's collar!
+  const reinSpanSpecs: Array<{ fromIdx: number; toIdx: number; side: -1 | 1; sagBase: number; sagSpeed: number }> = [
+    // Left rein chain: Santa Left -> Row 0 L (0) -> Row 1 L (2) -> Row 2 L (4) -> Lead Rudolph Left (6)
+    { fromIdx: -1, toIdx: 0, side: -1, sagBase: 0.30, sagSpeed: 0.16 },
+    { fromIdx: 0, toIdx: 2, side: -1, sagBase: 0.14, sagSpeed: 0.08 },
+    { fromIdx: 2, toIdx: 4, side: -1, sagBase: 0.14, sagSpeed: 0.08 },
+    { fromIdx: 4, toIdx: 6, side: -1, sagBase: 0.16, sagSpeed: 0.09 },
+    // Right rein chain: Santa Right -> Row 0 R (1) -> Row 1 R (3) -> Row 2 R (5) -> Lead Rudolph Right (6)
+    { fromIdx: -1, toIdx: 1, side: 1, sagBase: 0.30, sagSpeed: 0.16 },
+    { fromIdx: 1, toIdx: 3, side: 1, sagBase: 0.14, sagSpeed: 0.08 },
+    { fromIdx: 3, toIdx: 5, side: 1, sagBase: 0.14, sagSpeed: 0.08 },
+    { fromIdx: 5, toIdx: 6, side: 1, sagBase: 0.16, sagSpeed: 0.09 },
+  ];
+  const reinSpans: ReinSpan[] = reinSpanSpecs.map((spec) => {
+    const segA = new THREE.Mesh(reinSegGeo, reinMat);
+    const segB = new THREE.Mesh(reinSegGeo, reinMat);
+    root.add(segA, segB);
+    return { ...spec, segA, segB };
+  });
 
   // Animation state & SpringDampers
   let gallopAccum = 0;
@@ -771,6 +864,171 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
   let giftTimer = 0;
   let currentStoppedSec = 0;
   let currentTheme: HolidayThemeId = 'classic';
+  let styleGoldenSleigh = false;
+  let styleCyberReindeer = false;
+
+  const applySleighAppearance = (): void => {
+    if (styleGoldenSleigh) {
+      sleighHullMat.color.set('#f0bb3e');
+      sleighHullMat.metalness = 0.90;
+      sleighHullMat.roughness = 0.14;
+      sleighHullMat.clearcoat = 1.0;
+      sleighHullMat.clearcoatRoughness = 0.08;
+      sleighHullMat.emissive.set('#3a2300');
+      sleighHullMat.emissiveIntensity = 0.16;
+
+      runnerTrimMat.color.set('#fff1be');
+      runnerTrimMat.metalness = 0.96;
+      runnerTrimMat.roughness = 0.10;
+      runnerTrimMat.emissive.set('#b88418');
+      runnerTrimMat.emissiveIntensity = 0.34;
+    } else if (currentTheme === 'cyber2099') {
+      sleighHullMat.color.set('#c4d2e6');
+      sleighHullMat.metalness = 0.92;
+      sleighHullMat.roughness = 0.2;
+      sleighHullMat.clearcoat = 1.0;
+      sleighHullMat.clearcoatRoughness = 0.1;
+      sleighHullMat.emissive.set('#000000');
+      sleighHullMat.emissiveIntensity = 0;
+
+      runnerTrimMat.color.set('#3ceeff');
+      runnerTrimMat.metalness = 0.88;
+      runnerTrimMat.roughness = 0.2;
+      runnerTrimMat.emissive.set('#0e90b8');
+      runnerTrimMat.emissiveIntensity = 0.95;
+    } else {
+      sleighHullMat.color.set(currentTheme === 'nordic' ? '#8c1622' : '#c80e2b');
+      sleighHullMat.metalness = 0.35;
+      sleighHullMat.roughness = 0.16;
+      sleighHullMat.clearcoat = 1.0;
+      sleighHullMat.clearcoatRoughness = 0.1;
+      sleighHullMat.emissive.set('#000000');
+      sleighHullMat.emissiveIntensity = 0;
+
+      runnerTrimMat.color.set('#ffd166');
+      runnerTrimMat.metalness = 0.88;
+      runnerTrimMat.roughness = 0.2;
+      runnerTrimMat.emissive.set('#000000');
+      runnerTrimMat.emissiveIntensity = 0;
+    }
+
+    if (styleCyberReindeer) {
+      furMat.color.set('#c8d4e0');
+      furMat.metalness = 0.92;
+      furMat.roughness = 0.22;
+      furMat.sheen = 0.18;
+      furMat.sheenColor.set('#8cf2ff');
+      furMat.clearcoat = 0.35;
+      furMat.clearcoatRoughness = 0.26;
+      furMat.emissive.set('#0c1e2e');
+      furMat.emissiveIntensity = 0.16;
+
+      muzzleMat.color.set('#5a6778');
+      muzzleMat.metalness = 0.88;
+      muzzleMat.roughness = 0.3;
+
+      antlerMat.color.set('#bceeff');
+      antlerMat.metalness = 0.92;
+      antlerMat.roughness = 0.16;
+      antlerMat.emissive.set('#16c8ff');
+      antlerMat.emissiveIntensity = 0.55;
+
+      hoofMat.color.set('#1b2432');
+      hoofMat.metalness = 0.82;
+      hoofMat.roughness = 0.22;
+      hoofMat.emissive.set('#0d4a62');
+      hoofMat.emissiveIntensity = 0.25;
+
+      reindeerTailMat.color.set('#d8e6f4');
+      reindeerTailMat.metalness = 0.78;
+      reindeerTailMat.roughness = 0.28;
+
+      reindeerCollarMat.color.set('#22d8ff');
+      reindeerCollarMat.metalness = 0.72;
+      reindeerCollarMat.roughness = 0.2;
+      reindeerCollarMat.emissive.set('#12c8ff');
+      reindeerCollarMat.emissiveIntensity = 0.95;
+
+      reindeerEyeMat.color.set('#6bf6ff');
+      reindeerEyeMat.roughness = 0.1;
+      reindeerEyeMat.emissive.set('#1eeeff');
+      reindeerEyeMat.emissiveIntensity = 1.8;
+
+      rudolphNoseMat.color.set('#ff1236');
+      if (rudolphNoseHalo) rudolphNoseHalo.material.color.set('#ff1a40');
+      if (rudolphGroundGlowMat) rudolphGroundGlowMat.color.set('#ff1a3c');
+
+      if (!styleGoldenSleigh) {
+        reinMat.color.set('#80f4ff');
+        reinMat.metalness = 0.85;
+        reinMat.roughness = 0.18;
+        reinMat.emissive.set('#14a8d8');
+        reinMat.emissiveIntensity = 0.65;
+      } else {
+        reinMat.color.set('#ffe48a');
+        reinMat.metalness = 0.92;
+        reinMat.roughness = 0.16;
+        reinMat.emissive.set('#966810');
+        reinMat.emissiveIntensity = 0.25;
+      }
+    } else {
+      furMat.color.set('#8c5330');
+      furMat.metalness = 0.0;
+      furMat.roughness = 0.72;
+      furMat.sheen = 0.55;
+      furMat.sheenColor.set('#c9956b');
+      furMat.clearcoat = 0.0;
+      furMat.clearcoatRoughness = 0.0;
+      furMat.emissive.set('#000000');
+      furMat.emissiveIntensity = 0;
+
+      muzzleMat.color.set('#d8b490');
+      muzzleMat.metalness = 0.0;
+      muzzleMat.roughness = 0.75;
+
+      antlerMat.color.set('#e6caa2');
+      antlerMat.metalness = 0.0;
+      antlerMat.roughness = 0.55;
+      antlerMat.emissive.set('#000000');
+      antlerMat.emissiveIntensity = 0;
+
+      hoofMat.color.set('#1b1614');
+      hoofMat.metalness = 0.0;
+      hoofMat.roughness = 0.35;
+      hoofMat.emissive.set('#000000');
+      hoofMat.emissiveIntensity = 0;
+
+      reindeerTailMat.color.set('#f8f5ef');
+      reindeerTailMat.metalness = 0.0;
+      reindeerTailMat.roughness = 0.85;
+
+      reindeerCollarMat.color.set('#c80e2b');
+      reindeerCollarMat.metalness = 0.35;
+      reindeerCollarMat.roughness = 0.16;
+      reindeerCollarMat.emissive.set('#000000');
+      reindeerCollarMat.emissiveIntensity = 0;
+
+      reindeerEyeMat.color.set('#121218');
+      reindeerEyeMat.roughness = 0.05;
+      reindeerEyeMat.emissive.set('#000000');
+      reindeerEyeMat.emissiveIntensity = 0;
+
+      rudolphNoseMat.color.set('#ff2b3d');
+      if (rudolphNoseHalo) rudolphNoseHalo.material.color.set('#ff364c');
+      if (rudolphGroundGlowMat) rudolphGroundGlowMat.color.set('#ff3248');
+
+      reinMat.color.set(styleGoldenSleigh ? '#ffe48a' : '#ffd166');
+      reinMat.metalness = 0.88;
+      reinMat.roughness = 0.2;
+      reinMat.emissive.set(styleGoldenSleigh ? '#966810' : '#000000');
+      reinMat.emissiveIntensity = styleGoldenSleigh ? 0.22 : 0;
+    }
+
+    for (const r of reindeerRigs) {
+      r.cyberVisor.visible = styleCyberReindeer;
+      for (const cl of r.catchlights) cl.visible = !styleCyberReindeer;
+    }
+  };
 
   const windVec = new THREE.Vector3();
   const scarfWindVec = new THREE.Vector3();
@@ -802,21 +1060,15 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
     setTheme(theme: HolidayThemeId): void {
       if (theme === currentTheme) return;
       currentTheme = theme;
-      if (theme === 'cyber2099') {
-        sleighHullMat.color.set('#c4d2e6');
-        sleighHullMat.metalness = 0.92;
-        sleighHullMat.roughness = 0.2;
-        runnerTrimMat.color.set('#3ceeff');
-        runnerTrimMat.emissive.set('#0e90b8');
-        runnerTrimMat.emissiveIntensity = 0.95;
-      } else {
-        sleighHullMat.color.set(theme === 'nordic' ? '#8c1622' : '#c80e2b');
-        sleighHullMat.metalness = 0.35;
-        sleighHullMat.roughness = 0.16;
-        runnerTrimMat.color.set('#ffd166');
-        runnerTrimMat.emissive.set('#000000');
-        runnerTrimMat.emissiveIntensity = 0;
-      }
+      applySleighAppearance();
+    },
+    setStyle(opts: PixarSleighStyleOptions): void {
+      const nextGold = !!opts.goldenSleigh;
+      const nextCyber = !!opts.cyberReindeer;
+      if (nextGold === styleGoldenSleigh && nextCyber === styleCyberReindeer) return;
+      styleGoldenSleigh = nextGold;
+      styleCyberReindeer = nextCyber;
+      applySleighAppearance();
     },
     update(dt: number, speedKmh: number, turnRate: number, accel: number, time: number): void {
       const speedNorm = Math.min(1, speedKmh / 110);
@@ -843,13 +1095,16 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
 
       const turboBoost = Math.max(0, (speedNorm - 0.55) / 0.45) + (giftTimer > 0 ? 0.5 : 0);
       if (rudolphNoseHalo && rudolphGroundGlow && rudolphGroundGlowMat) {
-        const pulse = 1 + Math.sin(time * 9) * 0.15 + turboBoost * 1.15;
+        const cyberBoost = styleCyberReindeer ? 0.22 : 0;
+        const pulse = 1 + Math.sin(time * 9) * 0.15 + turboBoost * 1.15 + cyberBoost;
         rudolphNoseHalo.scale.setScalar(1.05 * pulse);
-        rudolphNoseHalo.material.opacity = Math.min(0.96, 0.58 + turboBoost * 0.36);
+        rudolphNoseHalo.material.opacity = Math.min(0.98, 0.60 + turboBoost * 0.36 + cyberBoost * 0.35);
         rudolphGroundGlow.position.y = 0.08 - root.position.y;
+        const leadRig = reindeerRigs[reindeerRigs.length - 1];
+        rudolphGroundGlow.position.x = leadRig ? -Math.sin(leadRig.group.rotation.y) * 1.55 : 0;
         const liftFade = Math.max(0.2, 1 - root.position.y * 0.22);
         rudolphGroundGlowMat.opacity =
-          Math.min(0.74, (0.28 + turboBoost * 0.32 + Math.sin(time * 9) * 0.05) * liftFade);
+          Math.min(0.78, (0.30 + turboBoost * 0.32 + cyberBoost * 0.22 + Math.sin(time * 9) * 0.05) * liftFade);
       }
       hoofSparkles.forEach((hg, idx) => {
         hg.material.opacity = turboBoost > 0.2 ? (0.3 + 0.25 * Math.sin(time * 12 + idx)) * Math.min(1, turboBoost) : 0;
@@ -950,14 +1205,14 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
         orientSegmentBetween(scarfSegs[i], scarfWindChain.points[i], scarfWindChain.points[i + 1]);
       }
 
-      // Update all 4 Reindeer with 4-beat gallop kinematics, GPU blend shapes & live reins!
+      // Update all 7 Reindeer with 4-beat gallop kinematics, GPU blend shapes & breath puffs
       for (let idx = 0; idx < reindeerRigs.length; idx++) {
         const r = reindeerRigs[idx];
         const pose = evaluateReindeerGait(gallopAccum + r.phaseOffset, speedNorm);
 
         r.group.position.y = 0.82 + pose.bodyY;
         r.group.rotation.x = pose.bodyPitch;
-        r.group.rotation.y = -turnRate * (idx >= 2 ? 0.22 : 0.1);
+        r.group.rotation.y = -turnRate * (0.08 + r.row * 0.075);
         r.headGroup.rotation.x = pose.headPitch;
         // Playful antler shake & nose nudge when waiting at red lights!
         r.headGroup.rotation.z =
@@ -1014,16 +1269,37 @@ export function createPixarSantaSleigh(): PixarSleighHandle {
           puff.scale.set(sc, sc, 1);
           puff.material.opacity = Math.min(0.62, Math.sin(cyc * Math.PI) * 0.46 * breathMul);
         });
+      }
 
-        // Dynamic sagging leather/gold reins connecting Santa's mittens to each reindeer's collar!
-        const hand = r.slotX < 0 ? leftMittenPos : rightMittenPos;
-        reinStart.set(hand.x, 1.05 + hand.y, 0.52 + hand.z);
-        reinEnd.set(r.group.position.x, r.group.position.y + 0.14, r.slotZ - 0.32);
-        const sag = 0.32 - speedNorm * 0.18 + Math.sin(gallopAccum + r.phaseOffset) * 0.05;
+      // Dynamic continuous left & right reins running through the 3 pairs and converging onto Rudolph's collar!
+      for (let i = 0; i < reinSpans.length; i++) {
+        const span = reinSpans[i];
+        const toRig = reindeerRigs[span.toIdx];
+        if (span.fromIdx < 0) {
+          const hand = span.side < 0 ? leftMittenPos : rightMittenPos;
+          reinStart.set(hand.x, 1.05 + hand.y, 0.52 + hand.z);
+        } else {
+          const fromRig = reindeerRigs[span.fromIdx];
+          reinStart.set(
+            fromRig.group.position.x + span.side * 0.26,
+            fromRig.group.position.y + 0.12,
+            fromRig.slotZ - 0.30
+          );
+        }
+        const toLat = toRig.isRudolph ? span.side * 0.23 : span.side * 0.26;
+        reinEnd.set(
+          toRig.group.position.x + toLat,
+          toRig.group.position.y + 0.12,
+          toRig.slotZ - 0.30
+        );
+        const sag =
+          span.sagBase -
+          speedNorm * span.sagSpeed +
+          Math.sin(gallopAccum + toRig.phaseOffset) * 0.035;
         reinMid.addVectors(reinStart, reinEnd).multiplyScalar(0.5);
         reinMid.y -= sag;
-        orientSegmentBetween(r.reinSegA, reinStart, reinMid);
-        orientSegmentBetween(r.reinSegB, reinMid, reinEnd);
+        orientSegmentBetween(span.segA, reinStart, reinMid);
+        orientSegmentBetween(span.segB, reinMid, reinEnd);
       }
     },
     getTrailOrigin(out: THREE.Vector3): THREE.Vector3 {
