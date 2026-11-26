@@ -35,6 +35,7 @@ export interface OsmRoadRibbon {
   isMajor: boolean;
   highway?: string;
   lanes?: number;
+  oneway?: -1 | 0 | 1;
   maxspeed?: number;
   tunnel?: boolean;
   name: string | null;
@@ -509,7 +510,105 @@ interface OverpassEl {
   tags?: Record<string, string>;
 }
 
-const OSM_CACHE_KEY = 'tesla-xmas-osm-cache-v1';
+const OSM_CACHE_KEY = 'tesla-xmas-osm-cache-v2';
+
+const DRIVABLE_HIGHWAY_RE =
+  /^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$/;
+
+const EXCLUDED_SERVICE_RE =
+  /^(driveway|parking_aisle|alley|emergency_access|drive-through|drive_through|yard|spur|siding|crossover|slipway|bus|irrigation|utility)$/;
+
+const RESTRICTED_ACCESS_RE = /^(private|no|agricultural|forestry|delivery|military)$/;
+
+const ALLOWED_MOTOR_ACCESS_RE = /^(yes|permissive|destination)$/;
+
+function isDrivableRoadTags(tags: Record<string, string>): boolean {
+  const hw = tags.highway;
+  if (!hw || !DRIVABLE_HIGHWAY_RE.test(hw)) return false;
+
+  // NEVER allow railways, rail corridors, platforms, or airport ways to become car roads
+  if (tags.railway && tags.railway !== 'no') return false;
+  if (tags.public_transport === 'platform') return false;
+  if (tags.aeroway && tags.aeroway !== 'no') return false;
+  if (tags.landuse === 'railway') return false;
+  if (tags.disused === 'yes' || tags.abandoned === 'yes') return false;
+
+  // Exclude area plazas, parking lots, and indoor passages
+  const area = tags.area?.toLowerCase();
+  if (area === 'yes' || area === '1' || area === 'true') return false;
+  if (tags.amenity === 'parking') return false;
+  const indoor = tags.indoor?.toLowerCase();
+  if (indoor && indoor !== 'no') return false;
+
+  // Exclude private / non-motor-vehicle restricted ways
+  const motorAccess = (tags.motor_vehicle ?? tags.vehicle ?? tags.motorcar)?.toLowerCase();
+  if (motorAccess === 'no' || motorAccess === 'private') return false;
+  const access = tags.access?.toLowerCase();
+  if (access && RESTRICTED_ACCESS_RE.test(access)) {
+    if (!motorAccess || !ALLOWED_MOTOR_ACCESS_RE.test(motorAccess)) return false;
+  }
+
+  // Filter service roads strictly: exclude driveways, parking aisles, alleys, emergency/yard/drive-through stubs
+  if (hw === 'service') {
+    const svc = tags.service?.toLowerCase();
+    if (svc && EXCLUDED_SERVICE_RE.test(svc)) return false;
+    if (access === 'customers' || access === 'destination') return false;
+  }
+
+  return true;
+}
+
+function isDrivableCarRoad(tags: Record<string, string>, pts: OsmPoint2D[]): boolean {
+  if (!isDrivableRoadTags(tags)) return false;
+  if (tags.highway === 'service' && !tags.name && !tags.ref) {
+    let polyLen = 0;
+    for (let i = 1; i < pts.length; i++) {
+      polyLen += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+    }
+    // Drop short unnamed service stubs (driveway spurs, loading bays, parking connectors)
+    if (polyLen < 40) return false;
+    // Drop small unnamed closed parking loops
+    const isClosed =
+      pts.length > 3 && Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].z - pts[pts.length - 1].z) < 2.5;
+    if (isClosed && polyLen < 75 && tags.junction !== 'roundabout' && tags.junction !== 'circular') {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseOneway(tags: Record<string, string>, hw: string): -1 | 0 | 1 {
+  const ow = tags.oneway?.toLowerCase();
+  if (ow === '-1' || ow === 'reverse') return -1;
+  if (ow === 'no' || ow === '0' || ow === 'false') return 0;
+  if (ow === 'yes' || ow === '1' || ow === 'true') return 1;
+  if (
+    hw === 'motorway' ||
+    hw === 'motorway_link' ||
+    hw === 'trunk_link' ||
+    tags.junction === 'roundabout' ||
+    tags.junction === 'circular'
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function computeRoadWidthM(hw: string, isMajor: boolean, lanes: number | undefined, oneway: -1 | 0 | 1): number {
+  let widthM = isMajor
+    ? 8.5
+    : hw === 'tertiary' || hw === 'residential' || hw === 'unclassified' || hw === 'road'
+      ? 6.2
+      : hw.endsWith('_link')
+        ? 5.4
+        : 4.5;
+  if (oneway !== 0 && lanes === 1) {
+    widthM = Math.min(widthM, hw.endsWith('_link') ? 4.8 : 4.2);
+  } else if (lanes !== undefined && lanes >= 2) {
+    widthM = Math.max(widthM, Math.min(16, lanes * 3.4));
+  }
+  return widthM;
+}
 
 interface CachedOsmEntry {
   cellKey: string;
@@ -570,15 +669,38 @@ async function fetchOsmMapJson(
   for (const e of elements) {
     if (e.type === 'way' && e.nodes) e.geometry = e.nodes.flatMap(id => positions.get(id) ?? []);
   }
-  const filtered = elements.filter(
-    e =>
-      e.tags &&
-      (!e.tags.highway ||
-        /^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$/.test(
-          e.tags.highway
-        ))
-  );
-  if (!filtered.some(e => e.tags?.highway && e.geometry?.length)) {
+  const filtered = elements.filter(e => {
+    const tags = e.tags;
+    if (!tags) return false;
+    if (e.type === 'node') {
+      return Boolean(
+        tags.natural === 'tree' ||
+          tags.highway === 'traffic_signals' ||
+          tags.highway === 'crossing' ||
+          tags.highway === 'street_lamp' ||
+          tags.amenity ||
+          tags.tourism === 'attraction' ||
+          tags.railway === 'station'
+      );
+    }
+    if (e.type === 'way') {
+      if (tags.building) return true;
+      // Never let railway tracks through as road ways
+      if (tags.railway && tags.railway !== 'no') return false;
+      if (tags.highway) return isDrivableRoadTags(tags);
+      return Boolean(
+        tags.natural === 'water' ||
+          tags.natural === 'wood' ||
+          tags.natural === 'grassland' ||
+          tags.natural === 'heath' ||
+          tags.waterway ||
+          tags.landuse ||
+          tags.leisure === 'park'
+      );
+    }
+    return false;
+  });
+  if (!filtered.some(e => e.type === 'way' && e.tags?.highway && e.geometry?.length)) {
     throw new Error('OSM map missing road ways');
   }
   return filtered;
@@ -877,13 +999,12 @@ export class OsmWorldDirector {
       const roadBox = `(${bS},${bW},${bN},${bE})`;
       const overpassQuery =
         `[out:json][timeout:5][bbox:${bbox}];(` +
-        `way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]${roadBox};` +
+        `way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$|^(residential|living_street|unclassified|service|road)$"]["railway"!~"."]["area"!="yes"]["indoor"!="yes"]["access"!~"^(private|no)$"]["motor_vehicle"!~"^(private|no)$"]["service"!~"^(driveway|parking_aisle|alley|emergency_access|drive-through|drive_through|yard|spur|siding|crossover|slipway|bus|irrigation|utility)$"]${roadBox};` +
         `way["building"];` +
         `way["natural"~"water|wood|grassland|heath"];` +
         `way["waterway"~"river|canal|stream"];` +
         `way["landuse"~"forest|farmland|meadow|field|farmyard|pasture|industrial|commercial|retail|residential|recreation_ground"];` +
         `way["leisure"="park"];` +
-        `way["tunnel"="yes"];` +
         `node["amenity"~"charging_station|place_of_worship|cafe|restaurant|school|library"];` +
         `node["tourism"="attraction"];` +
         `node["railway"="station"];` +
@@ -923,8 +1044,6 @@ export class OsmWorldDirector {
         for (const el of els) {
           const tags = el.tags;
           if (!tags) continue;
-
-          if (tags.tunnel === 'yes') nextTunnel = true;
 
           if (el.type === 'node' && el.lat !== undefined && el.lon !== undefined) {
             const pt = geoDeltaMeters(fetchLat, fetchLon, el.lat, el.lon);
@@ -988,23 +1107,31 @@ export class OsmWorldDirector {
             if (cls.kind === 'church' && tags.name) {
               nextLandmark = tags.name;
             }
-          } else if (tags.highway) {
+          } else if (tags.highway && isDrivableCarRoad(tags, pts)) {
             const hw = tags.highway;
             const isMajor = hw === 'motorway' || hw === 'trunk' || hw === 'primary' || hw === 'secondary';
             if (isMajor) hasHighwayOnly = true;
-            const widthM = isMajor ? 8.5 : hw === 'tertiary' || hw === 'residential' ? 6.2 : 4.2;
-            const lanes = Number.parseInt(tags.lanes ?? '', 10);
+            const lanesRaw = Number.parseInt(tags.lanes ?? '', 10);
+            const lanes = Number.isFinite(lanesRaw) && lanesRaw > 0 ? Math.min(8, lanesRaw) : undefined;
+            const oneway = parseOneway(tags, hw);
+            const widthM = computeRoadWidthM(hw, isMajor, lanes, oneway);
             const maxspeed = Number.parseInt(tags.maxspeed ?? '', 10);
+            const isTunnel = tags.tunnel === 'yes' || tags.tunnel === 'building_passage';
+            if (isTunnel) nextTunnel = true;
             roads.push({
               points: pts,
               widthM,
               isMajor,
               highway: hw,
-              lanes: Number.isFinite(lanes) && lanes > 0 ? lanes : undefined,
+              lanes,
+              oneway,
               maxspeed: Number.isFinite(maxspeed) && maxspeed >= 10 && maxspeed <= 160 ? maxspeed : undefined,
-              tunnel: tags.tunnel === 'yes' || tags.tunnel === 'building_passage',
+              tunnel: isTunnel,
               name: tags.name ?? tags.ref ?? null,
             });
+          } else if (tags.railway && tags.railway !== 'no') {
+            // Explicitly ignore all railway track ways so they never fall through into roads or scenery
+            continue;
           } else if (tags.natural === 'water' || tags.waterway) {
             hasWater = true;
             const isClosed =
