@@ -70,6 +70,9 @@ interface MovingVehicle {
   role: FleetRole;
   flow: TrafficFlow;
   isSemi: boolean;
+  halfLength: number;
+  halfWidth: number;
+  laneSlot: number;
   semiHandle?: AccurateSemiHandle;
   cyberHandle?: AccurateCybertruckHandle;
   roadsterHandle?: StarmanRoadsterGroup;
@@ -91,6 +94,219 @@ interface MovingVehicle {
   smoothRoll: number;
   blockedSec: number;
   turnArc?: TurnArc;
+}
+
+const PLAYER_CORRIDOR_HALF_W = 2.05;
+
+interface PlayerFrame {
+  px: number;
+  pz: number;
+  fwdX: number;
+  fwdZ: number;
+  rightX: number;
+  rightZ: number;
+}
+
+function makePlayerFrame(playerPos: THREE.Vector3, playerHeading: number): PlayerFrame {
+  const fwdX = Math.sin(playerHeading);
+  const fwdZ = -Math.cos(playerHeading);
+  return {
+    px: playerPos.x,
+    pz: playerPos.z,
+    fwdX,
+    fwdZ,
+    rightX: -fwdZ,
+    rightZ: fwdX,
+  };
+}
+
+function vehicleDimensions(role: FleetRole): { halfLength: number; halfWidth: number } {
+  if (role === 'semi_coca' || role === 'semi_tesla') {
+    return { halfLength: 8.6, halfWidth: 1.45 };
+  }
+  if (role === 'cyber_tree' || role === 'cyber_plow') {
+    return { halfLength: 3.1, halfWidth: 1.15 };
+  }
+  if (role === 'roadster') {
+    return { halfLength: 2.4, halfWidth: 1.05 };
+  }
+  return { halfLength: 5.5, halfWidth: 1.2 };
+}
+
+function legalRoadDir(road: OsmRoadRibbon, preferred: 1 | -1): 1 | -1 {
+  if (road.oneway === 1) return 1;
+  if (road.oneway === -1) return -1;
+  return preferred;
+}
+
+function isDirLegalOnRoad(road: OsmRoadRibbon, dir: 1 | -1): boolean {
+  if (road.oneway === 1) return dir === 1;
+  if (road.oneway === -1) return dir === -1;
+  return true;
+}
+
+function getEffectiveLanes(road: OsmRoadRibbon): number {
+  if (road.lanes && road.lanes >= 1) return road.lanes;
+  if (road.oneway === 1 || road.oneway === -1) {
+    if (road.highway === 'motorway' || road.highway === 'trunk') {
+      return Math.max(2, Math.round(road.widthM / 3.5));
+    }
+    return road.widthM >= 6.6 ? Math.max(2, Math.round(road.widthM / 3.4)) : 1;
+  }
+  return road.widthM >= 11.5 ? Math.max(4, Math.round(road.widthM / 3.2)) : 2;
+}
+
+/**
+ * Signed lateral offset along the road's travel-right normal `(nx * dir, nz * dir)`.
+ * - Single-lane oneway: 0 (centered in lane).
+ * - Multi-lane oneway: spread cleanly across available lanes (negative = left passing lane, positive = right lane).
+ * - Two-way road: right-hand carriageway half (positive offset).
+ */
+function getTravelRightOffset(
+  dr: DrivableRoad,
+  car: Pick<MovingVehicle, 'isSemi' | 'laneSlot'>,
+): number {
+  const road = dr.road;
+  const isOneway = road.oneway === 1 || road.oneway === -1;
+  if (isOneway) {
+    const lanes = getEffectiveLanes(road);
+    if (lanes <= 1) return 0;
+    const usableWidth = Math.min(Math.max(3.2, road.widthM - 1.4), lanes * 3.4);
+    const laneIdx = car.isSemi
+      ? lanes >= 3
+        ? lanes - 1 - (car.laneSlot % 2)
+        : lanes - 1
+      : car.laneSlot % lanes;
+    return ((laneIdx + 0.5) / lanes - 0.5) * usableWidth;
+  }
+
+  const lanes = getEffectiveLanes(road);
+  const lanesPerDir = Math.max(1, Math.floor(lanes / 2));
+  if (lanesPerDir >= 2 && road.widthM >= 10.5) {
+    const halfRoad = road.widthM * 0.5;
+    const innerEdge = 0.45;
+    const outerEdge = Math.max(innerEdge + 2.4, halfRoad - 0.75);
+    const laneIdx = car.isSemi ? lanesPerDir - 1 : car.laneSlot % lanesPerDir;
+    return innerEdge + ((laneIdx + 0.5) / lanesPerDir) * (outerEdge - innerEdge);
+  }
+  return Math.max(1.75, Math.min(2.65, road.widthM * 0.34));
+}
+
+/**
+ * Multi-point full-footprint check (front bumper, center, rear trailer, plus intermediate points
+ * for long vehicles like the 17m Tesla Semi) against the player's longitudinal/lateral corridor.
+ */
+function footprintHitsPlayerCorridor(
+  x: number,
+  z: number,
+  tx: number,
+  tz: number,
+  halfLength: number,
+  halfWidth: number,
+  pf: PlayerFrame,
+  alongMin: number,
+  alongMax: number,
+  extraLatPad = 0,
+): boolean {
+  const latLimit = PLAYER_CORRIDOR_HALF_W + halfWidth + extraLatPad;
+  const steps = halfLength >= 5 ? 6 : 2;
+  for (let i = 0; i <= steps; i++) {
+    const frac = -1 + (2 * i) / steps;
+    const wx = x + tx * halfLength * frac;
+    const wz = z + tz * halfLength * frac;
+    const rx = wx - pf.px;
+    const rz = wz - pf.pz;
+    const along = rx * pf.fwdX + rz * pf.fwdZ;
+    const lat = rx * pf.rightX + rz * pf.rightZ;
+    if (along >= alongMin && along <= alongMax && Math.abs(lat) <= latLimit) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function buildTurnArc(
+  poseX: number,
+  poseZ: number,
+  poseTx: number,
+  poseTz: number,
+  nextRoadIdx: number,
+  nextDr: DrivableRoad,
+  nextDist: number,
+  nextDir: 1 | -1,
+  car: Pick<MovingVehicle, 'isSemi' | 'laneSlot'>,
+): TurnArc {
+  const nextSample = sampleRoad(nextDr, nextDist);
+  const nextOff = getTravelRightOffset(nextDr, car);
+  const p0x = poseX;
+  const p0z = poseZ;
+  const p3x = nextSample.x + nextSample.nx * nextDir * nextOff;
+  const p3z = nextSample.z + nextSample.nz * nextDir * nextOff;
+  const chord = Math.hypot(p3x - p0x, p3z - p0z);
+  const h = THREE.MathUtils.clamp(chord * 0.44, 1.8, 8.5);
+  const entryTx = nextSample.tx * nextDir;
+  const entryTz = nextSample.tz * nextDir;
+  return {
+    t: 0,
+    durationDist: Math.max(5.5, chord * 1.15),
+    p0x,
+    p0z,
+    p1x: p0x + poseTx * h,
+    p1z: p0z + poseTz * h,
+    p2x: p3x - entryTx * h,
+    p2z: p3z - entryTz * h,
+    p3x,
+    p3z,
+    nextRoadIdx,
+    nextDist,
+    nextDir,
+  };
+}
+
+function wouldTurnArcCrossPlayer(
+  arc: TurnArc,
+  nextDr: DrivableRoad,
+  car: Pick<MovingVehicle, 'halfLength' | 'halfWidth' | 'isSemi' | 'laneSlot'>,
+  pf: PlayerFrame,
+): boolean {
+  // Check samples along the full cubic Bezier turn (captures Semi nose & swinging rear trailer)
+  for (let i = 1; i <= 5; i++) {
+    const ev = evalCubicBezier(arc, i / 5);
+    if (
+      footprintHitsPlayerCorridor(
+        ev.x,
+        ev.z,
+        ev.tx,
+        ev.tz,
+        car.halfLength,
+        car.halfWidth,
+        pf,
+        -12,
+        60,
+        0.85,
+      )
+    ) {
+      return true;
+    }
+  }
+  // Also check 16m past turn exit along the destination road
+  const postDist = THREE.MathUtils.clamp(arc.nextDist + arc.nextDir * 14, 0, nextDr.totalLen);
+  const postS = sampleRoad(nextDr, postDist);
+  const postOff = getTravelRightOffset(nextDr, car);
+  const px = postS.x + postS.nx * arc.nextDir * postOff;
+  const pz = postS.z + postS.nz * arc.nextDir * postOff;
+  const ptx = postS.tx * arc.nextDir;
+  const ptz = postS.tz * arc.nextDir;
+  // Ignore if post-turn is already parallel same-dir cleanly ahead or parallel opposite in another lane
+  const postAlign = ptx * pf.fwdX + ptz * pf.fwdZ;
+  if (Math.abs(postAlign) < 0.78) {
+    if (
+      footprintHitsPlayerCorridor(px, pz, ptx, ptz, car.halfLength, car.halfWidth, pf, -12, 60, 0.7)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 interface ParkedVehicleSlot {
@@ -437,10 +653,14 @@ export class AmbientTraffic {
     if (this.fleetInitialized) return;
     this.fleetInitialized = true;
 
+    let nonSemiLaneCounter = 0;
+    let semiLaneCounter = 0;
     for (let k = 0; k < MOVING_ROSTER.length; k++) {
       const { role, flow } = MOVING_ROSTER[k];
       const root = new THREE.Group();
       const isSemi = role === 'semi_coca' || role === 'semi_tesla';
+      const dims = vehicleDimensions(role);
+      const laneSlot = isSemi ? semiLaneCounter++ : nonSemiLaneCounter++;
 
       const ao = new THREE.Mesh(isSemi ? this.semiAoPlaneGeo : this.aoPlaneGeo, this.aoShadowMat);
       ao.position.y = 0.035;
@@ -488,6 +708,9 @@ export class AmbientTraffic {
         role,
         flow,
         isSemi,
+        halfLength: dims.halfLength,
+        halfWidth: dims.halfWidth,
+        laneSlot,
         semiHandle,
         cyberHandle,
         roadsterHandle,
@@ -617,7 +840,7 @@ export class AmbientTraffic {
       out.push({
         x: car.worldX,
         z: car.worldZ,
-        radius: car.isSemi ? 6.6 : 3.2,
+        radius: Math.max(car.isSemi ? 6.6 : 3.2, car.halfLength),
         height: car.isSemi ? 3.25 : 2.15,
       });
     }
@@ -638,8 +861,8 @@ export class AmbientTraffic {
     targetAheadMax: number,
     convoyPositions: ReadonlyArray<{ x: number; z: number }> = [],
   ): void {
-    const fwdX = Math.sin(playerHeading);
-    const fwdZ = -Math.cos(playerHeading);
+    const pf = makePlayerFrame(playerPos, playerHeading);
+    const { fwdX, fwdZ } = pf;
     const desiredAhead = THREE.MathUtils.lerp(targetAheadMin, targetAheadMax, (k * 0.37) % 1);
     const isSameDir = car.flow === 'same_dir';
     const minAheadGate = isSameDir ? 42 : 72;
@@ -647,28 +870,105 @@ export class AmbientTraffic {
     let bestScore = Infinity;
     let bestRoadIdx = car.roadIdx;
     let bestDist = 0;
-    let bestDir: 1 | -1 = -1;
+    let bestDir: 1 | -1 = 1;
 
     for (let rIdx = 0; rIdx < this.drivableRoads.length; rIdx++) {
       const dr = this.drivableRoads[rIdx];
+      const isOneway = dr.road.oneway === 1 || dr.road.oneway === -1;
       const step = Math.max(18, Math.min(34, dr.totalLen * 0.25));
       for (let d = 10; d <= dr.totalLen - 10; d += step) {
         const s = sampleRoad(dr, d);
-        const dx = s.x - playerPos.x;
-        const dz = s.z - playerPos.z;
-        const ahead = dx * fwdX + dz * fwdZ;
-        if (ahead < minAheadGate || ahead > 240) continue;
-        const lateral = Math.abs(dx * -fwdZ + dz * fwdX);
+        const rawDx = s.x - playerPos.x;
+        const rawDz = s.z - playerPos.z;
         const dotFwd = s.tx * fwdX + s.tz * fwdZ;
-        const alignmentPenalty = Math.abs(dotFwd) < (isSameDir ? 0.45 : 0.25) ? 95 : 0;
+
+        // Strictly enforce oneway direction; never choose illegal reverse direction
+        const preferredDir: 1 | -1 = isSameDir
+          ? dotFwd >= 0
+            ? 1
+            : -1
+          : dotFwd > 0.08
+            ? -1
+            : dotFwd < -0.08
+              ? 1
+              : rawDx * s.tx + rawDz * s.tz >= 0
+                ? -1
+                : 1;
+        const candDir = legalRoadDir(dr.road, preferredDir);
+        const travelTx = s.tx * candDir;
+        const travelTz = s.tz * candDir;
+        const travelDotFwd = travelTx * fwdX + travelTz * fwdZ;
+
+        const rightOff = getTravelRightOffset(dr, car);
+        const candX = s.x + s.nx * candDir * rightOff;
+        const candZ = s.z + s.nz * candDir * rightOff;
+        const dx = candX - playerPos.x;
+        const dz = candZ - playerPos.z;
+        const ahead = dx * fwdX + dz * fwdZ;
+        const effMinAhead = travelDotFwd >= 0.2 ? 42 : minAheadGate;
+        if (ahead < effMinAhead || ahead > 240) continue;
+
+        // Never spawn a crossing vehicle whose footprint or immediate path cuts across the player's approaching corridor
+        if (Math.abs(travelDotFwd) < 0.6) {
+          let crossesPlayer = false;
+          for (const probe of [0, 12, 24]) {
+            if (
+              footprintHitsPlayerCorridor(
+                candX + travelTx * probe,
+                candZ + travelTz * probe,
+                travelTx,
+                travelTz,
+                car.halfLength,
+                car.halfWidth,
+                pf,
+                -12,
+                62,
+                1.4,
+              )
+            ) {
+              crossesPlayer = true;
+              break;
+            }
+          }
+          if (crossesPlayer) continue;
+        } else if (
+          footprintHitsPlayerCorridor(
+            candX,
+            candZ,
+            travelTx,
+            travelTz,
+            car.halfLength,
+            car.halfWidth,
+            pf,
+            -14,
+            34,
+            0.8,
+          )
+        ) {
+          continue;
+        }
+
+        const lateral = Math.abs(dx * pf.rightX + dz * pf.rightZ);
+        const alignmentPenalty = Math.abs(travelDotFwd) < (isSameDir ? 0.45 : 0.25) ? 95 : 0;
+        // On one-way motorways: oncoming slots prefer a parallel opposite carriageway if one exists,
+        // otherwise gracefully fall back to legal same-dir traffic in available lanes (never wrong-way!)
+        let flowPenalty = 0;
+        if (isOneway) {
+          if (isSameDir && travelDotFwd < -0.25) flowPenalty = 135;
+          else if (!isSameDir && travelDotFwd > 0.25) flowPenalty = 55;
+        }
 
         let nearMoving = false;
         for (let m = 0; m < this.movingFleet.length; m++) {
           const other = this.movingFleet[m];
           if (other === car) continue;
+          const minOtherDist = car.isSemi || other.isSemi ? 34 : 26;
           if (
-            (other.roadIdx === rIdx && Math.abs(other.dist - d) < 42) ||
-            (other.hasPose && Math.hypot(other.worldX - s.x, other.worldZ - s.z) < 28)
+            (other.roadIdx === rIdx &&
+              other.dir === candDir &&
+              Math.abs(other.dist - d) < 42 &&
+              (!isOneway || getEffectiveLanes(dr.road) <= 1 || other.laneSlot % getEffectiveLanes(dr.road) === car.laneSlot % getEffectiveLanes(dr.road))) ||
+            (other.hasPose && Math.hypot(other.worldX - candX, other.worldZ - candZ) < minOtherDist)
           ) {
             nearMoving = true;
             break;
@@ -676,7 +976,7 @@ export class AmbientTraffic {
         }
         let nearConvoy = false;
         for (let c = 0; c < convoyPositions.length; c++) {
-          if (Math.hypot(convoyPositions[c].x - s.x, convoyPositions[c].z - s.z) < 32) {
+          if (Math.hypot(convoyPositions[c].x - candX, convoyPositions[c].z - candZ) < 32) {
             nearConvoy = true;
             break;
           }
@@ -684,22 +984,18 @@ export class AmbientTraffic {
         let nearParked = false;
         for (let p = 0; p < this.parkedSlots.length; p++) {
           const ps = this.parkedSlots[p];
-          if (ps.placed && Math.hypot(ps.x - s.x, ps.z - s.z) < 9) {
+          if (ps.placed && Math.hypot(ps.x - candX, ps.z - candZ) < 9) {
             nearParked = true;
             break;
           }
         }
         const crowdPenalty = nearMoving || nearConvoy ? 400 : nearParked ? 90 : 0;
-        const score = Math.abs(ahead - desiredAhead) + lateral * 0.55 + alignmentPenalty + crowdPenalty;
+        const score = Math.abs(ahead - desiredAhead) + lateral * 0.55 + alignmentPenalty + flowPenalty + crowdPenalty;
         if (score < bestScore) {
           bestScore = score;
           bestRoadIdx = rIdx;
           bestDist = d;
-          if (isSameDir) {
-            bestDir = dotFwd >= 0 ? 1 : -1;
-          } else {
-            bestDir = dotFwd > 0.08 ? -1 : dotFwd < -0.08 ? 1 : dx * s.tx + dz * s.tz >= 0 ? -1 : 1;
-          }
+          bestDir = candDir;
         }
       }
     }
@@ -710,13 +1006,9 @@ export class AmbientTraffic {
       bestRoadIdx = fallbackIdx;
       const sMid = sampleRoad(dr, dr.totalLen * 0.5);
       const dotMid = sMid.tx * fwdX + sMid.tz * fwdZ;
-      if (isSameDir) {
-        bestDir = dotMid >= 0 ? 1 : -1;
-        bestDist = bestDir > 0 ? Math.min(dr.totalLen - 8, 12) : Math.max(8, dr.totalLen - 12);
-      } else {
-        bestDir = dotMid > 0 ? -1 : 1;
-        bestDist = bestDir < 0 ? Math.max(8, dr.totalLen - 12) : Math.min(dr.totalLen - 8, 12);
-      }
+      const preferredDir: 1 | -1 = isSameDir ? (dotMid >= 0 ? 1 : -1) : dotMid > 0 ? -1 : 1;
+      bestDir = legalRoadDir(dr.road, preferredDir);
+      bestDist = bestDir > 0 ? Math.min(dr.totalLen - 8, 12) : Math.max(8, dr.totalLen - 12);
     }
 
     car.roadIdx = bestRoadIdx;
@@ -727,15 +1019,24 @@ export class AmbientTraffic {
     car.coasting = false;
     car.blockedSec = 0;
     const dr = this.drivableRoads[bestRoadIdx];
-    const speedKmh = dr?.road.maxspeed && dr.road.maxspeed > 40 ? 38 : 28;
-    const flowMul = isSameDir ? 0.78 : 1.0;
+    const sInit = dr ? sampleRoad(dr, bestDist) : undefined;
+    const actualSameDir = sInit ? (sInit.tx * bestDir) * fwdX + (sInit.tz * bestDir) * fwdZ >= 0.2 : isSameDir;
+    const isHighway = dr?.road.highway === 'motorway' || dr?.road.highway === 'trunk';
+    const speedKmh = isHighway
+      ? actualSameDir
+        ? 54
+        : 60
+      : dr?.road.maxspeed && dr.road.maxspeed > 40
+        ? 38
+        : 28;
+    const flowMul = actualSameDir && !isHighway ? 0.78 : 1.0;
     car.baseSpeed = (car.isSemi ? 0.85 : 1.0) * flowMul * (speedKmh / 3.6);
     car.currentSpeed = car.baseSpeed;
   }
 
   /**
    * Finds a connected road segment (via endpoint link OR nearby T-junction / OSM way split within 14m)
-   * so visible cars never vanish at dead-end vertices or way boundaries.
+   * while strictly enforcing `road.oneway` and refusing turns that pull across the player's approaching corridor.
    */
   private findRoadContinuation(
     car: MovingVehicle,
@@ -743,63 +1044,66 @@ export class AmbientTraffic {
     poseZ: number,
     poseTx: number,
     poseTz: number,
-    fwdPlayerX: number,
-    fwdPlayerZ: number,
+    pf: PlayerFrame,
     atEnd: boolean,
     dr: DrivableRoad,
     time: number,
     k: number,
     mustAvoidDespawn: boolean,
-  ): { roadIdx: number; dist: number; dir: 1 | -1 } | undefined {
+  ): { roadIdx: number; dist: number; dir: 1 | -1; blockedByPlayer?: false } | { blockedByPlayer: true } | undefined {
     const endPt = dr.road.points[atEnd ? dr.road.points.length - 1 : 0];
     const rawLinks = this.endpointLinks.get(ptKey(endPt));
+    let sawPlayerBlockedLegalTurn = false;
 
-    // Pass 1: exact endpoint links (first prefer flow-aligned, then any non-U-turn if visible)
+    const isCandidateSafe = (
+      nextRoadIdx: number,
+      nextDr: DrivableRoad,
+      nextDist: number,
+      nextDir: 1 | -1,
+    ): boolean => {
+      const arc = buildTurnArc(poseX, poseZ, poseTx, poseTz, nextRoadIdx, nextDr, nextDist, nextDir, car);
+      if (wouldTurnArcCrossPlayer(arc, nextDr, car, pf)) {
+        sawPlayerBlockedLegalTurn = true;
+        return false;
+      }
+      return true;
+    };
+
+    // Pass 1: exact endpoint links (strictly obeying oneway; prefer flow-aligned & player-safe)
     if (rawLinks) {
       for (const enforceFlow of mustAvoidDespawn ? [true, false] : [true]) {
-        let validCount = 0;
+        const candidates: Array<{ roadIdx: number; dist: number; dir: 1 | -1 }> = [];
         for (let li = 0; li < rawLinks.length; li++) {
           const l = rawLinks[li];
           if (l.roadIdx === car.roadIdx) continue;
           const nextDr = this.drivableRoads[l.roadIdx];
           if (!nextDr) continue;
           const dirSign: 1 | -1 = l.atEnd ? -1 : 1;
+          // Strictly enforce oneway direction
+          if (!isDirLegalOnRoad(nextDr.road, dirSign)) continue;
           const entry = sampleRoad(nextDr, l.atEnd ? nextDr.totalLen : 0);
           const dotTurn = entry.tx * dirSign * poseTx + entry.tz * dirSign * poseTz;
-          const dotFwd = entry.tx * dirSign * fwdPlayerX + entry.tz * dirSign * fwdPlayerZ;
-          const flowOk = !enforceFlow || (car.flow === 'same_dir' ? dotFwd >= -0.25 : dotFwd <= 0.25);
-          if (dotTurn > -0.45 && flowOk) validCount++;
+          if (dotTurn <= -0.45) continue;
+          const dotFwd = entry.tx * dirSign * pf.fwdX + entry.tz * dirSign * pf.fwdZ;
+          const isOnewayNext = nextDr.road.oneway === 1 || nextDr.road.oneway === -1;
+          const flowOk =
+            !enforceFlow ||
+            isOnewayNext ||
+            (car.flow === 'same_dir' ? dotFwd >= -0.25 : dotFwd <= 0.25);
+          if (!flowOk) continue;
+          const inset = Math.min(nextDr.totalLen * 0.22, 5.5);
+          const nextDist = l.atEnd ? nextDr.totalLen - inset : inset;
+          if (!isCandidateSafe(l.roadIdx, nextDr, nextDist, dirSign)) continue;
+          candidates.push({ roadIdx: l.roadIdx, dist: nextDist, dir: dirSign });
         }
-        if (validCount > 0) {
-          const targetPick = Math.floor(time * 7 + car.roadIdx + k) % validCount;
-          let seen = 0;
-          for (let li = 0; li < rawLinks.length; li++) {
-            const l = rawLinks[li];
-            if (l.roadIdx === car.roadIdx) continue;
-            const nextDr = this.drivableRoads[l.roadIdx];
-            if (!nextDr) continue;
-            const dirSign: 1 | -1 = l.atEnd ? -1 : 1;
-            const entry = sampleRoad(nextDr, l.atEnd ? nextDr.totalLen : 0);
-            const dotTurn = entry.tx * dirSign * poseTx + entry.tz * dirSign * poseTz;
-            const dotFwd = entry.tx * dirSign * fwdPlayerX + entry.tz * dirSign * fwdPlayerZ;
-            const flowOk = !enforceFlow || (car.flow === 'same_dir' ? dotFwd >= -0.25 : dotFwd <= 0.25);
-            if (dotTurn > -0.45 && flowOk) {
-              if (seen === targetPick) {
-                const inset = Math.min(nextDr.totalLen * 0.22, 5.5);
-                return {
-                  roadIdx: l.roadIdx,
-                  dist: l.atEnd ? nextDr.totalLen - inset : inset,
-                  dir: dirSign,
-                };
-              }
-              seen++;
-            }
-          }
+        if (candidates.length > 0) {
+          const targetPick = Math.floor(time * 7 + car.roadIdx + k) % candidates.length;
+          return candidates[targetPick];
         }
       }
     }
 
-    // Pass 2: T-junction / mid-segment / nearby road continuation within 14m
+    // Pass 2: T-junction / mid-segment / nearby road continuation within 14m (strictly obeying oneway)
     let bestScore = Infinity;
     let bestResult: { roadIdx: number; dist: number; dir: 1 | -1 } | undefined;
     for (let rIdx = 0; rIdx < this.drivableRoads.length; rIdx++) {
@@ -818,24 +1122,29 @@ export class AmbientTraffic {
         if (d > 14) continue;
         const along = seg.startDist + t * seg.len;
         const rawDot = seg.tx * poseTx + seg.tz * poseTz;
-        const dirSign: 1 | -1 = rawDot >= 0 ? 1 : -1;
+        const dirSign = legalRoadDir(candDr.road, rawDot >= 0 ? 1 : -1);
+        const alignedDot = (seg.tx * dirSign) * poseTx + (seg.tz * dirSign) * poseTz;
+        // Reject sharp U-turns into opposite one-way segments
+        if (alignedDot < -0.35) continue;
         const remain = dirSign > 0 ? candDr.totalLen - along : along;
         if (remain < 8) continue;
-        const dotTurn = Math.abs(rawDot);
-        const score = d + (1 - dotTurn) * 7.5;
+        const targetAlong = THREE.MathUtils.clamp(along + dirSign * 4.5, 2, candDr.totalLen - 2);
+        if (!isCandidateSafe(rIdx, candDr, targetAlong, dirSign)) continue;
+        const score = d + (1 - Math.max(0, alignedDot)) * 7.5;
         if (score < bestScore) {
           bestScore = score;
-          const targetAlong = THREE.MathUtils.clamp(along + dirSign * 4.5, 2, candDr.totalLen - 2);
           bestResult = { roadIdx: rIdx, dist: targetAlong, dir: dirSign };
         }
       }
     }
-    return bestResult;
+    if (bestResult) return bestResult;
+    if (sawPlayerBlockedLegalTurn) return { blockedByPlayer: true };
+    return undefined;
   }
 
   /**
    * Re-anchors an active visible vehicle onto the closest matching road in a refreshed OsmMapSnapshot
-   * without snapping its world position or hiding it.
+   * without snapping its world position or hiding it, while strictly enforcing `road.oneway`.
    */
   private reanchorVehicleOnSnapshot(car: MovingVehicle): boolean {
     let bestScore = Infinity;
@@ -845,7 +1154,7 @@ export class AmbientTraffic {
 
     for (let rIdx = 0; rIdx < this.drivableRoads.length; rIdx++) {
       const dr = this.drivableRoads[rIdx];
-      const laneOff = Math.max(2.05, Math.min(2.65, dr.road.widthM * 0.34));
+      const laneOff = getTravelRightOffset(dr, car);
       for (let si = 0; si < dr.segs.length; si++) {
         const seg = dr.segs[si];
         const t = THREE.MathUtils.clamp(
@@ -854,13 +1163,14 @@ export class AmbientTraffic {
           1,
         );
         const rawDot = seg.tx * car.poseTx + seg.tz * car.poseTz;
-        if (Math.abs(rawDot) < 0.35) continue;
-        const dirSign: 1 | -1 = rawDot >= 0 ? 1 : -1;
+        const dirSign = legalRoadDir(dr.road, rawDot >= 0 ? 1 : -1);
+        const alignedDot = (seg.tx * dirSign) * car.poseTx + (seg.tz * dirSign) * car.poseTz;
+        if (alignedDot < 0.35) continue;
         const cx = seg.ax + seg.dx * t + seg.nx * dirSign * laneOff;
         const cz = seg.az + seg.dz * t + seg.nz * dirSign * laneOff;
         const d = Math.hypot(car.worldX - cx, car.worldZ - cz);
         if (d > 14) continue;
-        const score = d + (1 - Math.abs(rawDot)) * 8;
+        const score = d + (1 - alignedDot) * 8;
         if (score < bestScore) {
           bestScore = score;
           bestRoadIdx = rIdx;
@@ -877,6 +1187,139 @@ export class AmbientTraffic {
     car.turnArc = undefined;
     car.coasting = false;
     return true;
+  }
+
+  /**
+   * Full-footprint (front bumper + center + rear trailer) intersection & corridor yield check.
+   * Smoothly halts crossing, turning, or approaching-junction vehicles outside the player's lane
+   * until the player has passed, without blocking oncoming traffic in separate parallel lanes.
+   */
+  private shouldYieldForPlayer(
+    car: MovingVehicle,
+    poseX: number,
+    poseZ: number,
+    poseTx: number,
+    poseTz: number,
+    dr: DrivableRoad | undefined,
+    pf: PlayerFrame,
+  ): boolean {
+    const rx = poseX - pf.px;
+    const rz = poseZ - pf.pz;
+    const cAlong = rx * pf.fwdX + rz * pf.fwdZ;
+    const cLat = rx * pf.rightX + rz * pf.rightZ;
+    if (Math.abs(cAlong) > 85 && Math.abs(cLat) > 48) return false;
+
+    const carAlign = poseTx * pf.fwdX + poseTz * pf.fwdZ;
+    const carLatVel = poseTx * pf.rightX + poseTz * pf.rightZ;
+
+    // 1. Same-direction traffic immediately behind player in same lane: brake instead of rear-ending player
+    if (
+      carAlign > 0.72 &&
+      Math.abs(cLat) < PLAYER_CORRIDOR_HALF_W + car.halfWidth * 0.5 &&
+      cAlong < 0 &&
+      cAlong + car.halfLength > -15
+    ) {
+      return true;
+    }
+
+    // 2. Parallel oncoming/same-dir traffic cleanly outside player's lane passes unobstructed
+    const isCrossingOrTurning = Math.abs(carAlign) < 0.78 || Boolean(car.turnArc);
+    if (!isCrossingOrTurning) {
+      // Only guard if approaching an intersection near the player's corridor from a curving/merging lane
+      return false;
+    }
+
+    const headingTowardCorridor =
+      (cLat > 0.4 && carLatVel < -0.1) || (cLat < -0.4 && carLatVel > 0.1);
+    const currentlyInCorridor = footprintHitsPlayerCorridor(
+      poseX,
+      poseZ,
+      poseTx,
+      poseTz,
+      car.halfLength,
+      car.halfWidth,
+      pf,
+      -12,
+      58,
+      0.25,
+    );
+
+    // 3. Approaching the player's corridor from either side: yield smoothly BEFORE front bumper enters lane
+    if (headingTowardCorridor) {
+      const stopLookahead = (car.isSemi ? 16 : 10) + car.currentSpeed * 1.15;
+      for (const frac of [0, 0.35, 0.7, 1.0]) {
+        const probeD = stopLookahead * frac;
+        if (
+          footprintHitsPlayerCorridor(
+            poseX + poseTx * probeD,
+            poseZ + poseTz * probeD,
+            poseTx,
+            poseTz,
+            car.halfLength,
+            car.halfWidth,
+            pf,
+            -12,
+            60,
+            0.85,
+          )
+        ) {
+          return true;
+        }
+      }
+    }
+
+    // 4. Active turnArc: stop BEFORE the turn swings cab or 17m rear trailer into player's lane
+    if (car.turnArc && !currentlyInCorridor) {
+      const remStart = car.turnArc.t;
+      for (let i = 1; i <= 4; i++) {
+        const tt = Math.min(1, remStart + ((1 - remStart) * i) / 4);
+        const ev = evalCubicBezier(car.turnArc, tt);
+        if (
+          footprintHitsPlayerCorridor(
+            ev.x,
+            ev.z,
+            ev.tx,
+            ev.tz,
+            car.halfLength,
+            car.halfWidth,
+            pf,
+            -12,
+            56,
+            0.75,
+          )
+        ) {
+          return true;
+        }
+      }
+    }
+
+    // 5. Side-street junction approach: stop before stop line if junction sits in player's approaching path
+    if (!car.turnArc && !car.coasting && dr) {
+      const remainDist = car.dir > 0 ? dr.totalLen - car.dist : car.dist;
+      const junctionLook = (car.isSemi ? 22 : 14) + car.currentSpeed * 0.85;
+      if (remainDist <= junctionLook) {
+        const endS = sampleRoad(dr, car.dir > 0 ? dr.totalLen : 0);
+        const endRx = endS.x - pf.px;
+        const endRz = endS.z - pf.pz;
+        const endAlong = endRx * pf.fwdX + endRz * pf.fwdZ;
+        const endLat = endRx * pf.rightX + endRz * pf.rightZ;
+        if (
+          endAlong >= -12 &&
+          endAlong <= 60 &&
+          Math.abs(endLat) <= PLAYER_CORRIDOR_HALF_W + car.halfWidth + 5.5 &&
+          Math.abs(cLat) > PLAYER_CORRIDOR_HALF_W + 0.6
+        ) {
+          return true;
+        }
+      }
+    }
+
+    // 6. Close-range crossing emergency stop if still angled toward player's lane
+    if (currentlyInCorridor && headingTowardCorridor && cAlong > -12 && cAlong < 30) {
+      return true;
+    }
+
+    return false;
   }
 
   private tryPlaceParkedAhead(
@@ -898,7 +1341,16 @@ export class AmbientTraffic {
 
     for (let rIdx = 0; rIdx < this.drivableRoads.length; rIdx++) {
       const dr = this.drivableRoads[rIdx];
-      if (dr.road.highway === 'motorway' || dr.road.highway === 'trunk' || dr.totalLen < 38) continue;
+      const hw = dr.road.highway ?? '';
+      if (
+        hw === 'motorway' ||
+        hw === 'trunk' ||
+        hw.endsWith('_link') ||
+        (dr.road.oneway && getEffectiveLanes(dr.road) <= 1) ||
+        dr.totalLen < 38
+      ) {
+        continue;
+      }
       for (let d = 20; d < dr.totalLen - 16; d += 38) {
         const s = sampleRoad(dr, d);
         const curbOffset = Math.max(1.5, dr.road.widthM * 0.5 - 0.85);
@@ -935,7 +1387,8 @@ export class AmbientTraffic {
           bestScore = score;
           bestX = px;
           bestZ = pz;
-          bestYaw = Math.atan2(s.tx * slot.side, s.tz * slot.side);
+          const faceDir = legalRoadDir(dr.road, slot.side);
+          bestYaw = Math.atan2(s.tx * faceDir, s.tz * faceDir);
         }
       }
     }
@@ -1229,8 +1682,8 @@ export class AmbientTraffic {
     }
     if (!this.enabled || !this.drivableRoads.length) return;
 
-    const fwdPlayerX = Math.sin(playerHeading);
-    const fwdPlayerZ = -Math.cos(playerHeading);
+    const pf = makePlayerFrame(playerPos, playerHeading);
+    const { fwdX: fwdPlayerX, fwdZ: fwdPlayerZ } = pf;
 
     for (let k = 0; k < this.movingFleet.length; k++) {
       const car = this.movingFleet[k];
@@ -1243,8 +1696,9 @@ export class AmbientTraffic {
       let poseTz = car.poseTz;
 
       if (!car.hasPose && dr) {
+        car.dir = legalRoadDir(dr.road, car.dir);
         const initSample = sampleRoad(dr, car.dist);
-        const initOff = Math.max(2.05, Math.min(2.65, dr.road.widthM * 0.34));
+        const initOff = getTravelRightOffset(dr, car);
         poseX = initSample.x + initSample.nx * car.dir * initOff;
         poseZ = initSample.z + initSample.nz * car.dir * initOff;
         poseTx = initSample.tx * car.dir;
@@ -1267,8 +1721,9 @@ export class AmbientTraffic {
         poseTx = ev.tx;
         poseTz = ev.tz;
       } else if (dr) {
+        car.dir = legalRoadDir(dr.road, car.dir);
         const curSample = sampleRoad(dr, car.dist);
-        const laneOffset = Math.max(2.05, Math.min(2.65, dr.road.widthM * 0.34));
+        const laneOffset = getTravelRightOffset(dr, car);
         poseX = curSample.x + curSample.nx * car.dir * laneOffset;
         poseZ = curSample.z + curSample.nz * car.dir * laneOffset;
         poseTx = curSample.tx * car.dir;
@@ -1286,7 +1741,7 @@ export class AmbientTraffic {
         this.placeTrafficAhead(car, k, playerPos, playerHeading, minSpawn, maxSpawn, convoyPositions);
         dr = this.drivableRoads[car.roadIdx];
         const s = sampleRoad(dr, car.dist);
-        const off = Math.max(2.05, Math.min(2.65, dr.road.widthM * 0.34));
+        const off = getTravelRightOffset(dr, car);
         poseX = s.x + s.nx * car.dir * off;
         poseZ = s.z + s.nz * car.dir * off;
         poseTx = s.tx * car.dir;
@@ -1299,8 +1754,8 @@ export class AmbientTraffic {
         car.hasPose = true;
       }
 
-      // Direction-aware pairwise spacing (never teleports or hides visible cars!)
-      let shouldYield = false;
+      // Direction-aware pairwise spacing + full-footprint player corridor yield
+      let shouldYieldTraffic = false;
       for (let m = 0; m < this.movingFleet.length; m++) {
         if (m === k) continue;
         const other = this.movingFleet[m];
@@ -1308,14 +1763,17 @@ export class AmbientTraffic {
         const dx = other.worldX - poseX;
         const dz = other.worldZ - poseZ;
         const sep = Math.hypot(dx, dz);
-        const minSep = car.isSemi || other.isSemi ? 22 : 14;
+        const minSep = car.halfLength + other.halfLength + 6;
         if (sep < minSep) {
           // Cars traveling in opposite directions pass cleanly in opposite lanes
           const dirDot = poseTx * other.poseTx + poseTz * other.poseTz;
           if (dirDot < -0.35) continue;
+          // Cars in adjacent parallel lanes on multi-lane roads pass cleanly without false braking
+          const latSep = Math.abs(dx * -poseTz + dz * poseTx);
+          if (dirDot > 0.7 && latSep > car.halfWidth + other.halfWidth + 0.65) continue;
           const fwdDot = sep > 0.01 ? (dx * poseTx + dz * poseTz) / sep : 1;
           if (fwdDot > 0.42) {
-            shouldYield = true;
+            shouldYieldTraffic = true;
           }
         }
       }
@@ -1324,42 +1782,60 @@ export class AmbientTraffic {
         const dx = cv.x - poseX;
         const dz = cv.z - poseZ;
         const sep = Math.hypot(dx, dz);
-        if (sep < 26) {
+        if (sep < car.halfLength + 17) {
           const cvTx = Math.sin(cv.heading);
           const cvTz = -Math.cos(cv.heading);
           const dirDot = poseTx * cvTx + poseTz * cvTz;
           const fwdDot = sep > 0.01 ? (dx * poseTx + dz * poseTz) / sep : 1;
           if (dirDot > -0.35 && fwdDot > 0.35) {
-            shouldYield = true;
+            shouldYieldTraffic = true;
           }
         }
       }
 
-      // If yielding too long while visible, ease slowly forward instead of vanishing
-      car.blockedSec = shouldYield ? car.blockedSec + dt : Math.max(0, car.blockedSec - dt * 2);
-      const targetSpeed = shouldYield
-        ? (car.blockedSec > 2.2 ? car.baseSpeed * 0.35 : 0)
-        : car.baseSpeed;
-      car.currentSpeed = THREE.MathUtils.damp(car.currentSpeed, targetSpeed, shouldYield ? 7.5 : 3.2, dt);
-      car.wheelPhase += car.currentSpeed * 3.6 * dt;
+      let yieldForPlayer = this.shouldYieldForPlayer(car, poseX, poseZ, poseTx, poseTz, dr, pf);
 
-      if (car.semiHandle) {
-        car.semiHandle.update(dt, car.wheelPhase, shouldYield && car.blockedSec <= 2.2, 0.22, time);
-      }
-      if (car.cyberHandle) {
-        car.cyberHandle.update(car.wheelPhase, time);
-      }
-      if (car.roadsterHandle) {
-        car.roadsterHandle.updateWheels?.(car.wheelPhase);
-      }
+      // When yielding for the player, stay cleanly stopped until the player passes (never creep forward into player!)
+      // When yielding only for ambient traffic, gently ease forward if deadlocked > 2.2s.
+      car.blockedSec =
+        shouldYieldTraffic && !yieldForPlayer ? car.blockedSec + dt : Math.max(0, car.blockedSec - dt * 2);
+      let isBraking = yieldForPlayer || (shouldYieldTraffic && car.blockedSec <= 2.2);
+      const targetSpeed = yieldForPlayer
+        ? 0
+        : shouldYieldTraffic
+          ? car.blockedSec > 2.2
+            ? car.baseSpeed * 0.35
+            : 0
+          : car.baseSpeed;
+      car.currentSpeed = THREE.MathUtils.damp(
+        car.currentSpeed,
+        targetSpeed,
+        yieldForPlayer ? 9.5 : shouldYieldTraffic ? 7.5 : 3.2,
+        dt,
+      );
+      if (yieldForPlayer && car.currentSpeed < 0.25) car.currentSpeed = 0;
 
-      car.groundGlow.visible = true;
-      car.tailGlow.visible = true;
-      car.tailGlow.material = shouldYield && car.blockedSec <= 2.2 ? this.tailGlowBrakeMat : this.tailGlowMat;
-      car.group.visible = true;
+      const prevX = poseX;
+      const prevZ = poseZ;
+      const prevTx = poseTx;
+      const prevTz = poseTz;
+      const prevDist = car.dist;
+      const prevArcT = car.turnArc?.t;
+      const prevInCloseBox = footprintHitsPlayerCorridor(
+        prevX,
+        prevZ,
+        prevTx,
+        prevTz,
+        car.halfLength,
+        car.halfWidth,
+        pf,
+        -11,
+        38,
+        0.35,
+      );
 
       if (car.coasting) {
-        // Smooth straight glide until behind camera / in fog — never snaps invisible mid-screen
+        // Smooth straight glide until behind camera / in fog — never glides into player's lane
         poseX += poseTx * car.currentSpeed * dt;
         poseZ += poseTz * car.currentSpeed * dt;
       } else if (car.turnArc) {
@@ -1391,47 +1867,57 @@ export class AmbientTraffic {
             poseZ,
             poseTx,
             poseTz,
-            fwdPlayerX,
-            fwdPlayerZ,
+            pf,
             atEnd,
             dr,
             time,
             k,
             inView,
           );
-          if (cont) {
+          if (cont && 'blockedByPlayer' in cont && cont.blockedByPlayer) {
+            // A legal turn exists, but the player is approaching — hold smoothly before the junction!
+            car.dist = atEnd ? dr.totalLen - exitPad : exitPad;
+            car.currentSpeed = 0;
+            yieldForPlayer = true;
+            isBraking = true;
+          } else if (cont && !('blockedByPlayer' in cont)) {
             const nextDr = this.drivableRoads[cont.roadIdx];
-            const nextSample = sampleRoad(nextDr, cont.dist);
-            const nextOff = Math.max(2.05, Math.min(2.65, nextDr.road.widthM * 0.34));
-            const p0x = poseX;
-            const p0z = poseZ;
-            const p3x = nextSample.x + nextSample.nx * cont.dir * nextOff;
-            const p3z = nextSample.z + nextSample.nz * cont.dir * nextOff;
-            const chord = Math.hypot(p3x - p0x, p3z - p0z);
-            const h = THREE.MathUtils.clamp(chord * 0.44, 1.8, 8.5);
-            const entryTx = nextSample.tx * cont.dir;
-            const entryTz = nextSample.tz * cont.dir;
-            car.turnArc = {
-              t: 0,
-              durationDist: Math.max(5.5, chord * 1.15),
-              p0x,
-              p0z,
-              p1x: p0x + poseTx * h,
-              p1z: p0z + poseTz * h,
-              p2x: p3x - entryTx * h,
-              p2z: p3z - entryTz * h,
-              p3x,
-              p3z,
-              nextRoadIdx: cont.roadIdx,
-              nextDist: cont.dist,
-              nextDir: cont.dir,
-            };
+            car.turnArc = buildTurnArc(
+              poseX,
+              poseZ,
+              poseTx,
+              poseTz,
+              cont.roadIdx,
+              nextDr,
+              cont.dist,
+              cont.dir,
+              car,
+            );
           } else if (car.dist > dr.totalLen || car.dist < 0) {
             if (inView) {
-              // True dead-end while visible: coast smoothly out of view instead of popping invisible!
-              car.coasting = true;
-              poseX += poseTx * car.currentSpeed * dt;
-              poseZ += poseTz * car.currentSpeed * dt;
+              // True dead-end while visible: hold if coasting would cross player's lane, else glide smoothly out of view
+              const coastHitsPlayer = footprintHitsPlayerCorridor(
+                poseX + poseTx * 12,
+                poseZ + poseTz * 12,
+                poseTx,
+                poseTz,
+                car.halfLength,
+                car.halfWidth,
+                pf,
+                -12,
+                55,
+                0.8,
+              );
+              if (coastHitsPlayer) {
+                car.dist = atEnd ? dr.totalLen - exitPad : exitPad;
+                car.currentSpeed = 0;
+                yieldForPlayer = true;
+                isBraking = true;
+              } else {
+                car.coasting = true;
+                poseX += poseTx * car.currentSpeed * dt;
+                poseZ += poseTz * car.currentSpeed * dt;
+              }
             } else {
               this.placeTrafficAhead(
                 car,
@@ -1448,7 +1934,7 @@ export class AmbientTraffic {
         }
         if (!car.coasting && !car.turnArc) {
           const nextSample = sampleRoad(dr, car.dist);
-          const nextLaneOffset = Math.max(2.05, Math.min(2.65, dr.road.widthM * 0.34));
+          const nextLaneOffset = getTravelRightOffset(dr, car);
           const targetX = nextSample.x + nextSample.nx * car.dir * nextLaneOffset;
           const targetZ = nextSample.z + nextSample.nz * car.dir * nextLaneOffset;
           // Smooth lateral correction if slightly offset after snapshot re-anchor
@@ -1465,6 +1951,76 @@ export class AmbientTraffic {
           poseTz = nextSample.tz * car.dir;
         }
       }
+
+      // Predictive multi-point clearance guard (front bumper, center, rear trailer + visual Semi yaw):
+      // Guarantees no crossing, turning, or tailgating vehicle (especially a 17m Semi trailer!) ever steps into the player's lane clearance box,
+      // while allowing parallel oncoming traffic in the opposite lane to pass smoothly.
+      const nextAlign = poseTx * pf.fwdX + poseTz * pf.fwdZ;
+      const visAlign = Math.sin(car.smoothYaw) * pf.fwdX + Math.cos(car.smoothYaw) * pf.fwdZ;
+      const nextAhead = (poseX - pf.px) * pf.fwdX + (poseZ - pf.pz) * pf.fwdZ;
+      const isCrossingOrTurning =
+        Math.abs(nextAlign) < 0.78 ||
+        Boolean(car.turnArc) ||
+        (car.isSemi && Math.abs(visAlign) < 0.78);
+      const isTailgatingPlayer = nextAlign > 0.72 && nextAhead <= 2 && nextAhead > -(car.halfLength + 14);
+      if (!prevInCloseBox && (isCrossingOrTurning || isTailgatingPlayer)) {
+        const nextEntersCloseBox =
+          footprintHitsPlayerCorridor(
+            poseX,
+            poseZ,
+            poseTx,
+            poseTz,
+            car.halfLength,
+            car.halfWidth,
+            pf,
+            -11,
+            38,
+            0.35,
+          ) ||
+          (car.isSemi &&
+            footprintHitsPlayerCorridor(
+              poseX,
+              poseZ,
+              Math.sin(car.smoothYaw),
+              Math.cos(car.smoothYaw),
+              car.halfLength,
+              car.halfWidth,
+              pf,
+              -11,
+              38,
+              0.35,
+            ));
+        if (nextEntersCloseBox) {
+          poseX = prevX;
+          poseZ = prevZ;
+          poseTx = prevTx;
+          poseTz = prevTz;
+          car.dist = prevDist;
+          if (car.turnArc && prevArcT !== undefined) {
+            car.turnArc.t = prevArcT;
+          }
+          car.currentSpeed = 0;
+          yieldForPlayer = true;
+          isBraking = true;
+        }
+      }
+
+      car.wheelPhase += car.currentSpeed * 3.6 * dt;
+
+      if (car.semiHandle) {
+        car.semiHandle.update(dt, car.wheelPhase, isBraking, 0.22, time);
+      }
+      if (car.cyberHandle) {
+        car.cyberHandle.update(car.wheelPhase, time);
+      }
+      if (car.roadsterHandle) {
+        car.roadsterHandle.updateWheels?.(car.wheelPhase);
+      }
+
+      car.groundGlow.visible = true;
+      car.tailGlow.visible = true;
+      car.tailGlow.material = isBraking ? this.tailGlowBrakeMat : this.tailGlowMat;
+      car.group.visible = true;
 
       car.worldX = poseX;
       car.worldZ = poseZ;

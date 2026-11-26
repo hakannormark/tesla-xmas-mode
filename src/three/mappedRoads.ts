@@ -283,7 +283,9 @@ export function projectOntoRoad(
       const segTz = dz / length;
       const rawDot = segTx * carFwdX + segTz * carFwdZ;
       const alignment = Math.abs(rawDot);
-      const score = distance + (1 - alignment) * 6.5;
+      // On divided dual-carriageway highways, strongly prefer the carriageway whose legal oneway direction matches player heading
+      const onewayPenalty = road.oneway && rawDot * road.oneway < -0.25 ? 14 : 0;
+      const score = distance + (1 - alignment) * 6.5 + onewayPenalty;
       if (score < bestScore) {
         bestScore = score;
         const sign = rawDot >= 0 ? 1 : -1;
