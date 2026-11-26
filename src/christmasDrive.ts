@@ -252,8 +252,18 @@ if (!stage) {
   const cameraOffset = new THREE.Vector3();
   const currentOffset = new THREE.Vector3();
   const desiredTarget = new THREE.Vector3();
+  const idleTarget = new THREE.Vector3();
+  const idleOffset = new THREE.Vector3();
   const movement = new THREE.Vector3();
   const shadowOffset = new THREE.Vector3(-53, 40, 32);
+
+  let idleStoppedSec = 0;
+  let idleMovingSec = 0;
+  let idleOrbitRamp = 0;
+  let idleOrbitBlend = 0;
+  let idleOrbitAngle = 0;
+  let idleOrbitDismissed = false;
+  let wasStoppedWithManualTakeover = false;
 
   function drivingView(
     time: number,
@@ -274,39 +284,57 @@ if (!stage) {
       return;
     }
 
+    let usedCinematicShot = false;
     if (cameraMode === 'cinematic') {
-      if (festivities.getStoppedSec() > 3.6) {
-        desiredTarget.set(avatar.position.x, avatar.position.y + 2.2 + sleighH * 0.4, avatar.position.z);
-        cameraOffset.set(east * 8.2 + rightX * 3.8, 1.65 + sleighH * 0.2, -north * 8.2 + rightZ * 3.8);
-        return;
-      }
       const shot = Math.floor(time / 9.0) % 3;
       if (shot === 1) {
         desiredTarget.set(avatar.position.x + 14 * east, avatar.position.y + 2.4 + aheadSlope * 0.4 + sleighH * 0.35, avatar.position.z - 14 * north);
         cameraOffset.set(-22 * east - rightX * 6.5, 0.35 + sleighH * 0.2, 22 * north - rightZ * 6.5);
-        return;
-      }
-      if (shot === 2) {
+        usedCinematicShot = true;
+      } else if (shot === 2) {
         desiredTarget.set(avatar.position.x + 16 * east, avatar.position.y + 2.2 + aheadSlope * 0.4 + sleighH * 0.35, avatar.position.z - 16 * north);
         cameraOffset.set(-40 * east + rightX * 10, 10.4 + sleighH * 0.2, 40 * north + rightZ * 10);
-        return;
+        usedCinematicShot = true;
       }
     }
 
-    // Tesla FSD Reality View Tele-Chase Framing
-    const camBack = 14.5 + speedNorm * 2.0;
-    const targetAhead = 18.0;
-    const totalSpan = targetAhead + camBack;
-    desiredTarget.set(
-      avatar.position.x + targetAhead * east,
-      avatar.position.y + 2.1 + aheadSlope * 0.45 + sleighH * 0.42,
-      avatar.position.z - targetAhead * north
-    );
-    cameraOffset.set(
-      -totalSpan * east,
-      2.6 - flightFactor * 0.25 + aheadSlope * 0.25 + sleighH * 0.22,
-      totalSpan * north
-    );
+    if (!usedCinematicShot) {
+      // Tesla FSD Reality View Tele-Chase Framing
+      const camBack = 14.5 + speedNorm * 2.0;
+      const targetAhead = 18.0;
+      const totalSpan = targetAhead + camBack;
+      desiredTarget.set(
+        avatar.position.x + targetAhead * east,
+        avatar.position.y + 2.1 + aheadSlope * 0.45 + sleighH * 0.42,
+        avatar.position.z - targetAhead * north
+      );
+      cameraOffset.set(
+        -totalSpan * east,
+        2.6 - flightFactor * 0.25 + aheadSlope * 0.25 + sleighH * 0.22,
+        totalSpan * north
+      );
+    }
+
+    if (idleOrbitBlend > 0.0001) {
+      const orbitCos = Math.cos(idleOrbitAngle);
+      const orbitSin = Math.sin(idleOrbitAngle);
+      const orbitDirX = -east * orbitCos + rightX * orbitSin;
+      const orbitDirZ = north * orbitCos + rightZ * orbitSin;
+      const orbitRadius = 30.0 + Math.sin(idleOrbitAngle * 2) * 2.5;
+      const orbitHeight = 13.5 + Math.sin(idleOrbitAngle) * 1.4;
+      idleTarget.set(
+        avatar.position.x + 3.0 * east,
+        avatar.position.y + 2.3 + sleighH * 0.45,
+        avatar.position.z - 3.0 * north
+      );
+      idleOffset.set(
+        orbitDirX * orbitRadius,
+        orbitHeight,
+        orbitDirZ * orbitRadius
+      );
+      desiredTarget.lerp(idleTarget, idleOrbitBlend);
+      cameraOffset.lerp(idleOffset, idleOrbitBlend);
+    }
   }
 
   function resetTrackState(): void {
@@ -318,12 +346,24 @@ if (!stage) {
     steerLaneSway = 0;
     demoHasInit = false;
     horizonY = 0;
+    idleStoppedSec = 0;
+    idleMovingSec = 0;
+    idleOrbitRamp = 0;
+    idleOrbitBlend = 0;
+    idleOrbitAngle = 0;
+    idleOrbitDismissed = false;
+    wasStoppedWithManualTakeover = false;
     avatar.position.set(0, 0, 0);
     avatar.rotation.set(0, 0, 0);
     lastUi = -1000;
   }
 
   function follow(): void {
+    idleOrbitDismissed = false;
+    wasStoppedWithManualTakeover = false;
+    idleOrbitRamp = 0;
+    idleOrbitBlend = 0;
+    idleOrbitAngle = 0;
     alignWithHeading = true;
     drivingView(performance.now() / 1000, 0, magic.getFlightFactor(), trial ? trialHeight : undefined);
     orbit.target.copy(desiredTarget);
@@ -458,6 +498,15 @@ if (!stage) {
 
   function detachFollow(): void {
     lastManualOrbitMs = performance.now();
+    idleOrbitDismissed = true;
+    idleOrbitRamp = 0;
+    idleOrbitBlend = 0;
+    idleOrbitAngle = 0;
+    if (idleStoppedSec > 0.5) {
+      wasStoppedWithManualTakeover = true;
+    } else if (idleMovingSec > 0) {
+      wasStoppedWithManualTakeover = false;
+    }
     if (!alignWithHeading) return;
     alignWithHeading = false;
     hud.setFollowActive(false);
@@ -826,8 +875,78 @@ if (!stage) {
 
     const speedNorm = Math.min(1, frame.speedKmh / 110);
     const flightFactor = magic.getFlightFactor();
-    if (!alignWithHeading && activePointers.size === 0 && now - lastManualOrbitMs >= AUTO_RECENTER_MS) {
+
+    if (!hasActiveWorld) {
+      idleStoppedSec = 0;
+      idleMovingSec = 0;
+      idleOrbitRamp = 0;
+      idleOrbitBlend = 0;
+      idleOrbitAngle = 0;
+      idleOrbitDismissed = false;
+      wasStoppedWithManualTakeover = false;
+    } else if (frame.speedKmh < 1.5) {
+      idleStoppedSec += dt;
+      idleMovingSec = 0;
+      if (!alignWithHeading && idleOrbitDismissed && idleStoppedSec > 0.5) {
+        wasStoppedWithManualTakeover = true;
+      }
+    } else {
+      idleStoppedSec = 0;
+      if (frame.speedKmh > 3.5) {
+        idleMovingSec += dt;
+      } else {
+        idleMovingSec = 0;
+      }
+    }
+
+    if (idleMovingSec >= 0.2) {
+      idleOrbitDismissed = false;
+      if (wasStoppedWithManualTakeover && activePointers.size === 0) {
+        wasStoppedWithManualTakeover = false;
+        if (!alignWithHeading) {
+          alignWithHeading = true;
+          hud.setFollowActive(true);
+        }
+      }
+    }
+
+    const idleModeAllowed = cameraMode === 'chase' || cameraMode === 'cinematic';
+    const idleShowcaseActive =
+      hasActiveWorld &&
+      idleModeAllowed &&
+      alignWithHeading &&
+      !idleOrbitDismissed &&
+      idleStoppedSec > 2.8;
+
+    if (idleShowcaseActive) {
+      if (idleOrbitRamp === 0) {
+        idleOrbitAngle = 0;
+      }
+      idleOrbitRamp = Math.min(1, idleOrbitRamp + dt / 3.6);
+      idleOrbitBlend = THREE.MathUtils.smoothstep(idleOrbitRamp, 0, 1);
+      idleOrbitAngle += dt * 0.155 * idleOrbitBlend;
+      if (idleOrbitAngle >= Math.PI * 2) idleOrbitAngle -= Math.PI * 2;
+    } else {
+      idleOrbitBlend = THREE.MathUtils.damp(idleOrbitBlend, 0, 4.5, dt);
+      if (idleOrbitBlend < 0.001) {
+        idleOrbitBlend = 0;
+        idleOrbitRamp = 0;
+        idleOrbitAngle = 0;
+      } else {
+        idleOrbitRamp = idleOrbitBlend;
+      }
+    }
+
+    const suppressAutoRecenter = (idleStoppedSec > 0.5 || wasStoppedWithManualTakeover) && idleOrbitDismissed;
+    if (
+      !alignWithHeading &&
+      !suppressAutoRecenter &&
+      activePointers.size === 0 &&
+      now - lastManualOrbitMs >= AUTO_RECENTER_MS
+    ) {
       alignWithHeading = true;
+      idleOrbitDismissed = false;
+      wasStoppedWithManualTakeover = false;
       hud.setFollowActive(true);
     }
     if (alignWithHeading) {
@@ -843,7 +962,7 @@ if (!stage) {
     if (alignWithHeading && cameraMode === 'chase') {
       cameraRoll = THREE.MathUtils.damp(
         cameraRoll,
-        THREE.MathUtils.clamp(-frame.turnRate * 0.032, -0.045, 0.045),
+        THREE.MathUtils.clamp(-frame.turnRate * 0.032, -0.045, 0.045) * (1 - idleOrbitBlend),
         5,
         dt
       );
@@ -852,7 +971,7 @@ if (!stage) {
       cameraRoll = THREE.MathUtils.damp(cameraRoll, 0, 5, dt);
     }
 
-    const targetFov = (cameraMode === 'map' ? 54 : 45) + speedNorm * 10 + flightFactor * 5;
+    const targetFov = (cameraMode === 'map' ? 54 : 45) + speedNorm * 10 + flightFactor * 5 + idleOrbitBlend * 3.5;
     if (Math.abs(camera.fov - targetFov) > 0.05) {
       camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
       camera.updateProjectionMatrix();
