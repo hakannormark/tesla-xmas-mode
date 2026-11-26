@@ -361,6 +361,7 @@ export class HolidayAudioEngine {
   private wavDataUri: string | null = null;
   private santaVoiceBuf: AudioBuffer | null = null;
   private santaVoiceLoading = false;
+  private speechDucking = false;
 
   constructor() {
     try {
@@ -645,6 +646,12 @@ export class HolidayAudioEngine {
     src.start();
   }
 
+  setSpeechDucking(active: boolean): void {
+    if (this.speechDucking === active) return;
+    this.speechDucking = active;
+    this.applyGainStates();
+  }
+
   private applyGainStates(): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
@@ -653,8 +660,9 @@ export class HolidayAudioEngine {
       this.masterGain.gain.setTargetAtTime(target, now, 0.08);
     }
     if (this.musicBus) {
-      const targetMusic = this.mixMode === 'full' ? 0.36 : 0;
-      this.musicBus.gain.setTargetAtTime(targetMusic, now, 0.15);
+      const duck = this.speechDucking ? 0.22 : 1.0;
+      const targetMusic = this.mixMode === 'full' ? 0.36 * duck : 0;
+      this.musicBus.gain.setTargetAtTime(targetMusic, now, 0.25);
     }
   }
 
@@ -704,8 +712,10 @@ export class HolidayAudioEngine {
           this.playBassNote(midiToHz(step.bass), 0.14, Math.min(1.4, durSec * 1.1));
         }
 
+        const melodyDuck = this.speechDucking ? 0.18 : 1.0;
+
         // Celesta lead melody note with sparkling harmonic shimmer
-        this.playCelestaNote(midiToHz(step.lead), 0.11 + speedRatio * 0.025, Math.max(0.32, durSec * 1.15));
+        this.playCelestaNote(midiToHz(step.lead), (0.11 + speedRatio * 0.025) * melodyDuck, Math.max(0.32, durSec * 1.15));
 
         // Gentle off-beat harp twinkle inside sustained melody notes
         if (step.beats >= 1.5 && step.chord) {
@@ -713,7 +723,7 @@ export class HolidayAudioEngine {
           const halfMs = Math.round(durSec * 500);
           setTimeout(() => {
             if (this.ctx && this.ctx.state === 'running' && this.mixMode === 'full') {
-              this.playCelestaNote(midNote, 0.055, 0.55);
+              this.playCelestaNote(midNote, 0.055 * (this.speechDucking ? 0.18 : 1.0), 0.55);
             }
           }, halfMs);
         }
@@ -898,6 +908,19 @@ export class HolidayAudioEngine {
     }
 
     src.start(now, Math.random() * 0.8, 0.18);
+  }
+
+  playSkyCinemaChime(): void {
+    this.unlock();
+    if (!this.ctx || this.mixMode === 'muted') return;
+    const notes = [392.0, 587.33, 739.99, 987.77, 1174.66];
+    notes.forEach((hz, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(hz, 0.085, 1.35);
+        }
+      }, idx * 80);
+    });
   }
 
   playSparkleChime(): void {

@@ -73,6 +73,64 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
   color: #fff3cf;
   box-shadow: 0 0 18px rgba(240, 203, 138, 0.38);
 }
+.cinema-pill[aria-pressed="true"] {
+  border-color: #6ff7cb;
+  background: linear-gradient(135deg, rgba(16, 74, 72, 0.88), rgba(20, 40, 82, 0.92));
+  color: #dffef4;
+  box-shadow: 0 0 18px rgba(84, 242, 198, 0.38);
+}
+.cinema-bar {
+  position: fixed;
+  top: 0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(40vw, 28rem);
+  padding: 0.36rem 0.55rem 0.36rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid rgba(108, 244, 204, 0.45);
+  background: rgba(8, 20, 44, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 28px rgba(4, 10, 26, 0.52), 0 0 22px rgba(72, 232, 188, 0.18);
+  pointer-events: auto;
+}
+.cinema-bar-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #ecfff8;
+}
+.cinema-bar-count {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #84ffe0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cinema-bar-btn {
+  min-height: 32px;
+  padding: 0.22rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid rgba(154, 224, 248, 0.32);
+  background: rgba(24, 48, 82, 0.84);
+  color: #f4fbff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cinema-bar-btn:hover { border-color: rgba(120, 246, 206, 0.75); }
+.cinema-bar-unmute {
+  border-color: rgba(255, 222, 128, 0.72);
+  background: rgba(132, 84, 18, 0.88);
+  color: #fff6d6;
+}
 
 /* Street Board */
 .street-board {
@@ -815,6 +873,14 @@ button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible
 
 @media (max-width: 640px) {
   .drive-header { inset: 0.65rem 0.65rem auto; }
+  .cinema-bar {
+    top: 3.65rem;
+    left: 0.65rem;
+    right: 0.65rem;
+    transform: none;
+    max-width: none;
+    justify-content: space-between;
+  }
   .glass-pill { padding: 0.4rem 0.65rem; font-size: 0.82rem; min-height: 40px; }
   .street-board { left: 0.65rem; top: 3.7rem; max-width: calc(100vw - 1.3rem); padding: 0.55rem 0.78rem; }
   .drive-footer { inset: auto 0.65rem 1.7rem; flex-wrap: wrap; gap: 0.45rem; }

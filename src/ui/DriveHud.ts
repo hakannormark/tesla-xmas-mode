@@ -58,6 +58,11 @@ export class DriveHud {
   private readonly gpsBtn: HTMLButtonElement;
   private readonly cameraBtn: HTMLButtonElement;
   private readonly followBtn: HTMLButtonElement;
+  private readonly cinemaBtn: HTMLButtonElement;
+  private readonly cinemaBarEl: HTMLElement;
+  private readonly cinemaTitleEl: HTMLElement;
+  private readonly cinemaCountEl: HTMLElement;
+  private readonly cinemaUnmuteBtn: HTMLButtonElement;
   private readonly soundQuickBtn: HTMLButtonElement;
   private readonly speedEl: HTMLElement;
   private readonly maxspeedEl: HTMLElement;
@@ -91,12 +96,21 @@ export class DriveHud {
 
       <header class="drive-header">
         <div class="drive-actions">
+          <button type="button" class="glass-pill cinema-pill" data-cinema-toggle aria-pressed="false" title="Rymdbio i himlen (V)">🎬 Rymdbio</button>
           <button type="button" class="glass-pill" data-camera-btn title="Växla kamera (C)">✦ FSD Vy</button>
           <button type="button" class="glass-pill follow-recenter-pill" data-follow hidden>◎ Följ släden</button>
           <button type="button" class="glass-pill" data-sound-quick aria-pressed="false" title="Ljud på/av">🔇</button>
           <button type="button" class="glass-pill" data-drawer-toggle aria-expanded="false" aria-label="Inställningar">⚙</button>
         </div>
       </header>
+
+      <aside class="cinema-bar" data-cinema-bar hidden aria-live="polite">
+        <span class="cinema-bar-title" data-cinema-title></span>
+        <span class="cinema-bar-count" data-cinema-count></span>
+        <button type="button" class="cinema-bar-btn cinema-bar-unmute" data-cinema-unmute hidden>🔊 Slå på ljud</button>
+        <button type="button" class="cinema-bar-btn" data-cinema-next title="Nästa klipp">⏭ Nästa</button>
+        <button type="button" class="cinema-bar-btn" data-cinema-stop aria-label="Stäng Rymdbio">✕</button>
+      </aside>
 
       <aside class="street-board" aria-live="polite">
         <span class="street-meta" data-place></span>
@@ -308,6 +322,7 @@ export class DriveHud {
               <button type="button" data-event="cyberplow">Cybertruck-plog</button>
               <button type="button" data-convoy>Julkaravan</button>
               <button type="button" data-tunnel aria-pressed="false">Boring-tunneln</button>
+              <button type="button" data-cinema-drawer>🎬 Rymdbio</button>
             </div>
             <div class="drawer-row-2">
               <button type="button" class="toggle-chip" data-auto-magic aria-pressed="true">✨ Automatisk julmagi</button>
@@ -345,6 +360,11 @@ export class DriveHud {
     this.gpsBtn = q('[data-gps]');
     this.cameraBtn = q('[data-camera-btn]');
     this.followBtn = q('[data-follow]');
+    this.cinemaBtn = q('[data-cinema-toggle]');
+    this.cinemaBarEl = q('[data-cinema-bar]');
+    this.cinemaTitleEl = q('[data-cinema-title]');
+    this.cinemaCountEl = q('[data-cinema-count]');
+    this.cinemaUnmuteBtn = q('[data-cinema-unmute]');
     this.soundQuickBtn = q('[data-sound-quick]');
     this.speedEl = q('[data-speed]');
     this.maxspeedEl = q('[data-maxspeed]');
@@ -375,18 +395,36 @@ export class DriveHud {
     this.bindEvents();
     this.syncSettings();
     this.syncMagicUi();
+    this.syncCinemaUi();
   }
 
   private bindEvents(): void {
     const q = <T extends HTMLElement = HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
 
-    for (const sel of ['.drive-drawer', '.magic-popover', '.magic-backdrop', '.drive-action-dock', '.drive-header', '.street-board', '.drive-instruments', '.drive-timeline', '.terrain-trial', '.demo-pill']) {
+    for (const sel of ['.drive-drawer', '.magic-popover', '.magic-backdrop', '.drive-action-dock', '.drive-header', '.cinema-bar', '.street-board', '.drive-instruments', '.drive-timeline', '.terrain-trial', '.demo-pill']) {
       this.root.querySelector(sel)?.addEventListener('pointerdown', e => e.stopPropagation());
     }
 
     this.cameraBtn.onclick = () => this.callbacks.onCycleCamera();
     this.followBtn.onclick = () => this.callbacks.onFollow();
     this.gpsBtn.onclick = () => this.callbacks.onRetryGps();
+    this.cinemaBtn.onclick = () => {
+      this.festivities.toggleSkyCinema();
+      this.syncCinemaUi();
+    };
+    this.cinemaUnmuteBtn.onclick = () => {
+      this.festivities.audio.unlock();
+      this.festivities.skyCinema.setMuted(false);
+      this.syncCinemaUi();
+    };
+    q('[data-cinema-next]').onclick = () => {
+      this.festivities.nextSkyCinemaClip();
+      this.syncCinemaUi();
+    };
+    q('[data-cinema-stop]').onclick = () => {
+      this.festivities.stopSkyCinema();
+      this.syncCinemaUi();
+    };
 
     this.soundQuickBtn.onclick = () => {
       const audio = this.festivities.audio;
@@ -419,6 +457,7 @@ export class DriveHud {
         }
         const activated = this.festivities.activatePower(id);
         this.syncMagicUi();
+    this.syncCinemaUi();
         const status = this.festivities.getStatus();
         if (this.statusEl.textContent !== status) this.statusEl.textContent = status;
         if (activated) this.setMagicOpen(false);
@@ -435,6 +474,7 @@ export class DriveHud {
         }
         this.festivities.activateOrCycleUnlock(id);
         this.syncMagicUi();
+    this.syncCinemaUi();
         const status = this.festivities.getStatus();
         if (this.statusEl.textContent !== status) this.statusEl.textContent = status;
       };
@@ -577,6 +617,13 @@ export class DriveHud {
 
     q('[data-tunnel]').onclick = () => {
       this.telemetry.setForceTunnel(!this.telemetry.getForceTunnel());
+      this.syncSettings();
+      this.setDrawerOpen(false);
+    };
+
+    q('[data-cinema-drawer]').onclick = () => {
+      this.festivities.toggleSkyCinema();
+      this.syncCinemaUi();
       this.syncSettings();
       this.setDrawerOpen(false);
     };
@@ -776,8 +823,30 @@ export class DriveHud {
     micBtn.textContent = this.micState === 'active' ? '🎙 Mikrofon PÅ' : this.micState === 'denied' ? '🎙 Nekad' : '🎙 Kupémikrofon';
 
     this.root.querySelector('[data-tunnel]')?.setAttribute('aria-pressed', String(this.telemetry.getForceTunnel()));
+    this.root.querySelector('[data-cinema-drawer]')?.setAttribute('aria-pressed', String(this.festivities.skyCinema.isActive()));
     this.root.querySelector('[data-auto-magic]')?.setAttribute('aria-pressed', String(this.festivities.isAutomaticMagic()));
     this.root.querySelector('[data-timeline]')?.setAttribute('aria-pressed', String(this.festivities.timeline.isEnabled()));
+    this.syncCinemaUi();
+  }
+
+  private syncCinemaUi(): void {
+    if (!this.festivities) return;
+    const cinema = this.festivities.skyCinema;
+    const active = cinema.isActive();
+    const info = cinema.getActiveClip();
+    this.cinemaBtn.setAttribute('aria-pressed', String(active));
+    this.cinemaBarEl.hidden = !active || !info;
+    if (active && info) {
+      const titleText = `🎬 ${info.clip.titleSv}`;
+      if (this.cinemaTitleEl.textContent !== titleText) {
+        this.cinemaTitleEl.textContent = titleText;
+      }
+      const countText = `${info.index + 1}/${info.total}`;
+      if (this.cinemaCountEl.textContent !== countText) {
+        this.cinemaCountEl.textContent = countText;
+      }
+      this.cinemaUnmuteBtn.hidden = !cinema.isMuted();
+    }
   }
 
   updateReadout(opts: {
@@ -853,6 +922,7 @@ export class DriveHud {
     }
 
     this.syncMagicUi();
+    this.syncCinemaUi();
 
     const status = this.festivities.getStatus();
     if (this.statusEl.textContent !== status) this.statusEl.textContent = status;

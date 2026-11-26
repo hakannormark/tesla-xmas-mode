@@ -1292,7 +1292,7 @@ export class DriveFestivities {
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('landmark');
     const clip = SKY_CINEMA_TEST_CLIPS[safeIdx];
-    this.announce(`🌌 Rymdbio · ${clip.titleSv}`, 4.5);
+    this.announce(`🎬 Rymdbio · ${clip.titleSv}`, 4.5);
   }
 
   toggleSkyCinema(): void {
@@ -1309,7 +1309,7 @@ export class DriveFestivities {
 
   stopSkyCinema(): void {
     this.skyCinema.stop();
-    this.announce('🌌 Rymdbio tonas ut', 2.4);
+    this.announce('🎬 Rymdbio tonas ut', 2.4);
   }
 
   getSkyCinemaIntensity(): number {
@@ -1816,6 +1816,9 @@ export class DriveFestivities {
     this.effects.rotation.y = -(event ? this.eventHeading : heading);
     this.frost.update(dt, env);
     this.sky.update(dt, time, traveled, env, live, ZERO_ELEV, 0, false);
+    this.skyCinema.setVolume(Math.max(0.75, this.audio.getVolume()));
+    this.skyCinema.update(dt, time, center, heading, env.daylightFactor, env.theme);
+    this.audio.setSpeechDucking(this.skyCinema.isActive() && !this.skyCinema.isMuted());
     this.launchText = live.spaceXLive ? `🚀 ${live.nextSpaceXName} · ${live.nextSpaceXCountdown}` : '';
 
     if (this.snapshotVersion !== mapSnapshot?.version || time - this.matchedAt > 0.25) {
@@ -2395,6 +2398,7 @@ export class DriveFestivities {
     this.ringGeo.dispose();
     this.livingWorld.dispose();
     this.sky.dispose();
+    this.skyCinema.dispose();
     this.chimneyPts.geometry.dispose();
     this.chimneyMat.dispose();
     this.burstPts.geometry.dispose();
