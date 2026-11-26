@@ -1198,6 +1198,75 @@ export class HolidayAudioEngine {
     this.triggerSleighBell(0.82, 0.18);
   }
 
+  /** Rising musical sparkle chime scaled by Julmagi tap combo (1..4) */
+  playComboChime(combo: number): void {
+    this.unlock();
+    if (!this.ctx || this.mixMode === 'muted') return;
+    const level = Math.max(1, Math.min(4, Math.round(combo)));
+    const transpose = Math.pow(2, ((level - 1) * 2) / 12);
+    const notes = [587.33, 739.99, 880.0, 1174.66, 1479.98].slice(0, Math.min(5, 2 + level));
+    notes.forEach((hz, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(hz * transpose, 0.095 + level * 0.012, 0.58);
+        }
+      }, idx * 44);
+    });
+    if (level >= 2) {
+      this.triggerSleighBell(0.45 + level * 0.1, level % 2 === 0 ? -0.26 : 0.26);
+    }
+  }
+
+  /** Rich magical fanfare when activating a Julmagi power or unlocking a Verkstad upgrade */
+  playPowerActivate(): void {
+    this.unlock();
+    if (!this.ctx || this.mixMode === 'muted') return;
+    const now = this.ctx.currentTime;
+
+    // Warm harmonic shimmer pad swell underneath the sparkle arpeggio
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(520, now);
+    lp.frequency.exponentialRampToValueAtTime(2800, now + 0.32);
+    lp.frequency.exponentialRampToValueAtTime(780, now + 1.15);
+
+    const padEnv = this.ctx.createGain();
+    padEnv.gain.setValueAtTime(0.0001, now);
+    padEnv.gain.linearRampToValueAtTime(0.11, now + 0.12);
+    padEnv.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+
+    lp.connect(padEnv);
+    if (this.dryBus) padEnv.connect(this.dryBus);
+    if (this.reverbBus) padEnv.connect(this.reverbBus);
+
+    [261.63, 392.0, 523.25].forEach((hz, idx) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      osc.type = idx === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(hz, now);
+      osc.detune.setValueAtTime((idx - 1) * 4, now);
+      osc.connect(lp);
+      osc.start(now);
+      osc.stop(now + 1.25);
+    });
+
+    const fanfareNotes = [523.25, 659.25, 783.99, 987.77, 1046.5, 1318.51, 1567.98];
+    fanfareNotes.forEach((hz, idx) => {
+      setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+          this.playCelestaNote(hz, 0.12, 0.92);
+        }
+      }, idx * 54);
+    });
+
+    this.triggerSleighBell(0.82, -0.35);
+    setTimeout(() => {
+      if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+        this.triggerSleighBell(0.82, 0.35);
+      }
+    }, 220);
+  }
+
   // --- Tesla 3-Button Sound Check ---
   testDirect(): void {
     this.unlock();

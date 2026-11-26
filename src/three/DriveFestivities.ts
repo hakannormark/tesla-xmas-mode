@@ -26,9 +26,199 @@ import { moonDirection } from './winterSurfaces';
 const BURST_COUNT = 160;
 const CHIMNEY_SPARK_COUNT = 72;
 const PLOW_SPRAY_COUNT = 96;
-const RING_POOL_COUNT = 8;
+const RING_POOL_COUNT = 12;
 const ELON_CYCLE: ElonEventType[] = ['starlink', 'starship', 'starman', 'supercharger', 'cyberplow'];
 const ZERO_ELEV = () => 0;
+const MAGIC_STORAGE_KEY = 'tesla-xmas-magic-v1';
+
+export type TrailStyle = 'classic' | 'aurora' | 'plaid' | 'candycane';
+export type MagicPowerId = 'giftRain' | 'superAurora' | 'escortConvoy' | 'grandFinale';
+export type MagicUnlockId = 'magicTrail' | 'megaSnowball' | 'royalSleigh' | 'companionOwl';
+
+export interface JulmagiState {
+  points: number;
+  combo: number;
+  unlocked: {
+    magicTrail: boolean;
+    megaSnowball: boolean;
+    royalSleigh: boolean;
+    companionOwl: boolean;
+  };
+  equipped: {
+    trailStyle: TrailStyle;
+    megaSnowball: boolean;
+    goldenSleigh: boolean;
+    cyberReindeer: boolean;
+    companionOwl: boolean;
+  };
+}
+
+export interface ActivePowerInfo {
+  id: MagicPowerId;
+  label: string;
+  icon: string;
+  remainingSec: number;
+  durationSec: number;
+}
+
+export interface MagicPowerSpec {
+  id: MagicPowerId;
+  icon: string;
+  label: string;
+  description: string;
+  cost: number;
+  durationSec: number;
+}
+
+export interface MagicUnlockSpec {
+  id: MagicUnlockId;
+  icon: string;
+  label: string;
+  description: string;
+  cost: number;
+}
+
+export const MAGIC_POWERS: readonly MagicPowerSpec[] = [
+  {
+    id: 'giftRain',
+    icon: '🎁',
+    label: 'Klappregn',
+    description: 'Skjuter julklappar automatiskt mot husen längs gatan (20s)',
+    cost: 40,
+    durationSec: 20,
+  },
+  {
+    id: 'superAurora',
+    icon: '🌌',
+    label: 'Super-Norrsken',
+    description: 'Maxar norrsken, fyrverkeriblixtar & guldsnö (30s)',
+    cost: 50,
+    durationSec: 30,
+  },
+  {
+    id: 'escortConvoy',
+    icon: '🚛',
+    label: 'Semi-konvoj & Plog',
+    description: 'Kallar in glödande Semi-konvoj & Cybertruck-plog (45s)',
+    cost: 60,
+    durationSec: 45,
+  },
+  {
+    id: 'grandFinale',
+    icon: '🎆',
+    label: 'Fyrverkerifinal',
+    description: 'Synkad Tesla Ljusshow & storslagen fyrverkerifinal (25s)',
+    cost: 80,
+    durationSec: 25,
+  },
+];
+
+export const MAGIC_UNLOCKS: readonly MagicUnlockSpec[] = [
+  {
+    id: 'magicTrail',
+    icon: '🌈',
+    label: 'Magispår',
+    description: 'Växla stjärnspår: Norrsken, Plaid, Polkagris eller Klassisk',
+    cost: 60,
+  },
+  {
+    id: 'megaSnowball',
+    icon: '❄️',
+    label: 'Mega-snöboll',
+    description: 'Avfyrar 3-snöbollssalva med stora snöexplosionsringar',
+    cost: 75,
+  },
+  {
+    id: 'companionOwl',
+    icon: '🦉',
+    label: 'Följe-uggla',
+    description: 'En magisk glidande snöuggla flyger bredvid släden',
+    cost: 90,
+  },
+  {
+    id: 'royalSleigh',
+    icon: '👑',
+    label: 'Guldsläde & Cyber-renar',
+    description: 'Växla lyxig guldsläde och futuristiska cyber-renar',
+    cost: 100,
+  },
+];
+
+const TRAIL_CYCLE: readonly TrailStyle[] = ['aurora', 'plaid', 'candycane', 'classic'];
+const TRAIL_LABELS: Record<TrailStyle, string> = {
+  aurora: 'Norrsken',
+  plaid: 'Plaid',
+  candycane: 'Polkagris',
+  classic: 'Klassisk',
+};
+
+const ROYAL_SLEIGH_MODES: ReadonlyArray<{ goldenSleigh: boolean; cyberReindeer: boolean; label: string }> = [
+  { goldenSleigh: true, cyberReindeer: true, label: 'Guld + Cyber-renar' },
+  { goldenSleigh: false, cyberReindeer: true, label: 'Cyber-renar' },
+  { goldenSleigh: true, cyberReindeer: false, label: 'Guldsläde' },
+  { goldenSleigh: false, cyberReindeer: false, label: 'Klassisk' },
+];
+
+function createDefaultMagicState(): JulmagiState {
+  return {
+    points: 0,
+    combo: 1,
+    unlocked: {
+      magicTrail: false,
+      megaSnowball: false,
+      royalSleigh: false,
+      companionOwl: false,
+    },
+    equipped: {
+      trailStyle: 'classic',
+      megaSnowball: false,
+      goldenSleigh: false,
+      cyberReindeer: false,
+      companionOwl: false,
+    },
+  };
+}
+
+function loadMagicState(): JulmagiState {
+  const def = createDefaultMagicState();
+  try {
+    const raw = localStorage.getItem(MAGIC_STORAGE_KEY);
+    if (!raw) return def;
+    const parsed = JSON.parse(raw) as Partial<JulmagiState>;
+    const pts = typeof parsed.points === 'number' && Number.isFinite(parsed.points)
+      ? Math.max(0, Math.floor(parsed.points))
+      : 0;
+    const combo = typeof parsed.combo === 'number' && Number.isFinite(parsed.combo)
+      ? Math.max(1, Math.min(4, Math.round(parsed.combo)))
+      : 1;
+    const u = parsed.unlocked;
+    const e = parsed.equipped;
+    const unlocked = {
+      magicTrail: Boolean(u?.magicTrail),
+      megaSnowball: Boolean(u?.megaSnowball),
+      royalSleigh: Boolean(u?.royalSleigh),
+      companionOwl: Boolean(u?.companionOwl),
+    };
+    const validTrail =
+      e?.trailStyle === 'classic' || e?.trailStyle === 'aurora' || e?.trailStyle === 'plaid' || e?.trailStyle === 'candycane'
+        ? e.trailStyle
+        : 'classic';
+    return {
+      points: pts,
+      combo,
+      unlocked,
+      equipped: {
+        trailStyle: unlocked.magicTrail ? validTrail : 'classic',
+        megaSnowball: unlocked.megaSnowball && Boolean(e?.megaSnowball),
+        goldenSleigh: unlocked.royalSleigh && Boolean(e?.goldenSleigh),
+        cyberReindeer: unlocked.royalSleigh && Boolean(e?.cyberReindeer),
+        companionOwl: unlocked.companionOwl && Boolean(e?.companionOwl),
+      },
+    };
+  } catch {
+    return def;
+  }
+}
 
 const FESTIVE_PARTICLE_VERT = /* glsl */ `
   attribute float aLife;
@@ -96,6 +286,9 @@ interface GiftProjectile {
   end: THREE.Vector3;
   bonusGifts: number;
   bonusKind?: 'town_tree' | 'snowman';
+  awardsPoints?: boolean;
+  fromPower?: boolean;
+  targetBuildingId?: string;
   onLand?: () => void;
 }
 
@@ -105,6 +298,9 @@ interface SnowballProjectile {
   t: number;
   start: THREE.Vector3;
   end: THREE.Vector3;
+  isMega?: boolean;
+  speedScale?: number;
+  silentToast?: boolean;
   onLand?: () => void;
 }
 
@@ -221,8 +417,15 @@ export class DriveFestivities {
   private readonly eventRoadPointAt = (_progress: number, side: number, out: THREE.Vector3): THREE.Vector3 => {
     const plow = this.activePlowSpot;
     if (!plow) return out.set(0, 0, 0);
-    out.set(plow.x + Math.cos(plow.heading) * side, 0, plow.z + Math.sin(plow.heading) * side);
-    out.y = this.activeGroundAt(out.x, out.z);
+    const effectiveSide =
+      side < 0 ? Math.min(side, this.oncomingLaneOffset(this.matchedStreet?.widthM ?? 6.0, 0.25)) : side;
+    const rawX = plow.x + Math.cos(plow.heading) * effectiveSide;
+    const rawZ = plow.z + Math.sin(plow.heading) * effectiveSide;
+    const safe =
+      side < 0
+        ? this.enforcePlayerLaneClearance(rawX, rawZ, 3.5, this.lastCenter, this.lastHeading)
+        : { x: rawX, z: rawZ };
+    out.set(safe.x, this.activeGroundAt(safe.x, safe.z), safe.z);
     return this.effects.worldToLocal(out);
   };
 
@@ -232,6 +435,22 @@ export class DriveFestivities {
   private nextLightWaveMeters = 20;
   private requestedLightWave = false;
   private previousFix?: { lat: number; lon: number };
+
+  private magicState: JulmagiState = loadMagicState();
+  private readonly cosmeticListeners = new Set<(equipped: JulmagiState['equipped']) => void>();
+  private readonly powerTimers: Record<MagicPowerId, number> = {
+    giftRain: 0,
+    superAurora: 0,
+    escortConvoy: 0,
+    grandFinale: 0,
+  };
+  private giftRainCooldown = 0;
+  private giftRainSide: -1 | 1 = 1;
+  private superAuroraPulseTimer = 0;
+  private grandFinaleWaveTimer = 0;
+  private readonly defaultBurstTint = new THREE.Color('#ff6a4d');
+  private readonly defaultChimneyTint = new THREE.Color('#ff5436');
+  private readonly goldStardustTint = new THREE.Color('#ffd966');
 
   private tunnelBlend = 0;
   private giftsDelivered = 0;
@@ -277,10 +496,10 @@ export class DriveFestivities {
     this.effects.add(this.sky.group, this.events.group);
     scene.add(this.effects);
 
-    // 6-slot glossy wrapped Gift Cannon Pool
+    // 12-slot glossy wrapped Gift Cannon Pool (supports rapid Klappregn bursts)
     const giftColors = ['#e01b3a', '#188a50', '#2b67d6'];
     const ribMat = new THREE.MeshStandardMaterial({ color: '#ffd166', metalness: 0.65, roughness: 0.24 });
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 12; i++) {
       const gg = new THREE.Group();
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(0.64, 0.64, 0.64),
@@ -302,7 +521,7 @@ export class DriveFestivities {
     }
 
     const softGlowTex = getSoftGlowTexture();
-    // 4-slot Ice Snowball Pool
+    // 9-slot Ice Snowball Pool (supports Mega-snöboll 3-volley spreads)
     const snowGeo = new THREE.SphereGeometry(0.36, 10, 10);
     const snowMat = new THREE.MeshPhysicalMaterial({
       color: '#e8f6ff',
@@ -311,7 +530,7 @@ export class DriveFestivities {
       emissive: '#386496',
       emissiveIntensity: 0.35,
     });
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 9; i++) {
       const sb = new THREE.Mesh(snowGeo, snowMat);
       sb.visible = false;
       scene.add(sb);
@@ -732,7 +951,7 @@ export class DriveFestivities {
     return this.comboCount;
   }
 
-  getScoreSummary(): { gifts: number; stars: number; critters: number; snowballs: number; combo: number; hoHoBanner: boolean } {
+  getScoreSummary(): { gifts: number; stars: number; critters: number; snowballs: number; combo: number; hoHoBanner: boolean; points: number } {
     return {
       gifts: this.giftsDelivered,
       stars: this.starsCaught,
@@ -740,6 +959,266 @@ export class DriveFestivities {
       snowballs: this.snowballsLanded,
       combo: this.comboCount,
       hoHoBanner: this.time < this.hoHoBannerUntil,
+      points: this.magicState.points,
+    };
+  }
+
+  private saveMagicState(): void {
+    try {
+      localStorage.setItem(MAGIC_STORAGE_KEY, JSON.stringify(this.magicState));
+    } catch {
+      // Ignore storage quota or private-mode failures
+    }
+  }
+
+  private notifyCosmetics(): void {
+    const eq = { ...this.magicState.equipped };
+    for (const listener of this.cosmeticListeners) {
+      listener(eq);
+    }
+  }
+
+  onCosmeticsChange(listener: (equipped: JulmagiState['equipped']) => void): () => void {
+    this.cosmeticListeners.add(listener);
+    return () => {
+      this.cosmeticListeners.delete(listener);
+    };
+  }
+
+  getMagicState(): JulmagiState {
+    return {
+      points: this.magicState.points,
+      combo: this.magicState.combo,
+      unlocked: { ...this.magicState.unlocked },
+      equipped: { ...this.magicState.equipped },
+    };
+  }
+
+  getSuperAuroraIntensity(): number {
+    return this.powerTimers.superAurora > 0 ? Math.min(1, this.powerTimers.superAurora / 1.5) : 0;
+  }
+
+  getActivePowers(): ActivePowerInfo[] {
+    const out: ActivePowerInfo[] = [];
+    for (const spec of MAGIC_POWERS) {
+      const rem = this.powerTimers[spec.id];
+      if (rem > 0) {
+        out.push({
+          id: spec.id,
+          label: spec.label,
+          icon: spec.icon,
+          remainingSec: rem,
+          durationSec: spec.durationSec,
+        });
+      }
+    }
+    return out;
+  }
+
+  canAffordAnyMagic(): boolean {
+    const pts = this.magicState.points;
+    for (const p of MAGIC_POWERS) {
+      if (pts >= p.cost) return true;
+    }
+    for (const u of MAGIC_UNLOCKS) {
+      if (!this.magicState.unlocked[u.id] && pts >= u.cost) return true;
+    }
+    return false;
+  }
+
+  getUnlockStatusLabel(id: MagicUnlockId): { label: string; isOff: boolean } {
+    const u = this.magicState.unlocked;
+    const eq = this.magicState.equipped;
+    if (!u[id]) {
+      const spec = MAGIC_UNLOCKS.find(item => item.id === id)!;
+      return { label: `${spec.cost} p`, isOff: false };
+    }
+    if (id === 'magicTrail') {
+      return { label: `${TRAIL_LABELS[eq.trailStyle]} ↻`, isOff: eq.trailStyle === 'classic' };
+    }
+    if (id === 'megaSnowball') {
+      return eq.megaSnowball ? { label: 'På ✓', isOff: false } : { label: 'Av', isOff: true };
+    }
+    if (id === 'companionOwl') {
+      return eq.companionOwl ? { label: 'På ✓', isOff: false } : { label: 'Av', isOff: true };
+    }
+    const mode = ROYAL_SLEIGH_MODES.find(
+      m => m.goldenSleigh === eq.goldenSleigh && m.cyberReindeer === eq.cyberReindeer
+    ) ?? ROYAL_SLEIGH_MODES[3];
+    return {
+      label: `${mode.label} ↻`,
+      isOff: !eq.goldenSleigh && !eq.cyberReindeer,
+    };
+  }
+
+  private awardPoints(amount: number): void {
+    if (amount <= 0) return;
+    this.magicState.points += amount;
+    this.saveMagicState();
+  }
+
+  private awardTapPoints(basePoints: number): { earned: number; combo: number } {
+    const nextCombo = this.comboTimer > 0 ? Math.min(4, this.magicState.combo + 1) : 1;
+    this.magicState.combo = nextCombo;
+    this.comboCount = nextCombo;
+    this.comboTimer = 4.5;
+    const earned = basePoints * nextCombo;
+    this.magicState.points += earned;
+    this.saveMagicState();
+    return { earned, combo: nextCombo };
+  }
+
+  activatePower(id: MagicPowerId): boolean {
+    const spec = MAGIC_POWERS.find(p => p.id === id);
+    if (!spec) return false;
+    if (this.magicState.points < spec.cost) {
+      this.announce(`✨ Behöver ${spec.cost} Julmagi (du har ${this.magicState.points} p)`, 3.4);
+      return false;
+    }
+
+    this.magicState.points -= spec.cost;
+    this.saveMagicState();
+    this.powerTimers[id] = spec.durationSec;
+    this.sleighAlert = 1.0;
+    this.audio.playPowerActivate();
+
+    if (id === 'giftRain') {
+      this.giftRainCooldown = 0.05;
+      this.sleigh.triggerReaction('gift');
+      this.spawnRingBurst(['#ff3b5c', '#ffd866', '#46e891'], 1.05);
+      this.announce(`🎁 Klappregn aktiverat! (${spec.durationSec}s)`, 4.5);
+    } else if (id === 'superAurora') {
+      this.superAuroraPulseTimer = 3.2;
+      this.sleigh.triggerReaction('landmark');
+      this.sky.triggerCelebrationFireworks(6.5, this.time);
+      this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
+      this.spawnRingBurst(['#56f5b8', '#ffe37a', '#6ff0ff'], 1.18);
+      this.announce(`🌌 Super-Norrsken aktiverat! (${spec.durationSec}s)`, 4.5);
+    } else if (id === 'escortConvoy') {
+      this.convoyTime = Math.max(this.convoyTime, spec.durationSec);
+      for (const entry of this.convoy) {
+        if (!entry.active) entry.aheadMeters = entry.baseOffset;
+      }
+      this.plowCooldown = 0;
+      this.sleigh.triggerReaction('hohoho');
+      this.audio.playConvoyHorn();
+      this.announce(`🚛 Semi-konvoj & Plog kallad in! (${spec.durationSec}s)`, 4.8);
+    } else if (id === 'grandFinale') {
+      this.lightShowTimer = Math.max(this.lightShowTimer, spec.durationSec);
+      this.hornFlashTimer = Math.max(this.hornFlashTimer, spec.durationSec);
+      this.grandFinaleWaveTimer = 2.0;
+      this.sleigh.triggerReaction('hohoho');
+      this.sky.triggerCelebrationFireworks(spec.durationSec, this.time);
+      this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
+      this.audio.playLightWaveChime();
+      this.spawnRingBurst(['#ffd866', '#ff2e55', '#56f5b8', '#6ff0ff'], 1.25);
+      this.announce(`🎆 Fyrverkerifinal & Ljusshow! (${spec.durationSec}s)`, 5.0);
+    }
+    return true;
+  }
+
+  activateOrCycleUnlock(id: MagicUnlockId): boolean {
+    const spec = MAGIC_UNLOCKS.find(u => u.id === id);
+    if (!spec) return false;
+
+    if (!this.magicState.unlocked[id]) {
+      if (this.magicState.points < spec.cost) {
+        this.announce(`✨ Behöver ${spec.cost} Julmagi för ${spec.label} (du har ${this.magicState.points} p)`, 3.6);
+        return false;
+      }
+      this.magicState.points -= spec.cost;
+      this.magicState.unlocked[id] = true;
+      if (id === 'magicTrail') {
+        this.magicState.equipped.trailStyle = 'aurora';
+      } else if (id === 'megaSnowball') {
+        this.magicState.equipped.megaSnowball = true;
+      } else if (id === 'royalSleigh') {
+        this.magicState.equipped.goldenSleigh = true;
+        this.magicState.equipped.cyberReindeer = true;
+      } else if (id === 'companionOwl') {
+        this.magicState.equipped.companionOwl = true;
+      }
+      this.saveMagicState();
+      this.notifyCosmetics();
+      this.audio.playPowerActivate();
+      this.sleigh.triggerReaction('hohoho');
+      this.spawnRingBurst(['#ffe37a', '#56f5b8', '#6ff0ff'], 1.1);
+      this.announce(`${spec.icon} ${spec.label} upplåst & aktiverad!`, 4.4);
+      return true;
+    }
+
+    if (id === 'magicTrail') {
+      const idx = TRAIL_CYCLE.indexOf(this.magicState.equipped.trailStyle);
+      const next = TRAIL_CYCLE[(idx + 1) % TRAIL_CYCLE.length];
+      this.magicState.equipped.trailStyle = next;
+      this.announce(`🌈 Magispår: ${TRAIL_LABELS[next]}`, 3.2);
+    } else if (id === 'megaSnowball') {
+      const next = !this.magicState.equipped.megaSnowball;
+      this.magicState.equipped.megaSnowball = next;
+      this.announce(`❄️ Mega-snöboll: ${next ? 'PÅ (3-salva!)' : 'AV'}`, 3.2);
+    } else if (id === 'royalSleigh') {
+      const curIdx = ROYAL_SLEIGH_MODES.findIndex(
+        m =>
+          m.goldenSleigh === this.magicState.equipped.goldenSleigh &&
+          m.cyberReindeer === this.magicState.equipped.cyberReindeer
+      );
+      const next = ROYAL_SLEIGH_MODES[(curIdx + 1 + ROYAL_SLEIGH_MODES.length) % ROYAL_SLEIGH_MODES.length];
+      this.magicState.equipped.goldenSleigh = next.goldenSleigh;
+      this.magicState.equipped.cyberReindeer = next.cyberReindeer;
+      this.announce(`👑 Släde: ${next.label}`, 3.2);
+    } else if (id === 'companionOwl') {
+      const next = !this.magicState.equipped.companionOwl;
+      this.magicState.equipped.companionOwl = next;
+      this.announce(`🦉 Följe-uggla: ${next ? 'PÅ' : 'AV'}`, 3.2);
+    }
+    this.saveMagicState();
+    this.notifyCosmetics();
+    this.audio.playComboChime(2);
+    return true;
+  }
+
+  /**
+   * Computes a safe negative (left / oncoming) lateral offset from road centerline so Semis and
+   * snowplows stay cleanly in the opposite/adjacent lane even on narrow residential streets.
+   */
+  private oncomingLaneOffset(streetWidthM: number, extraClearance = 0): number {
+    if (streetWidthM >= 5.2) {
+      return -(Math.max(2.75, Math.min(3.45, streetWidthM * 0.34)) + extraClearance);
+    }
+    return -(Math.max(3.55, streetWidthM * 0.5 + 1.15) + extraClearance);
+  }
+
+  /**
+   * Fail-safe player-lane exclusion guard: ensures oncoming convoy Semis and plows never drift
+   * into or clip straight through the player's lane on curves, street ends, or narrow roads.
+   */
+  private enforcePlayerLaneClearance(
+    wx: number,
+    wz: number,
+    minLateralM: number,
+    center: THREE.Vector3,
+    heading: number
+  ): { x: number; z: number } {
+    const fwdX = Math.sin(heading);
+    const fwdZ = -Math.cos(heading);
+    const rightX = Math.cos(heading);
+    const rightZ = Math.sin(heading);
+    const dx = wx - center.x;
+    const dz = wz - center.z;
+    const fwd = dx * fwdX + dz * fwdZ;
+    if (fwd <= -30 || fwd >= 68) return { x: wx, z: wz };
+
+    const lat = dx * rightX + dz * rightZ;
+    const desiredLat = -minLateralM;
+    if (lat <= desiredLat) return { x: wx, z: wz };
+
+    const envAhead = 1 - THREE.MathUtils.smoothstep(fwd, 42, 68);
+    const envBehind = THREE.MathUtils.smoothstep(fwd, -30, -16);
+    const env = envAhead * envBehind;
+    const shiftLat = (desiredLat - lat) * env;
+    return {
+      x: wx + rightX * shiftLat,
+      z: wz + rightZ * shiftLat,
     };
   }
 
@@ -858,24 +1337,26 @@ export class DriveFestivities {
   triggerSnowball(normX = 0.5): void {
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('gift');
-    const slot = this.snowballPool.find(s => !s.active) ?? this.snowballPool[0];
-    if (!slot) return;
 
     const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
     const preferSide: -1 | 1 = normX < 0.5 ? -1 : 1;
-    slot.active = true;
-    slot.t = 0;
-    slot.start.set(
-      this.lastCenter.x,
-      this.lastCenter.y + 1.8 + (this.sleigh.group.visible ? this.sleigh.group.position.y : 0.6),
-      this.lastCenter.z
-    );
+    const mega = this.magicState.unlocked.megaSnowball && this.magicState.equipped.megaSnowball;
+    const startX = this.lastCenter.x;
+    const startY = this.lastCenter.y + 1.8 + (this.sleigh.group.visible ? this.sleigh.group.position.y : 0.6);
+    const startZ = this.lastCenter.z;
 
     const targets = this.livingWorld.getInteractiveTargets(this.lastCenter, this.lastHeading);
     const hitTarget = targets.find(t => t.kind === 'snowman') ?? targets[0];
+    let baseEndX: number;
+    let baseEndY: number;
+    let baseEndZ: number;
+    let baseOnLand: (() => void) | undefined;
+
     if (hitTarget) {
-      slot.end.set(hitTarget.x, hitTarget.y, hitTarget.z);
-      slot.onLand = () => {
+      baseEndX = hitTarget.x;
+      baseEndY = hitTarget.y;
+      baseEndZ = hitTarget.z;
+      baseOnLand = () => {
         hitTarget.lightUp();
         this.livingWorld.celebrateCritterNear(hitTarget.x, hitTarget.z, 18);
       };
@@ -883,20 +1364,68 @@ export class DriveFestivities {
       const critters = this.livingWorld.getTappableCritters(this.lastCenter);
       const aheadCritter = critters.find(c => (c.x - this.lastCenter.x) * east - (c.z - this.lastCenter.z) * north > 6);
       if (aheadCritter) {
-        slot.end.set(aheadCritter.x, aheadCritter.y, aheadCritter.z);
-        slot.onLand = aheadCritter.onTap;
+        baseEndX = aheadCritter.x;
+        baseEndY = aheadCritter.y;
+        baseEndZ = aheadCritter.z;
+        baseOnLand = aheadCritter.onTap;
       } else {
-        const tx = this.lastCenter.x + east * 26 + north * preferSide * 7.5;
-        const tz = this.lastCenter.z - north * 26 + east * preferSide * 7.5;
-        const gy = this.map.mapData.elevation?.(tx, tz) ?? this.lastCenter.y;
-        slot.end.set(tx, gy + 0.8, tz);
-        slot.onLand = () => {
-          this.livingWorld.celebrateCritterNear(tx, tz, 16);
+        baseEndX = this.lastCenter.x + east * 26 + north * preferSide * 7.5;
+        baseEndZ = this.lastCenter.z - north * 26 + east * preferSide * 7.5;
+        const gy = this.map.mapData.elevation?.(baseEndX, baseEndZ) ?? this.lastCenter.y;
+        baseEndY = gy + 0.8;
+        baseOnLand = () => {
+          this.livingWorld.celebrateCritterNear(baseEndX, baseEndZ, 16);
         };
       }
     }
-    slot.mesh.position.copy(slot.start);
-    slot.mesh.visible = true;
+
+    const volley = mega
+      ? [
+          { latSpread: -5.2, fwdSpread: -2.5, speedScale: 1.06, silentToast: true },
+          { latSpread: 0, fwdSpread: 0, speedScale: 1.15, silentToast: false },
+          { latSpread: 5.2, fwdSpread: 2.5, speedScale: 1.24, silentToast: true },
+        ]
+      : [{ latSpread: 0, fwdSpread: 0, speedScale: 1.15, silentToast: false }];
+
+    for (let i = 0; i < volley.length; i++) {
+      const v = volley[i];
+      const slot = this.snowballPool.find(s => !s.active) ?? this.snowballPool[i % this.snowballPool.length];
+      if (!slot) continue;
+      const ex = baseEndX + north * v.latSpread + east * v.fwdSpread;
+      const ez = baseEndZ + east * v.latSpread - north * v.fwdSpread;
+      const ey = i === (mega ? 1 : 0) ? baseEndY : (this.map.mapData.elevation?.(ex, ez) ?? baseEndY) + 0.7;
+
+      slot.active = true;
+      slot.t = 0;
+      slot.isMega = mega;
+      slot.speedScale = v.speedScale;
+      slot.silentToast = v.silentToast;
+      slot.start.set(startX, startY, startZ);
+      slot.end.set(ex, ey, ez);
+      slot.onLand = i === (mega ? 1 : 0)
+        ? baseOnLand
+        : () => {
+            this.livingWorld.celebrateCritterNear(ex, ez, 16);
+          };
+      slot.mesh.scale.setScalar(mega ? 1.42 : 1.0);
+      slot.mesh.position.copy(slot.start);
+      slot.mesh.visible = true;
+    }
+
+    if (mega) {
+      this.activateRing(
+        '#a8ecff',
+        startX + east * 4.2,
+        startY,
+        startZ - north * 4.2,
+        -this.lastHeading,
+        1.15,
+        0,
+        east * 10,
+        0.2,
+        -north * 10
+      );
+    }
     this.audio.playGiftLaunch();
   }
 
@@ -923,32 +1452,38 @@ export class DriveFestivities {
     star.respawnTimer = 6.5;
     star.mesh.visible = false;
     this.starsCaught += 1;
-    this.comboCount = Math.min(9, this.comboCount + 1);
-    this.comboTimer = 5.0;
+    const { earned, combo } = this.awardTapPoints(25);
     this.spawnChimneySparks(star.mesh.position.x, star.mesh.position.y, star.mesh.position.z);
-    this.audio.playComboFanfare(this.comboCount + 1);
-    this.announce(`⭐ Önskestjärna fångad! (${this.starsCaught} st)`, 3.6);
+    this.audio.playComboChime(combo);
+    const toast =
+      combo >= 2
+        ? `⭐ +${earned} Julmagi (x${combo} COMBO!)`
+        : `⭐ +${earned} Julmagi · Önskestjärna!`;
+    this.announce(toast, 3.8);
     this.checkMilestoneFireworks();
   }
 
   recordCritterTap(kind: 'rudolf' | 'reindeer' | 'elf', x: number, y: number, z: number): void {
     this.crittersTapped += 1;
-    this.comboCount = Math.min(9, this.comboCount + 1);
-    this.comboTimer = 5.0;
+    const basePts = kind === 'elf' ? 15 : 20;
+    const { earned, combo } = this.awardTapPoints(basePts);
     this.spawnChimneySparks(x, y + 0.8, z);
-    this.audio.playSparkleChime();
+    this.audio.playComboChime(combo);
+    const comboSuffix = combo >= 2 ? ` (x${combo} COMBO!)` : '';
     const msg =
       kind === 'rudolf'
-        ? '🔴 Du hälsade på Rudolf!'
+        ? `🔴 +${earned} Julmagi · Rudolf!${comboSuffix}`
         : kind === 'reindeer'
-          ? '🦌 Renen hoppar av glädje!'
-          : '🧝 Julelven vinkar God Jul!';
-    this.announce(msg, 3.4);
+          ? `🦌 +${earned} Julmagi · Ren!${comboSuffix}`
+          : `🧝 +${earned} Julmagi · Julelv!${comboSuffix}`;
+    this.announce(msg, 3.6);
     this.checkMilestoneFireworks();
   }
 
   getLightShowIntensity(): number {
-    return this.lightShowTimer > 0 ? Math.min(1, this.lightShowTimer / 1.2) : 0;
+    const base = this.lightShowTimer > 0 ? Math.min(1, this.lightShowTimer / 1.2) : 0;
+    const finale = this.powerTimers.grandFinale > 0 ? Math.min(1, this.powerTimers.grandFinale / 1.5) : 0;
+    return Math.max(base, finale);
   }
 
   requestLightWave(): void {
@@ -963,74 +1498,97 @@ export class DriveFestivities {
     this.announce('✨ Tesla Jul-Ljusshow!', 4.8);
   }
 
+  private launchGift(preferSide: -1 | 1, fromPower: boolean): boolean {
+    const slot = this.giftPool.find(g => !g.active) ?? (fromPower ? undefined : this.giftPool[0]);
+    if (!slot) return false;
+
+    const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
+    slot.active = true;
+    slot.t = 0;
+    slot.fromPower = fromPower;
+    slot.awardsPoints = false;
+    slot.targetBuildingId = undefined;
+    slot.start.set(
+      this.lastCenter.x,
+      this.lastCenter.y + 1.8 + (this.sleigh.group.visible ? this.sleigh.group.position.y : 0.6),
+      this.lastCenter.z
+    );
+
+    const livingTargets = fromPower ? [] : this.livingWorld.getInteractiveTargets(this.lastCenter, this.lastHeading);
+    const treeTarget = livingTargets.find(t => t.kind === 'town_tree');
+    const snowTarget = livingTargets.find(t => t.kind === 'snowman');
+    const livingChoice = treeTarget ?? snowTarget;
+
+    if (livingChoice) {
+      slot.end.set(livingChoice.x, livingChoice.y, livingChoice.z);
+      slot.bonusGifts = livingChoice.bonusGifts;
+      slot.bonusKind = livingChoice.kind;
+      slot.awardsPoints = true;
+      slot.onLand = livingChoice.lightUp;
+    } else {
+      let buildingTargets = this.map.getGiftTargets(this.lastCenter, this.lastHeading, preferSide);
+      if (buildingTargets.length === 0 && fromPower) {
+        buildingTargets = this.map.getGiftTargets(this.lastCenter, this.lastHeading, preferSide === 1 ? -1 : 1);
+      }
+      const inFlightIds = fromPower
+        ? new Set(this.giftPool.filter(g => g.active && g.targetBuildingId).map(g => g.targetBuildingId!))
+        : undefined;
+      const target =
+        (inFlightIds ? buildingTargets.find(b => !inFlightIds.has(b.id)) : undefined) ?? buildingTargets[0];
+      if (target) {
+        slot.end.set(target.x, target.roofY, target.z);
+        slot.bonusGifts = 0;
+        slot.bonusKind = undefined;
+        slot.awardsPoints = !fromPower;
+        slot.targetBuildingId = target.id;
+        slot.onLand = () => {
+          this.map.celebrateBuilding(target.id, target.x, target.roofY, target.z);
+        };
+      } else {
+        const streetPt = this.matchedStreet && pointAlongStreet(this.matchedStreet, this.lastCenter, this.lastHeading, 32);
+        const groundY = this.map.mapData.elevation;
+        if (streetPt) {
+          const lat = (this.matchedStreet!.widthM * 0.5 + 5.5) * preferSide;
+          const tx = streetPt.x + Math.cos(streetPt.heading) * lat;
+          const tz = streetPt.z + Math.sin(streetPt.heading) * lat;
+          slot.end.set(tx, (groundY?.(tx, tz) ?? 0) + 0.6, tz);
+        } else {
+          const tx = this.lastCenter.x + east * 28 + north * preferSide * 10;
+          const tz = this.lastCenter.z - north * 28 + east * preferSide * 10;
+          slot.end.set(tx, (groundY?.(tx, tz) ?? this.lastCenter.y) + 0.6, tz);
+        }
+        slot.bonusGifts = 0;
+        slot.bonusKind = undefined;
+        slot.awardsPoints = false;
+        slot.onLand = undefined;
+      }
+    }
+    slot.mesh.position.copy(slot.start);
+    slot.mesh.visible = true;
+    this.audio.playGiftLaunch();
+    return true;
+  }
+
   interact(normX = 0.5, _normY = 0.45): void {
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('gift');
 
     if (this.sky.tryCatchShootingStar()) {
       this.giftsDelivered += 3;
-      this.comboCount = Math.min(9, Math.max(1, this.comboCount + 1));
-      this.comboTimer = 4.5;
-      this.audio.playComboFanfare(this.comboCount + 1);
-      this.announce(i18n.t().wishStarToast, 4.2);
+      const { earned, combo } = this.awardTapPoints(25);
+      this.audio.playComboChime(combo);
+      const starMsg =
+        combo >= 2
+          ? `🌠 +${earned} Julmagi (x${combo} COMBO!)`
+          : `🌠 +${earned} Julmagi · ${i18n.t().wishStarToast}`;
+      this.announce(starMsg, 4.2);
     }
 
     const east = Math.sin(this.lastHeading), north = Math.cos(this.lastHeading);
     const preferSide: -1 | 1 = normX < 0.5 ? -1 : 1;
 
-    // 1. Launch 3D parabolic gift projectile from 6-slot pool
-    const slot = this.giftPool.find(g => !g.active) ?? this.giftPool[0];
-    if (slot) {
-      slot.active = true;
-      slot.t = 0;
-      slot.start.set(
-        this.lastCenter.x,
-        this.lastCenter.y + 1.8 + (this.sleigh.group.visible ? this.sleigh.group.position.y : 0.6),
-        this.lastCenter.z
-      );
-
-      const livingTargets = this.livingWorld.getInteractiveTargets(this.lastCenter, this.lastHeading);
-      const treeTarget = livingTargets.find(t => t.kind === 'town_tree');
-      const snowTarget = livingTargets.find(t => t.kind === 'snowman');
-      const livingChoice = treeTarget ?? snowTarget;
-
-      if (livingChoice) {
-        slot.end.set(livingChoice.x, livingChoice.y, livingChoice.z);
-        slot.bonusGifts = livingChoice.bonusGifts;
-        slot.bonusKind = livingChoice.kind;
-        slot.onLand = livingChoice.lightUp;
-      } else {
-        const buildingTargets = this.map.getGiftTargets(this.lastCenter, this.lastHeading, preferSide);
-        const target = buildingTargets[0];
-        if (target) {
-          slot.end.set(target.x, target.roofY, target.z);
-          slot.bonusGifts = 0;
-          slot.bonusKind = undefined;
-          slot.onLand = () => {
-            this.map.celebrateBuilding(target.id, target.x, target.roofY, target.z);
-          };
-        } else {
-          const streetPt = this.matchedStreet && pointAlongStreet(this.matchedStreet, this.lastCenter, this.lastHeading, 32);
-          const groundY = this.map.mapData.elevation;
-          if (streetPt) {
-            const lat = (this.matchedStreet!.widthM * 0.5 + 5.5) * preferSide;
-            const tx = streetPt.x + Math.cos(streetPt.heading) * lat;
-            const tz = streetPt.z + Math.sin(streetPt.heading) * lat;
-            slot.end.set(tx, (groundY?.(tx, tz) ?? 0) + 0.6, tz);
-          } else {
-            const tx = this.lastCenter.x + east * 28 + north * preferSide * 10;
-            const tz = this.lastCenter.z - north * 28 + east * preferSide * 10;
-            slot.end.set(tx, (groundY?.(tx, tz) ?? this.lastCenter.y) + 0.6, tz);
-          }
-          slot.bonusGifts = 0;
-          slot.bonusKind = undefined;
-          slot.onLand = undefined;
-        }
-      }
-      slot.mesh.position.copy(slot.start);
-      slot.mesh.visible = true;
-      this.audio.playGiftLaunch();
-    }
+    // 1. Launch 3D parabolic gift projectile from 12-slot pool
+    this.launchGift(preferSide, false);
 
     // 2. Pooled Expanding Star Ring ahead of sleigh
     this.activateRing(
@@ -1092,11 +1650,58 @@ export class DriveFestivities {
 
     if (this.comboTimer > 0) {
       this.comboTimer -= dt;
-      if (this.comboTimer <= 0) this.comboCount = 0;
+      if (this.comboTimer <= 0) {
+        this.comboCount = 0;
+        if (this.magicState.combo !== 1) {
+          this.magicState.combo = 1;
+          this.saveMagicState();
+        }
+      }
     }
     if (this.statusUntil && time > this.statusUntil) {
       this.statusText = '';
       this.statusUntil = 0;
+    }
+
+    // Active Julmagi Instant Power timers & choreographed spectacles
+    for (const key of ['giftRain', 'superAurora', 'escortConvoy', 'grandFinale'] as const) {
+      if (this.powerTimers[key] > 0) {
+        this.powerTimers[key] = Math.max(0, this.powerTimers[key] - dt);
+      }
+    }
+    if (this.powerTimers.giftRain > 0 && hasActiveWorld) {
+      this.giftRainCooldown -= dt;
+      if (this.giftRainCooldown <= 0) {
+        this.giftRainCooldown = 0.45;
+        this.giftRainSide = this.giftRainSide === 1 ? -1 : 1;
+        this.launchGift(this.giftRainSide, true);
+      }
+    }
+    const superAurora = this.getSuperAuroraIntensity();
+    this.burstMat.uniforms.uCoolTint.value.copy(this.defaultBurstTint).lerp(this.goldStardustTint, superAurora);
+    this.chimneyMat.uniforms.uCoolTint.value.copy(this.defaultChimneyTint).lerp(this.goldStardustTint, superAurora);
+    if (this.powerTimers.superAurora > 0 && hasActiveWorld) {
+      this.superAuroraPulseTimer -= dt;
+      if (this.superAuroraPulseTimer <= 0) {
+        this.superAuroraPulseTimer = 3.6;
+        this.sky.triggerCelebrationFireworks(3.8, time);
+        this.spawnRingBurst(['#56f5b8', '#ffe278'], 1.12);
+      }
+    }
+    if (this.powerTimers.grandFinale > 0 && hasActiveWorld) {
+      this.lightShowTimer = Math.max(this.lightShowTimer, 1.5);
+      this.hornFlashTimer = Math.max(this.hornFlashTimer, 1.5);
+      this.grandFinaleWaveTimer -= dt;
+      if (this.grandFinaleWaveTimer <= 0) {
+        this.grandFinaleWaveTimer = 2.2;
+        this.sky.triggerCelebrationFireworks(4.5, time);
+        this.map.villageLights.startWave(time, center, heading);
+        const palettes = [
+          ['#ffd866', '#ff2e55', '#56f5b8'],
+          ['#6ff0ff', '#ffe278', '#ff477e'],
+        ];
+        this.spawnRingBurst(palettes[Math.floor(time) % palettes.length], 1.2);
+      }
     }
 
     if (hasActiveWorld) {
@@ -1255,9 +1860,15 @@ export class DriveFestivities {
       roadPointAt: this.eventRoadPointAt,
     });
 
-    // Coca-Cola & Tesla Convoy on Real Mapped Lanes (never snaps invisible in view; drives smoothly behind camera)
+    // Coca-Cola & Tesla Convoy on Real Mapped Lanes (cleanly offset in oncoming lane; never clips player!)
     const eastCar = Math.sin(heading);
     const northCar = Math.cos(heading);
+    const rightCarX = northCar;
+    const rightCarZ = eastCar;
+    const escortActive = this.powerTimers.escortConvoy > 0;
+    if (escortActive) {
+      this.convoyTime = Math.max(this.convoyTime, this.powerTimers.escortConvoy);
+    }
     this.convoyTime = Math.max(0, this.convoyTime - dt);
     this.convoyPositions.length = 0;
     const beat = this.audio.getBeatEnergy();
@@ -1266,26 +1877,36 @@ export class DriveFestivities {
     for (let index = 0; index < this.convoy.length; index++) {
       const entry = this.convoy[index];
       if (!entry.active) {
-        if (this.convoyTime <= 0 || !street) {
+        if (this.convoyTime <= 0 || (!street && !escortActive)) {
           entry.handle.group.visible = false;
           continue;
         }
         entry.aheadMeters -= 15 * dt;
-        const spawnSlot = entry.aheadMeters > 20 && pointAlongStreet(street, center, heading, entry.aheadMeters);
-        if (!spawnSlot) {
+        const spawnSlot = street && entry.aheadMeters > 20 && pointAlongStreet(street, center, heading, entry.aheadMeters);
+        if (spawnSlot && street) {
+          const laneOffset = this.oncomingLaneOffset(street.widthM, 0.35);
+          entry.worldX = spawnSlot.x + Math.cos(spawnSlot.heading) * laneOffset;
+          entry.worldZ = spawnSlot.z + Math.sin(spawnSlot.heading) * laneOffset;
+          entry.heading = spawnSlot.heading + Math.PI;
+          entry.active = true;
+        } else if (escortActive && hasActiveWorld && entry.aheadMeters > 24) {
+          const fallbackAhead = Math.max(46, Math.min(115, entry.aheadMeters));
+          entry.worldX = center.x + eastCar * fallbackAhead - rightCarX * 4.0;
+          entry.worldZ = center.z - northCar * fallbackAhead - rightCarZ * 4.0;
+          entry.heading = heading + Math.PI;
+          entry.active = true;
+        } else {
+          if (escortActive && entry.aheadMeters <= 24) {
+            entry.aheadMeters = entry.baseOffset;
+          }
           entry.handle.group.visible = false;
           continue;
         }
-        const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
-        entry.worldX = spawnSlot.x + Math.cos(spawnSlot.heading) * laneOffset;
-        entry.worldZ = spawnSlot.z + Math.sin(spawnSlot.heading) * laneOffset;
-        entry.heading = spawnSlot.heading + Math.PI;
-        entry.active = true;
       } else {
         entry.aheadMeters -= 15 * dt;
         const candSlot = street && pointAlongStreet(street, center, heading, entry.aheadMeters);
         if (candSlot && street) {
-          const laneOffset = -Math.max(2.15, Math.min(2.6, street.widthM * 0.34));
+          const laneOffset = this.oncomingLaneOffset(street.widthM, 0.35);
           const cx = candSlot.x + Math.cos(candSlot.heading) * laneOffset;
           const cz = candSlot.z + Math.sin(candSlot.heading) * laneOffset;
           if (Math.hypot(cx - entry.worldX, cz - entry.worldZ) < 9.5) {
@@ -1303,26 +1924,28 @@ export class DriveFestivities {
         }
       }
 
-      const dx = entry.worldX - center.x;
-      const dz = entry.worldZ - center.z;
+      const safeConvoy = this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 3.8, center, heading);
+      const dx = safeConvoy.x - center.x;
+      const dz = safeConvoy.z - center.z;
       const ahead = dx * eastCar - dz * northCar;
       const dist = Math.hypot(dx, dz);
       if (ahead < -44 || dist > 230) {
         entry.active = false;
+        entry.aheadMeters = entry.baseOffset;
         entry.handle.group.visible = false;
         continue;
       }
 
-      const ty = groundAt(entry.worldX, entry.worldZ) + 0.05;
+      const ty = groundAt(safeConvoy.x, safeConvoy.z) + 0.05;
       entry.handle.group.visible = true;
-      entry.handle.group.position.set(entry.worldX, ty, entry.worldZ);
+      entry.handle.group.position.set(safeConvoy.x, ty, safeConvoy.z);
       entry.handle.group.scale.setScalar(0.76);
       entry.handle.group.rotation.y = -entry.heading;
       entry.handle.update(dt, time * Math.max(18, frame.speedKmh) * 0.1 + index, false, lightShowBoost, time, hornPulse);
       const pooledPos = this.convoyPosPool[index];
-      pooledPos.x = entry.worldX;
+      pooledPos.x = safeConvoy.x;
       pooledPos.y = ty;
-      pooledPos.z = entry.worldZ;
+      pooledPos.z = safeConvoy.z;
       pooledPos.heading = entry.heading;
       this.convoyPositions.push(pooledPos);
     }
@@ -1351,21 +1974,31 @@ export class DriveFestivities {
       this.redLightOptimus.group.visible = false;
     }
 
-    // Red-Light Cybertruck Snowplow: world-space continuous drive-past (never vanishes mid-screen!)
-    if (this.stoppedSec > 3.8 && !this.plowActive && this.plowCooldown <= 0 && street) {
-      const startD = [112, 88, 64, 48].find(d => pointAlongStreet(street, center, heading, d));
-      if (startD !== undefined) {
+    // Red-Light / Escort Cybertruck Snowplow: world-space continuous oncoming-lane drive-past
+    const wantPlow = (this.stoppedSec > 3.8 || escortActive) && !this.plowActive && this.plowCooldown <= 0 && hasActiveWorld;
+    if (wantPlow) {
+      const startD = street ? [112, 88, 64, 48].find(d => pointAlongStreet(street, center, heading, d)) : undefined;
+      if (street && startD !== undefined) {
         const spawnSpot = pointAlongStreet(street, center, heading, startD);
         if (spawnSpot) {
-          const lane = -Math.min(2.05, street.widthM * 0.27);
+          const lane = this.oncomingLaneOffset(street.widthM, 0.2);
           this.plowWorldX = spawnSpot.x + Math.cos(spawnSpot.heading) * lane;
           this.plowWorldZ = spawnSpot.z + Math.sin(spawnSpot.heading) * lane;
           this.plowHeading = spawnSpot.heading + Math.PI;
           this.plowHasPose = true;
           this.plowActive = true;
           this.plowProgress = startD;
-          this.plowCooldown = 16;
+          this.plowCooldown = escortActive ? 8 : 16;
         }
+      } else if (escortActive) {
+        const fallbackAhead = 76;
+        this.plowWorldX = center.x + eastCar * fallbackAhead - rightCarX * 3.8;
+        this.plowWorldZ = center.z - northCar * fallbackAhead - rightCarZ * 3.8;
+        this.plowHeading = heading + Math.PI;
+        this.plowHasPose = true;
+        this.plowActive = true;
+        this.plowProgress = fallbackAhead;
+        this.plowCooldown = 8;
       }
     }
     if (this.plowActive && this.plowHasPose) {
@@ -1373,7 +2006,7 @@ export class DriveFestivities {
       const plowSpot = street && pointAlongStreet(street, center, heading, this.plowProgress);
       let followedStreet = false;
       if (plowSpot && street) {
-        const lane = -Math.min(2.05, street.widthM * 0.27);
+        const lane = this.oncomingLaneOffset(street.widthM, 0.2);
         const cx = plowSpot.x + Math.cos(plowSpot.heading) * lane;
         const cz = plowSpot.z + Math.sin(plowSpot.heading) * lane;
         if (Math.hypot(cx - this.plowWorldX, cz - this.plowWorldZ) < 8.5) {
@@ -1389,8 +2022,9 @@ export class DriveFestivities {
         this.plowWorldZ -= Math.cos(this.plowHeading) * 14 * dt;
       }
 
-      const pdx = this.plowWorldX - center.x;
-      const pdz = this.plowWorldZ - center.z;
+      const safePlow = this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 3.5, center, heading);
+      const pdx = safePlow.x - center.x;
+      const pdz = safePlow.z - center.z;
       const plowAhead = pdx * eastCar - pdz * northCar;
       const plowDist = Math.hypot(pdx, pdz);
       if (plowAhead < -38 || plowDist > 210) {
@@ -1398,18 +2032,18 @@ export class DriveFestivities {
         this.plowHasPose = false;
         this.redLightPlow.group.visible = false;
       } else {
-        const py = groundAt(this.plowWorldX, this.plowWorldZ) + 0.02;
+        const py = groundAt(safePlow.x, safePlow.z) + 0.02;
         this.redLightPlow.group.visible = true;
-        this.redLightPlow.group.position.set(this.plowWorldX, py, this.plowWorldZ);
+        this.redLightPlow.group.position.set(safePlow.x, py, safePlow.z);
         this.redLightPlow.group.rotation.y = -this.plowHeading;
         this.redLightPlow.update(time * 12, time);
-        this.emitPlowSpray(this.plowWorldX, py, this.plowWorldZ, this.plowHeading);
+        this.emitPlowSpray(safePlow.x, py, safePlow.z, this.plowHeading);
       }
     } else {
       this.redLightPlow.group.visible = false;
     }
 
-    // Update 6-Slot Gift Projectiles + Snowballs + Floating Wish Stars + Chimney Fireworks
+    // Update 12-Slot Gift Projectiles + Snowballs + Floating Wish Stars + Chimney Fireworks
     for (const g of this.giftPool) {
       if (!g.active) continue;
       g.t += dt * 0.78;
@@ -1418,23 +2052,30 @@ export class DriveFestivities {
         g.mesh.visible = false;
         g.onLand?.();
         this.spawnChimneySparks(g.end.x, g.end.y, g.end.z);
-        this.comboTimer = 4.5;
-        this.comboCount = Math.min(9, this.comboCount + 1);
         this.giftsDelivered += 1 + g.bonusGifts;
-        const t = i18n.t();
-        const bonusMsg =
-          g.bonusKind === 'town_tree'
-            ? t.townTreeLitToast
-            : g.bonusKind === 'snowman'
-              ? t.snowmanCrownToast
-              : `${this.giftsDelivered} ${this.giftsDelivered === 1 ? 'levererad julklapp' : 'levererade julklappar'}${this.comboCount >= 2 ? ` · ${this.comboCount}× Combo!` : ''}`;
-        this.announce(bonusMsg, 3.8);
-        if (g.bonusKind || this.comboCount >= 3) {
-          this.audio.playComboFanfare(this.comboCount);
+        if (!g.fromPower) {
+          const earned = g.awardsPoints ? 10 : 0;
+          if (earned > 0) this.awardPoints(earned);
+          const t = i18n.t();
+          const ptsTag = earned > 0 ? ` (+${earned} Julmagi)` : '';
+          const bonusMsg =
+            g.bonusKind === 'town_tree'
+              ? `${t.townTreeLitToast}${ptsTag}`
+              : g.bonusKind === 'snowman'
+                ? `${t.snowmanCrownToast}${ptsTag}`
+                : earned > 0
+                  ? `🎁 +${earned} Julmagi · ${this.giftsDelivered} ${this.giftsDelivered === 1 ? 'klapp' : 'klappar'}!`
+                  : `${this.giftsDelivered} ${this.giftsDelivered === 1 ? 'levererad julklapp' : 'levererade julklappar'}`;
+          this.announce(bonusMsg, 3.8);
+          if (g.bonusKind) {
+            this.audio.playComboFanfare(3);
+          } else {
+            this.audio.playChimneyPop();
+          }
+          this.checkMilestoneFireworks();
         } else {
           this.audio.playChimneyPop();
         }
-        this.checkMilestoneFireworks();
       } else {
         const p = g.t;
         g.mesh.position.lerpVectors(g.start, g.end, p);
@@ -1445,20 +2086,26 @@ export class DriveFestivities {
 
     for (const s of this.snowballPool) {
       if (!s.active) continue;
-      s.t += dt * 1.15;
+      s.t += dt * (s.speedScale ?? 1.15);
       if (s.t >= 1) {
         s.active = false;
         s.mesh.visible = false;
         s.onLand?.();
         this.snowballsLanded += 1;
         this.spawnChimneySparks(s.end.x, s.end.y, s.end.z);
+        if (s.isMega) {
+          this.activateRing('#c8f4ff', s.end.x, s.end.y + 0.35, s.end.z, 0, 1.75, 0, 0, 0.8, 0);
+          this.activateRing('#ffffff', s.end.x, s.end.y + 0.55, s.end.z, Math.PI * 0.25, 1.25, 0.12, 0, 1.1, 0);
+        }
         this.audio.playSnowballSplat();
-        this.announce('❄ Träff i snön! (+1 Julmagi)', 3.2);
+        if (!s.silentToast) {
+          this.announce(s.isMega ? '❄️ Mega-snöbollssalva träffade!' : '❄ Träff i snön!', 3.0);
+        }
         this.checkMilestoneFireworks();
       } else {
         const p = s.t;
         s.mesh.position.lerpVectors(s.start, s.end, p);
-        s.mesh.position.y += Math.sin(p * Math.PI) * 5.6;
+        s.mesh.position.y += Math.sin(p * Math.PI) * (s.isMega ? 6.4 : 5.6);
         s.mesh.rotation.x += dt * 12;
       }
     }

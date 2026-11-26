@@ -10,7 +10,7 @@ import { TerrainTrial, terrainBounds, terrainDatum, terrainFloor, terrainMap, tr
 import { createAlpineHorizon } from './three/alpineHorizon';
 import { AmbientTraffic } from './three/AmbientTraffic';
 import { ChristmasMap, updateChristmasMapAtmosphere } from './three/ChristmasMap';
-import { DriveFestivities } from './three/DriveFestivities';
+import { DriveFestivities, type JulmagiState } from './three/DriveFestivities';
 import { FsdHolidayPath } from './three/FsdHolidayPath';
 import { projectOntoRoad } from './three/mappedRoads';
 import { createBokehSnowField, createPixarSkyDome, getSoftGlowTexture } from './three/pixarMaterials';
@@ -55,6 +55,19 @@ if (!stage) {
   const sleigh = createPixarSantaSleigh();
   const festivities = new DriveFestivities(root, hud.worldEl, scene, sleigh, map);
   const magic = new SleighMagic();
+  const applyEquippedCosmetics = (eq: JulmagiState['equipped']): void => {
+    (magic as { setTrailStyle?: (s: 'classic' | 'aurora' | 'plaid' | 'candycane') => void }).setTrailStyle?.(eq.trailStyle);
+    (magic as { setCompanionOwl?: (on: boolean) => void }).setCompanionOwl?.(eq.companionOwl);
+    (sleigh as { setStyle?: (o: { goldenSleigh: boolean; cyberReindeer: boolean }) => void }).setStyle?.({
+      goldenSleigh: eq.goldenSleigh,
+      cyberReindeer: eq.cyberReindeer,
+    });
+  };
+  festivities.onCosmeticsChange(applyEquippedCosmetics);
+  applyEquippedCosmetics(festivities.getMagicState().equipped);
+  const snowBaseColor = new THREE.Color('#f2f8ff');
+  const snowGoldColor = new THREE.Color('#ffe27a');
+  const snowWorkColor = new THREE.Color();
   const fsdPath = new FsdHolidayPath();
   const vehicleLighting = new VehicleLighting();
   const ambientTraffic = new AmbientTraffic();
@@ -534,8 +547,9 @@ if (!stage) {
       hud.syncSettings();
     } else if (e.key === 'e' || e.key === 'E') {
       festivities.triggerNextEvent();
-    } else if (e.key === 'Escape' && hud.isDrawerOpen()) {
-      hud.setDrawerOpen(false);
+    } else if (e.key === 'Escape') {
+      if (hud.isMagicOpen()) hud.setMagicOpen(false);
+      else if (hud.isDrawerOpen()) hud.setDrawerOpen(false);
     }
   });
 
@@ -863,9 +877,15 @@ if (!stage) {
     map.animate(time, avatar.position);
     stage!.updateKeyShadowFocus(orbit.target, shadowOffset);
 
+    const superAurora = festivities.getSuperAuroraIntensity();
+    (magic as { setSuperAuroraBoost?: (active: boolean) => void }).setSuperAuroraBoost?.(superAurora > 0.01);
+    const skyLightShow = Math.max(lightShow, superAurora * 0.9);
     sky.mesh.position.copy(camera.position);
     sky.material.uniforms.uTime.value = time;
-    applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor, lightShow);
+    applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor, skyLightShow);
+    if (superAurora > 0.001 && sky.material.uniforms.uAuroraBoost) {
+      sky.material.uniforms.uAuroraBoost.value += superAurora * 2.2;
+    }
 
     const targetHorizonY = trial ? terrainFloor : activeElevation ? avatar.position.y : 0;
     horizonY = !hasPosition || rebase ? targetHorizonY : THREE.MathUtils.damp(horizonY, targetHorizonY, 3.2, dt);
@@ -873,6 +893,14 @@ if (!stage) {
     horizon.update(time, env);
 
     snowfall.group.position.copy(avatar.position);
+    const goldMix = superAurora * (0.76 + 0.24 * Math.sin(time * 4.2));
+    snowWorkColor.copy(snowBaseColor).lerp(snowGoldColor, goldMix);
+    for (const child of snowfall.group.children) {
+      const mat = (child as THREE.Points).material;
+      if (mat && 'color' in mat && mat.color instanceof THREE.Color) {
+        mat.color.copy(snowWorkColor);
+      }
+    }
     const slipstream = flying ? Math.min(13, flightSpeed / 3.6) * 0.75 : 0;
     const windRad = (env.windDirDeg * Math.PI) / 180;
     const windPush = Math.min(2.2, env.windSpeedKmh / 16);
