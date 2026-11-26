@@ -191,7 +191,7 @@ export class SceneHUD {
     this.drawer.innerHTML = `
       <div class="drawer-header">
         <h3>${t.drawerTitle}</h3>
-        <button type="button" class="drawer-close" data-hud="close-drawer">✕</button>
+        <button type="button" class="drawer-close" data-hud="close-drawer" aria-label="${t.closeDrawer}">&times;</button>
       </div>
       <div class="drawer-scroll">
         <section class="drawer-section">
@@ -341,7 +341,7 @@ export class SceneHUD {
       <div class="sound-modal-card">
         <div class="drawer-header">
           <h3>${t.soundCheckModalTitle}</h3>
-          <button type="button" class="drawer-close" data-close-sound-modal>✕</button>
+          <button type="button" class="drawer-close" data-close-sound-modal aria-label="${t.closeDrawer}">&times;</button>
         </div>
         <p class="sound-hint">${t.drawerSoundCheckHint}</p>
         <div class="sound-test-stack">
@@ -681,7 +681,7 @@ export class SceneHUD {
   }
 
   showToast(message: string): void {
-    this.toastEl.textContent = `✦ ${message}`;
+    this.toastEl.textContent = `★ ${message}`;
     this.toastEl.classList.add('visible');
     this.toastTimer = 4.5;
   }

@@ -1,6 +1,7 @@
 import './styles/christmasDrive.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RouteDemoDrive } from './core/demoRoutes';
 import { LiveElevationManager } from './core/liveElevation';
 import { LiveWorldDataManager, type LiveFlight } from './core/liveWorldData';
 import { LocalDemoDrive } from './core/localDemo';
@@ -88,6 +89,7 @@ if (!stage) {
   let hasPosition = false;
   let priorMapOrigin: { lat: number; lon: number } | undefined;
   let demo: LocalDemoDrive | undefined;
+  let routeDemo: RouteDemoDrive | undefined;
   let demoSpeedKmh = 34;
   let demoPrevSpeedKmh = demoSpeedKmh;
   let demoBrakeHold = 0;
@@ -272,6 +274,7 @@ if (!stage) {
   let idleOrbitRamp = 0;
   let idleOrbitBlend = 0;
   let idleOrbitAngle = 0;
+  let cinemaIdleMix = 0;
   let idleOrbitDismissed = false;
   let wasStoppedWithManualTakeover = false;
 
@@ -328,19 +331,35 @@ if (!stage) {
     if (idleOrbitBlend > 0.0001) {
       const orbitCos = Math.cos(idleOrbitAngle);
       const orbitSin = Math.sin(idleOrbitAngle);
-      const orbitDirX = -east * orbitCos + rightX * orbitSin;
-      const orbitDirZ = north * orbitCos + rightZ * orbitSin;
-      const orbitRadius = 30.0 + Math.sin(idleOrbitAngle * 2) * 2.5;
-      const orbitHeight = 13.5 + Math.sin(idleOrbitAngle) * 1.4;
+      const fullDirX = -east * orbitCos + rightX * orbitSin;
+      const fullDirZ = north * orbitCos + rightZ * orbitSin;
+      const fullRadius = 30.0 + Math.sin(idleOrbitAngle * 2) * 2.5;
+      const fullHeight = 13.5 + Math.sin(idleOrbitAngle) * 1.4;
+      const fullTargetX = avatar.position.x + 3.0 * east;
+      const fullTargetY = avatar.position.y + 2.3 + sleighH * 0.45;
+      const fullTargetZ = avatar.position.z - 3.0 * north;
+
+      const sweep = Math.sin(idleOrbitAngle * 1.4) * 0.36;
+      const sweepCos = Math.cos(sweep);
+      const sweepSin = Math.sin(sweep);
+      const cinDirX = -east * sweepCos + rightX * sweepSin;
+      const cinDirZ = north * sweepCos + rightZ * sweepSin;
+      const cinRadius = 23.5 + Math.sin(idleOrbitAngle * 2) * 1.5;
+      const cinHeight = 6.2 + Math.sin(idleOrbitAngle) * 0.6;
+      const cinTargetX = avatar.position.x + 10.0 * east;
+      const cinTargetY = avatar.position.y + 3.4 + sleighH * 0.45;
+      const cinTargetZ = avatar.position.z - 10.0 * north;
+
+      const m = cinemaIdleMix;
       idleTarget.set(
-        avatar.position.x + 3.0 * east,
-        avatar.position.y + 2.3 + sleighH * 0.45,
-        avatar.position.z - 3.0 * north
+        THREE.MathUtils.lerp(fullTargetX, cinTargetX, m),
+        THREE.MathUtils.lerp(fullTargetY, cinTargetY, m),
+        THREE.MathUtils.lerp(fullTargetZ, cinTargetZ, m)
       );
       idleOffset.set(
-        orbitDirX * orbitRadius,
-        orbitHeight,
-        orbitDirZ * orbitRadius
+        THREE.MathUtils.lerp(fullDirX * fullRadius, cinDirX * cinRadius, m),
+        THREE.MathUtils.lerp(fullHeight, cinHeight, m),
+        THREE.MathUtils.lerp(fullDirZ * fullRadius, cinDirZ * cinRadius, m)
       );
       desiredTarget.lerp(idleTarget, idleOrbitBlend);
       cameraOffset.lerp(idleOffset, idleOrbitBlend);
@@ -390,6 +409,7 @@ if (!stage) {
 
   function setDemo(enabled: boolean): void {
     if (enabled && trial) setTrial(false);
+    routeDemo = undefined;
     demo = enabled ? new LocalDemoDrive() : undefined;
     hud.setDemoState(enabled, demoSpeedKmh);
     resetTrackState();
@@ -397,7 +417,11 @@ if (!stage) {
   }
 
   function setTrial(enabled: boolean): void {
-    if (enabled && demo) setDemo(false);
+    if (enabled && (demo || routeDemo)) {
+      demo = undefined;
+      routeDemo = undefined;
+      hud.setDemoState(false, demoSpeedKmh);
+    }
     trial = enabled ? new TerrainTrial() : undefined;
     hud.trialPanelEl.hidden = !enabled;
     if (enabled) relief ??= createTrialTerrain();
@@ -406,6 +430,14 @@ if (!stage) {
     resetTrackState();
     follow();
   }
+
+  const unlockAudioOnFirstGesture = () => {
+    if (festivities.audio.getMixMode() !== 'muted') {
+      festivities.audio.unlock();
+    }
+  };
+  window.addEventListener('pointerdown', unlockAudioOnFirstGesture, { once: true, passive: true });
+  window.addEventListener('keydown', unlockAudioOnFirstGesture, { once: true, passive: true });
 
   hud.connect(festivities, telemetry, {
     onSelectVehicle: selectVehicle,
@@ -429,7 +461,26 @@ if (!stage) {
       }
     },
     onExitTrial: () => setTrial(false),
-    onToggleDemo: () => setDemo(!demo),
+    onStartDemoRoute: route => {
+      if (trial) setTrial(false);
+      resetTrackState();
+      if (route.kind === 'bundled') {
+        routeDemo = undefined;
+        demo = new LocalDemoDrive();
+        const label = i18n.getLocale() === 'en' ? route.preset.nameEn : route.preset.nameSv;
+        hud.setDemoState(true, demoSpeedKmh, `${route.preset.flag} ${label}`);
+      } else {
+        demo = undefined;
+        routeDemo = new RouteDemoDrive(route);
+        const initPos = routeDemo.getInitialPosition();
+        demoPrevHeading = initPos.headingDeg;
+        demoHasInit = true;
+        director.resetLiveRoute();
+        units.setGeoLocation(initPos.lat, initPos.lon, route.countryCode);
+        hud.setDemoState(true, demoSpeedKmh, route.name);
+      }
+      follow();
+    },
     onDemoSpeedChange: kmh => {
       demoSpeedKmh = kmh;
     },
@@ -640,7 +691,8 @@ if (!stage) {
   }
 
   function stepDemoFrame(base: TelemetryFrame, dt: number): TelemetryFrame {
-    if (!demo) return base;
+    const activeDemo = demo ?? routeDemo;
+    if (!activeDemo) return base;
     if (demoSpeedKmh < demoPrevSpeedKmh - 0.4) {
       demoBrakeHold = 1.6;
     }
@@ -661,7 +713,7 @@ if (!stage) {
       isPlaidSpeed: demoSpeedKmh >= 85,
       reindeerGearKey: demoSpeedKmh < 2 ? 'park' : demoSpeedKmh < 22 ? 'trot' : demoSpeedKmh < 45 ? 'dash' : demoSpeedKmh < 68 ? 'prance' : demoSpeedKmh < 88 ? 'comet' : 'plaid',
     };
-    demo.advance(synth, dt);
+    activeDemo.advance(synth, dt);
     demoPrevHeading = synth.headingDeg;
     demoHasInit = true;
     return synth;
@@ -674,9 +726,10 @@ if (!stage) {
 
     const gpsFrame = telemetry.update(dt);
     const gpsFix = gpsFrame.gpsStatus === 'active';
+    const anyDemo = Boolean(demo || routeDemo);
     const frame = trial
       ? trial.update(dt, gpsFrame)
-      : demo
+      : anyDemo
         ? stepDemoFrame(gpsFrame, dt)
         : gpsFrame;
 
@@ -684,25 +737,38 @@ if (!stage) {
       units.setGeoLocation(frame.latitude, frame.longitude, 'de');
     } else if (demo) {
       units.setGeoLocation(frame.latitude, frame.longitude, 'se');
+    } else if (routeDemo) {
+      units.setGeoLocation(frame.latitude, frame.longitude, routeDemo.countryCode);
     }
 
     const osm = trial
       ? terrainMap
       : demo
         ? demo.map
-        : director.update(
-            dt,
-            'gps',
-            gpsFrame.latitude,
-            gpsFrame.longitude,
-            gpsFrame.isMoving,
-            gpsFrame.speedKmh,
-            gpsFix,
-            gpsFrame.headingDeg
-          );
+        : routeDemo
+          ? director.update(
+              dt,
+              'gps',
+              frame.latitude,
+              frame.longitude,
+              frame.isMoving,
+              frame.speedKmh,
+              true,
+              frame.headingDeg
+            )
+          : director.update(
+              dt,
+              'gps',
+              gpsFrame.latitude,
+              gpsFrame.longitude,
+              gpsFrame.isMoving,
+              gpsFrame.speedKmh,
+              gpsFix,
+              gpsFrame.headingDeg
+            );
 
-    const fix = !!trial || !!demo || gpsFix;
-    const hasActiveWorld = !!trial || !!demo || gpsFix || hasPosition;
+    const fix = !!trial || anyDemo || gpsFix;
+    const hasActiveWorld = !!trial || anyDemo || gpsFix || hasPosition;
     const snapshot = osm.isLiveOsm ? osm.snapshot : undefined;
     const elevActive = liveElevationEnabled && !trial && hasActiveWorld;
     liveElevation.update(frame.latitude, frame.longitude, elevActive);
@@ -957,8 +1023,8 @@ if (!stage) {
       idleModeAllowed &&
       alignWithHeading &&
       !idleOrbitDismissed &&
-      !festivities.skyCinema.isActive() &&
-      idleStoppedSec > 2.8;
+      idleStoppedSec > 2.5;
+    cinemaIdleMix = THREE.MathUtils.damp(cinemaIdleMix, festivities.skyCinema.isActive() ? 1 : 0, 3.2, dt);
 
     if (idleShowcaseActive) {
       if (idleOrbitRamp === 0) {
@@ -1082,7 +1148,7 @@ if (!stage) {
 
     if (now - lastUi >= 200) {
       lastUi = now;
-      live.update(frame.latitude, frame.longitude, !demo && !trial, fix);
+      live.update(frame.latitude, frame.longitude, !anyDemo && !trial, fix);
       liveState = live.getState();
       lastFlightStateSec = time;
       activeFlights = trial ? [] : liveState.flights;

@@ -337,7 +337,7 @@ export class HolidayAudioEngine {
   private windFilter: BiquadFilterNode | null = null;
   private whiteNoiseBuf: AudioBuffer | null = null;
 
-  private mixMode: AudioMixMode = 'full';
+  private mixMode: AudioMixMode = 'sfx';
   private routing: AudioRouting = 'direct';
   private musicStyle: 'classic' | 'nordic' | 'cyber2099' = 'classic';
   private volume = 0.72;

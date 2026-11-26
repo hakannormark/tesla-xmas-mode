@@ -90,7 +90,7 @@ export class MenuView {
     gallery.innerHTML = `
       <header class="menu-header">
         <div class="menu-brand">
-          <div class="menu-logo-crest" aria-hidden="true">✦</div>
+          <div class="menu-logo-crest" aria-hidden="true">★</div>
           <div>
             <h1 class="menu-title">${t.appTitle}</h1>
             <p class="menu-subtitle">${t.appSubtitle}</p>
@@ -204,7 +204,7 @@ export class MenuView {
     this.safetyOverlay.classList.toggle('hidden', this.safetyAccepted);
     this.safetyOverlay.innerHTML = `
       <div class="safety-card">
-        <div class="safety-crest">✦ ${t.appTitle} ✦</div>
+        <div class="safety-crest">★ ${t.appTitle} ★</div>
         <h2>${t.safetyTitle}</h2>
         <ul class="safety-list">
           ${t.safetyRules.map((r) => `<li>${r}</li>`).join('')}

@@ -18,9 +18,9 @@ export const SKY_CINEMA_SURFACES: ReadonlyArray<{
   shortLabel: string;
   shortLabelEn: string;
 }> = [
-  { id: 'sky', label: 'Himmel', labelEn: 'Sky', shortLabel: '✦ Himmel', shortLabelEn: '✦ Sky' },
-  { id: 'giga', label: 'Giga-fasad', labelEn: 'Giga Facade', shortLabel: '▣ Giga-fasad', shortLabelEn: '▣ Giga Facade' },
-  { id: 'both', label: 'Båda', labelEn: 'Both', shortLabel: '◈ Båda', shortLabelEn: '◈ Both' },
+  { id: 'sky', label: 'Himmel', labelEn: 'Sky', shortLabel: '🌌 Himmel', shortLabelEn: '🌌 Sky' },
+  { id: 'giga', label: 'Giga-fasad', labelEn: 'Giga Facade', shortLabel: '🏢 Giga-fasad', shortLabelEn: '🏢 Giga Facade' },
+  { id: 'both', label: 'Båda', labelEn: 'Both', shortLabel: '✨ Båda', shortLabelEn: '✨ Both' },
 ];
 
 export interface SkyCinemaModeSpec {
@@ -626,7 +626,7 @@ export class SkyCinema {
     ctx.fillStyle = '#7fffe0';
     ctx.font = '700 20px Inter, sans-serif';
     ctx.fillText(
-      `✦ ELONVERSE · ${modeTag} (${index + 1}/${total}) · ${clip.source} ${clip.year}`,
+      `★ ELONVERSE · ${modeTag} (${index + 1}/${total}) · ${clip.source} ${clip.year}`,
       w * 0.5,
       38,
       w - 84

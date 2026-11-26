@@ -27,9 +27,23 @@ import {
   type SkyCinemaMode,
   type SkyCinemaSurface,
 } from '../three/SkyCinema';
+import { DemoRouteModal, type SelectedDemoRoute } from './DemoRouteModal';
 
 export type CameraMode = 'chase' | 'map' | 'cinematic';
 export type VehicleKind = 'sleigh' | 'semi' | 'cybertruck' | 'starman';
+
+const ICON_SPARKLE =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 2l2.3 7.2L22 12l-7.7 2.8L12 22l-2.3-7.2L2 12l7.7-2.8z"/></svg>';
+const ICON_GEAR =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+const ICON_CLOSE =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ICON_NEXT =
+  '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M5 5l10 7-10 7V5zm11 0h3v14h-3V5z"/></svg>';
+const ICON_CHEVRON_DOWN =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+const ICON_CHEVRON_UP =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>';
 
 export interface DriveHudCallbacks {
   onSelectVehicle(vehicle: VehicleKind): void;
@@ -40,7 +54,7 @@ export interface DriveHudCallbacks {
   onStartTrial(): void;
   onToggleTrialPause(): void;
   onExitTrial(): void;
-  onToggleDemo(): void;
+  onStartDemoRoute(route: SelectedDemoRoute): void;
   onDemoSpeedChange(kmh: number): void;
   onExitDemo(): void;
   onToggleFsdPath(): boolean;
@@ -67,6 +81,8 @@ export class DriveHud {
   private readonly followBtn: HTMLButtonElement;
   private readonly cinemaBtn: HTMLButtonElement;
   private readonly cinemaBarEl: HTMLElement;
+  private readonly cinemaOptionsEl: HTMLElement;
+  private readonly cinemaExpandBtn: HTMLButtonElement;
   private readonly cinemaModeRowEl: HTMLElement;
   private readonly cinemaTitleEl: HTMLElement;
   private readonly cinemaCountEl: HTMLElement;
@@ -94,8 +110,13 @@ export class DriveHud {
   private festivities!: DriveFestivities;
   private telemetry!: { setForceTunnel(v: boolean): void; getForceTunnel(): boolean };
   private callbacks!: DriveHudCallbacks;
+  private readonly demoModal: DemoRouteModal;
   private drawerOpen = false;
   private magicOpen = false;
+  private cinemaOptionsOpen = false;
+  private wasCinemaBarActive = false;
+  private lastNonMutedMix: 'sfx' | 'full' = 'sfx';
+  private activeDemoTitle: string | null = null;
   private micState: 'off' | 'active' | 'denied' = 'off';
   private currentCameraMode: CameraMode = 'chase';
   private lastDemoSpeedKmh = 34;
@@ -107,10 +128,10 @@ export class DriveHud {
       <header class="drive-header">
         <div class="drive-actions">
           <button type="button" class="glass-pill cinema-pill" data-cinema-toggle aria-pressed="false" title="Rymdbio i himlen (V)">🎬 Rymdbio</button>
-          <button type="button" class="glass-pill" data-camera-btn title="Växla kamera (C)">✦ FSD Vy</button>
-          <button type="button" class="glass-pill follow-recenter-pill" data-follow hidden>◎ Följ släden</button>
+          <button type="button" class="glass-pill" data-camera-btn title="Växla kamera (C)">${ICON_SPARKLE}<span>FSD Vy</span></button>
+          <button type="button" class="glass-pill follow-recenter-pill" data-follow hidden>🎯 Följ släden</button>
           <button type="button" class="glass-pill" data-sound-quick aria-pressed="false" title="Ljud på/av">🔇</button>
-          <button type="button" class="glass-pill" data-drawer-toggle aria-expanded="false" aria-label="Inställningar">⚙</button>
+          <button type="button" class="glass-pill" data-drawer-toggle aria-expanded="false" aria-label="Inställningar">${ICON_GEAR}</button>
         </div>
       </header>
 
@@ -120,19 +141,22 @@ export class DriveHud {
           <div class="cinema-bar-actions">
             <span class="cinema-bar-count" data-cinema-count></span>
             <button type="button" class="cinema-bar-btn cinema-bar-unmute" data-cinema-unmute hidden>🔊 Ljud</button>
-            <button type="button" class="cinema-bar-btn" data-cinema-next title="Nästa klipp">⏭ Nästa</button>
-            <button type="button" class="cinema-bar-btn" data-cinema-stop aria-label="Stäng Rymdbio">✕</button>
+            <button type="button" class="cinema-bar-btn" data-cinema-next title="Nästa klipp">${ICON_NEXT}<span data-lbl="cinema-next-txt">Nästa</span></button>
+            <button type="button" class="cinema-bar-btn" data-cinema-expand aria-expanded="false" title="Visa fler val">${ICON_CHEVRON_DOWN}</button>
+            <button type="button" class="cinema-bar-btn" data-cinema-stop aria-label="Stäng Rymdbio">${ICON_CLOSE}</button>
           </div>
         </div>
-        <div class="cinema-surface-row" role="group" aria-label="Visningsyta">
-          ${SKY_CINEMA_SURFACES.map(
-            s => `<button type="button" class="cinema-mode-btn cinema-surface-btn" data-cinema-surface="${s.id}">${s.shortLabel}</button>`
-          ).join('')}
-        </div>
-        <div class="cinema-mode-row" data-cinema-mode-row role="group" aria-label="Rymdbio-läge">
-          ${SKY_CINEMA_MODES.map(
-            m => `<button type="button" class="cinema-mode-btn" data-cinema-mode="${m.id}" title="${m.description}">${m.shortLabel}</button>`
-          ).join('')}
+        <div class="cinema-bar-options" data-cinema-options hidden>
+          <div class="cinema-surface-row" role="group" aria-label="Visningsyta">
+            ${SKY_CINEMA_SURFACES.map(
+              s => `<button type="button" class="cinema-mode-btn cinema-surface-btn" data-cinema-surface="${s.id}">${s.shortLabel}</button>`
+            ).join('')}
+          </div>
+          <div class="cinema-mode-row" data-cinema-mode-row role="group" aria-label="Rymdbio-läge">
+            ${SKY_CINEMA_MODES.map(
+              m => `<button type="button" class="cinema-mode-btn" data-cinema-mode="${m.id}" title="${m.description}">${m.shortLabel}</button>`
+            ).join('')}
+          </div>
         </div>
       </aside>
 
@@ -147,7 +171,7 @@ export class DriveHud {
         <div class="timeline-kicker"><span data-lbl="timeline-kicker">Elon-tidslinje</span> <span data-timeline-step></span></div>
         <strong data-timeline-title></strong>
         <span data-timeline-text></span>
-        <button data-timeline-next type="button">Nästa ⏭</button>
+        <button data-timeline-next type="button"><span data-lbl="timeline-next-txt">Nästa</span> ${ICON_NEXT}</button>
       </aside>
 
       <aside class="terrain-trial" data-trial-panel hidden>
@@ -163,7 +187,10 @@ export class DriveHud {
       <aside class="demo-pill" data-demo-panel hidden>
         <div class="demo-pill-head">
           <strong>Demorutt · Lokevägen</strong>
-          <button type="button" data-demo-exit>Till GPS</button>
+          <div class="demo-pill-actions">
+            <button type="button" data-demo-route>Byt rutt</button>
+            <button type="button" data-demo-exit>Till GPS</button>
+          </div>
         </div>
         <label class="demo-speed-row">
           <span>Fart: <b data-demo-speed-val>34 km/h</b></span>
@@ -213,7 +240,7 @@ export class DriveHud {
             <span class="magic-points-pill" data-magic-popover-points>0 p</span>
             <span class="magic-combo-pill" data-magic-popover-combo hidden>x2</span>
           </div>
-          <button type="button" class="magic-close" data-magic-close aria-label="Stäng Julmagi">✕</button>
+          <button type="button" class="magic-close" data-magic-close aria-label="Stäng Julmagi">${ICON_CLOSE}</button>
         </div>
         <div class="magic-tabs" role="tablist">
           <button type="button" class="magic-tab active" role="tab" aria-selected="true" data-magic-tab="powers">⚡ Fyra av nu</button>
@@ -252,8 +279,8 @@ export class DriveHud {
       <div class="drawer-backdrop" data-drawer-backdrop hidden></div>
       <aside class="drive-drawer" data-drawer hidden aria-label="Kontrollpanel">
         <div class="drawer-head">
-          <h2><span>✦</span> Vintervärlden</h2>
-          <button type="button" class="drawer-close" data-drawer-close aria-label="Stäng">✕</button>
+          <h2><span>${ICON_SPARKLE}</span> Vintervärlden</h2>
+          <button type="button" class="drawer-close" data-drawer-close aria-label="Stäng">${ICON_CLOSE}</button>
         </div>
         <div class="drawer-scroll">
           <section class="drawer-section">
@@ -269,7 +296,7 @@ export class DriveHud {
           <section class="drawer-section">
             <div class="drawer-label" data-lbl="camera">Kamera</div>
             <div class="segmented cols-3">
-              <button type="button" class="active" data-cam="chase">✦ FSD Vy</button>
+              <button type="button" class="active" data-cam="chase">FSD Vy</button>
               <button type="button" data-cam="map">Kartvy</button>
               <button type="button" data-cam="cinematic">Filmisk</button>
             </div>
@@ -347,7 +374,7 @@ export class DriveHud {
               <button type="button" data-convoy>Julkaravan</button>
               <button type="button" data-tunnel aria-pressed="false">Boring-tunneln</button>
               <button type="button" data-cinema-drawer>🎬 Rymdbio</button>
-              <button type="button" data-giga-cinema-drawer>▣ Giga-bio</button>
+              <button type="button" data-giga-cinema-drawer>🏢 Giga-bio</button>
             </div>
             <div class="drawer-label" data-lbl="surface">Visningsyta</div>
             <div class="segmented cols-3">
@@ -425,6 +452,8 @@ export class DriveHud {
     this.followBtn = q('[data-follow]');
     this.cinemaBtn = q('[data-cinema-toggle]');
     this.cinemaBarEl = q('[data-cinema-bar]');
+    this.cinemaOptionsEl = q('[data-cinema-options]');
+    this.cinemaExpandBtn = q('[data-cinema-expand]');
     this.cinemaModeRowEl = q('[data-cinema-mode-row]');
     this.cinemaTitleEl = q('[data-cinema-title]');
     this.cinemaCountEl = q('[data-cinema-count]');
@@ -446,6 +475,7 @@ export class DriveHud {
     this.demoPanelEl = q('[data-demo-panel]');
     this.demoSpeedSlider = q('[data-demo-speed]');
     this.demoSpeedValEl = q('[data-demo-speed-val]');
+    this.demoModal = new DemoRouteModal(this.root, route => this.callbacks.onStartDemoRoute(route));
     this.applyLocaleAndUnits();
   }
 
@@ -457,6 +487,10 @@ export class DriveHud {
     this.festivities = festivities;
     this.telemetry = telemetry;
     this.callbacks = callbacks;
+    const initMix = this.festivities.audio.getMixMode();
+    if (initMix === 'sfx' || initMix === 'full') {
+      this.lastNonMutedMix = initMix;
+    }
     this.bindEvents();
     i18n.onChange(() => this.applyLocaleAndUnits());
     units.onChange(() => this.applyLocaleAndUnits());
@@ -485,6 +519,10 @@ export class DriveHud {
       this.festivities.skyCinema.setMuted(false);
       this.syncCinemaUi();
     };
+    this.cinemaExpandBtn.onclick = () => {
+      this.cinemaOptionsOpen = !this.cinemaOptionsOpen;
+      this.syncCinemaUi();
+    };
     q('[data-cinema-next]').onclick = () => {
       this.festivities.nextSkyCinemaClip();
       this.syncCinemaUi();
@@ -497,7 +535,13 @@ export class DriveHud {
     this.soundQuickBtn.onclick = () => {
       const audio = this.festivities.audio;
       audio.unlock();
-      audio.setMixMode(audio.getMixMode() === 'muted' ? 'full' : 'muted');
+      const cur = audio.getMixMode();
+      if (cur === 'muted') {
+        audio.setMixMode(this.lastNonMutedMix);
+      } else {
+        this.lastNonMutedMix = cur;
+        audio.setMixMode('muted');
+      }
       this.syncSettings();
     };
 
@@ -635,7 +679,11 @@ export class DriveHud {
     this.root.querySelectorAll<HTMLButtonElement>('[data-mix]').forEach(btn => {
       btn.onclick = () => {
         this.festivities.audio.unlock();
-        this.festivities.audio.setMixMode(btn.dataset.mix as AudioMixMode);
+        const mode = btn.dataset.mix as AudioMixMode;
+        if (mode === 'sfx' || mode === 'full') {
+          this.lastNonMutedMix = mode;
+        }
+        this.festivities.audio.setMixMode(mode);
         this.syncSettings();
       };
     });
@@ -765,8 +813,11 @@ export class DriveHud {
     });
 
     q('[data-demo-toggle]').onclick = () => {
-      this.callbacks.onToggleDemo();
       this.setDrawerOpen(false);
+      this.demoModal.setOpen(true);
+    };
+    q('[data-demo-route]').onclick = () => {
+      this.demoModal.setOpen(true);
     };
     q('[data-demo-exit]').onclick = () => this.callbacks.onExitDemo();
     this.demoSpeedSlider.oninput = () => {
@@ -842,15 +893,16 @@ export class DriveHud {
 
     this.cinemaBtn.textContent = d.cinemaPill;
     this.cinemaBtn.title = d.cinemaPillTitle;
-    this.cameraBtn.textContent = this.getCameraLabel(this.currentCameraMode);
+    this.cameraBtn.innerHTML = `${ICON_SPARKLE}<span>${this.getCameraLabel(this.currentCameraMode)}</span>`;
     this.cameraBtn.title = d.cameraTitle;
-    this.followBtn.textContent = d.followBtn;
+    this.followBtn.textContent = `🎯 ${d.followBtn}`;
     this.soundQuickBtn.title = d.soundTitle;
     this.root.querySelector<HTMLElement>('[data-drawer-toggle]')?.setAttribute('aria-label', d.settingsAria);
 
     this.cinemaUnmuteBtn.textContent = d.cinemaSoundBtn;
-    setText('[data-cinema-next]', d.cinemaNextBtn);
+    setText('[data-lbl="cinema-next-txt"]', d.cinemaNextBtn);
     this.root.querySelector<HTMLElement>('[data-cinema-next]')?.setAttribute('title', d.cinemaNextTitle);
+    this.cinemaExpandBtn.title = d.cinemaExpandTitle;
     this.root.querySelector<HTMLElement>('[data-cinema-stop]')?.setAttribute('aria-label', d.cinemaCloseAria);
     this.root.querySelector<HTMLElement>('.cinema-surface-row')?.setAttribute('aria-label', d.cinemaSurfaceAria);
     this.cinemaModeRowEl.setAttribute('aria-label', d.cinemaModeAria);
@@ -875,7 +927,7 @@ export class DriveHud {
     }
     this.gpsBtn.textContent = d.retryGps;
     setText('[data-lbl="timeline-kicker"]', d.timelineKicker);
-    setText('[data-timeline-next]', d.timelineNext);
+    setText('[data-lbl="timeline-next-txt"]', d.timelineNext);
     setText('[data-trial-panel] strong', d.trialTitle);
     setText('[data-trial-exit]', d.trialToGps);
     setText('[data-trial-panel] a', d.trialCredit);
@@ -886,7 +938,8 @@ export class DriveHud {
     } else {
       this.trialPauseBtn.textContent = d.trialPause;
     }
-    setText('[data-demo-panel] strong', d.demoTitle);
+    setText('[data-demo-panel] strong', this.activeDemoTitle ?? d.demoTitle);
+    setText('[data-demo-route]', d.demoChangeRouteBtn);
     setText('[data-demo-exit]', d.trialToGps);
     const demoLabelSpan = this.root.querySelector<HTMLElement>('.demo-speed-row > span');
     if (demoLabelSpan) {
@@ -931,7 +984,7 @@ export class DriveHud {
 
     this.drawerEl.setAttribute('aria-label', d.drawerAria);
     const drawerTitle = this.drawerEl.querySelector<HTMLElement>('.drawer-head h2');
-    if (drawerTitle) drawerTitle.innerHTML = `<span>✦</span> ${d.drawerTitle}`;
+    if (drawerTitle) drawerTitle.innerHTML = `<span>${ICON_SPARKLE}</span> ${d.drawerTitle}`;
     this.drawerEl.querySelector<HTMLElement>('[data-drawer-close]')?.setAttribute('aria-label', t.closeDrawer);
 
     setText('[data-lbl="vehicle"]', d.vehicleLabel);
@@ -1102,15 +1155,20 @@ export class DriveHud {
 
   setCameraMode(mode: CameraMode): void {
     this.currentCameraMode = mode;
-    this.cameraBtn.textContent = this.getCameraLabel(mode);
+    this.cameraBtn.innerHTML = `${ICON_SPARKLE}<span>${this.getCameraLabel(mode)}</span>`;
     this.root.querySelectorAll<HTMLButtonElement>('[data-cam]').forEach(btn =>
       btn.classList.toggle('active', btn.dataset.cam === mode)
     );
   }
 
-  setDemoState(active: boolean, speedKmh: number): void {
+  setDemoState(active: boolean, speedKmh: number, routeName?: string): void {
     this.lastDemoSpeedKmh = speedKmh;
+    this.activeDemoTitle = active ? (routeName ?? null) : null;
     this.demoPanelEl.hidden = !active;
+    const titleEl = this.demoPanelEl.querySelector<HTMLElement>('strong');
+    if (titleEl) {
+      titleEl.textContent = this.activeDemoTitle ?? i18n.t().drive.demoTitle;
+    }
     this.demoSpeedSlider.value = String(Math.round(speedKmh));
     this.demoSpeedValEl.textContent = units.formatSpeed(speedKmh);
     this.root.querySelector('[data-demo-toggle]')?.setAttribute('aria-pressed', String(active));
@@ -1187,7 +1245,18 @@ export class DriveHud {
     const mode = this.festivities.getSkyCinemaMode();
     const surface = this.festivities.getSkyCinemaSurface();
     this.cinemaBtn.setAttribute('aria-pressed', String(active));
-    this.cinemaBarEl.hidden = !active || !info;
+    const showBar = active && Boolean(info);
+    if (!showBar && this.wasCinemaBarActive) {
+      this.cinemaOptionsOpen = false;
+    }
+    this.wasCinemaBarActive = showBar;
+    this.cinemaBarEl.hidden = !showBar;
+    this.cinemaOptionsEl.hidden = !this.cinemaOptionsOpen;
+    this.cinemaExpandBtn.setAttribute('aria-expanded', String(this.cinemaOptionsOpen));
+    const desiredChevron = this.cinemaOptionsOpen ? ICON_CHEVRON_UP : ICON_CHEVRON_DOWN;
+    if (this.cinemaExpandBtn.innerHTML !== desiredChevron) {
+      this.cinemaExpandBtn.innerHTML = desiredChevron;
+    }
     this.cinemaModeRowEl.hidden = surface === 'giga';
     this.root.querySelector('[data-giga-cinema-drawer]')?.setAttribute('aria-pressed', String(active && surface !== 'sky'));
     this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-surface]').forEach(btn => {
@@ -1256,7 +1325,7 @@ export class DriveHud {
     if (this.streetEl.textContent !== streetLabel) this.streetEl.textContent = streetLabel;
     this.junctionEl.hidden = !aheadJunction;
     if (aheadJunction) {
-      const glyph = aheadJunction.turn === 'left' ? '↰ ' : aheadJunction.turn === 'right' ? '↱ ' : '↑ ';
+      const glyph = aheadJunction.turn === 'left' ? '← ' : aheadJunction.turn === 'right' ? '→ ' : '↑ ';
       this.junctionEl.textContent = `${glyph}${aheadJunction.name} · ${units.formatShortDistance(aheadJunction.meters)}`;
     }
     this.gpsBtn.hidden = frame.gpsStatus !== 'error';
@@ -1282,7 +1351,8 @@ export class DriveHud {
     const scoreParts: string[] = [];
     if (summary.gifts > 0) scoreParts.push(`🎁 ${summary.gifts}`);
     if (summary.stars > 0) scoreParts.push(`⭐ ${summary.stars}`);
-    if (summary.critters > 0) scoreParts.push(`🦌 ${summary.critters}`);
+    if (summary.reindeer > 0) scoreParts.push(`🦌 ${summary.reindeer}`);
+    if (summary.elves > 0) scoreParts.push(`🧝 ${summary.elves}`);
     if (summary.snowballs > 0) scoreParts.push(`❄ ${summary.snowballs}`);
     this.giftPillEl.hidden = scoreParts.length === 0;
     if (scoreParts.length > 0) {

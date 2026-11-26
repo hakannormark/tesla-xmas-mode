@@ -230,6 +230,26 @@ export interface TranslationDict {
     cinemaModeLabel: string;
     cinemaAutoLabel: string;
     cinemaIntervalToast: string;
+    cinemaExpandTitle: string;
+    demoChangeRouteBtn: string;
+    demoModalTitle: string;
+    demoTabPresets: string;
+    demoTabAddress: string;
+    demoTabMap: string;
+    demoAddrHint: string;
+    demoAddrFromLabel: string;
+    demoAddrToLabel: string;
+    demoAddrFromPlaceholder: string;
+    demoAddrToPlaceholder: string;
+    demoStartRouteBtn: string;
+    demoRouteLoading: string;
+    demoRouteGeocoding: string;
+    demoRouteNeedBothAddr: string;
+    demoRouteNotFound: string;
+    demoRouteCustomMapName: string;
+    demoMapPickA: string;
+    demoMapPickB: string;
+    demoMapClearBtn: string;
     autoMagicChip: string;
     timelineChip: string;
     langUnitsLabel: string;
@@ -296,7 +316,7 @@ const SV: TranslationDict = {
   audioSfx: 'Bara SFX (Spotify)',
   audioMuted: 'Tyst',
   backToMenu: '← Meny',
-  controlsBtn: '⚙ Kontroller',
+  controlsBtn: 'Kontroller',
   hoHoHoBtn: '🎅 Ho-Ho-Ho',
   northPoleShort: 'Nordpolen',
   gpsActive: 'GPS Aktiv',
@@ -478,16 +498,16 @@ const SV: TranslationDict = {
     cinemaPill: '🎬 Rymdbio',
     cinemaPillTitle: 'Rymdbio i himlen (V)',
     cameraTitle: 'Växla kamera (C)',
-    camChase: '✦ FSD Vy',
-    camMap: '🗺 Kartvy',
-    camCinematic: '🎬 Filmisk',
+    camChase: 'FSD Vy',
+    camMap: 'Kartvy',
+    camCinematic: 'Filmisk',
     camMapShort: 'Kartvy',
     camCinematicShort: 'Filmisk',
-    followBtn: '◎ Följ släden',
+    followBtn: 'Följ släden',
     soundTitle: 'Ljud på/av',
     settingsAria: 'Inställningar',
     cinemaSoundBtn: '🔊 Ljud',
-    cinemaNextBtn: '⏭ Nästa',
+    cinemaNextBtn: 'Nästa',
     cinemaNextTitle: 'Nästa klipp',
     cinemaCloseAria: 'Stäng Rymdbio',
     cinemaSurfaceAria: 'Visningsyta',
@@ -495,7 +515,7 @@ const SV: TranslationDict = {
     waitingGps: 'Väntar på GPS',
     retryGps: 'Försök igen GPS',
     timelineKicker: 'Elon-tidslinje',
-    timelineNext: 'Nästa ⏭',
+    timelineNext: 'Nästa',
     trialTitle: 'Höjdtest · Badhausstraße',
     trialPause: 'Pausa',
     trialResume: 'Fortsätt',
@@ -563,11 +583,31 @@ const SV: TranslationDict = {
     eventConvoy: 'Julkaravan',
     eventTunnel: 'Boring-tunneln',
     eventCinema: '🎬 Rymdbio',
-    eventGigaCinema: '▣ Giga-bio',
+    eventGigaCinema: '🏢 Giga-bio',
     surfaceLabel: 'Visningsyta',
     cinemaModeLabel: 'Rymdbio-läge',
     cinemaAutoLabel: 'Auto Rymdbio',
     cinemaIntervalToast: 'Auto Rymdbio',
+    cinemaExpandTitle: 'Visa eller dölj visningsval',
+    demoChangeRouteBtn: 'Byt rutt',
+    demoModalTitle: 'Välj demorutt (A → B)',
+    demoTabPresets: 'Kända rutter',
+    demoTabAddress: 'Adresser (A → B)',
+    demoTabMap: 'Välj på karta',
+    demoAddrHint: 'Skriv valfri start- och måladress var som helst i världen.',
+    demoAddrFromLabel: 'Startadress (A)',
+    demoAddrToLabel: 'Måladress (B)',
+    demoAddrFromPlaceholder: 't.ex. Strandvägen 1, Stockholm',
+    demoAddrToPlaceholder: 't.ex. Kungsgatan 10, Stockholm',
+    demoStartRouteBtn: 'Starta demorutt',
+    demoRouteLoading: 'Hämtar körväg',
+    demoRouteGeocoding: 'Söker adresser',
+    demoRouteNeedBothAddr: 'Fyll i både start- och måladress.',
+    demoRouteNotFound: 'Kunde inte hitta en eller båda adresserna.',
+    demoRouteCustomMapName: 'Egen kartrutt (A → B)',
+    demoMapPickA: 'Klicka på kartan för startpunkt A',
+    demoMapPickB: 'Klicka på kartan för mål B',
+    demoMapClearBtn: 'Rensa',
     autoMagicChip: '✨ Automatisk julmagi',
     timelineChip: '📜 Elon-tidslinje',
     langUnitsLabel: 'Språk & Enheter',
@@ -634,7 +674,7 @@ const EN: TranslationDict = {
   audioSfx: 'SFX Only (Spotify)',
   audioMuted: 'Muted',
   backToMenu: '← Menu',
-  controlsBtn: '⚙ Controls',
+  controlsBtn: 'Controls',
   hoHoHoBtn: '🎅 Ho-Ho-Ho',
   northPoleShort: 'North Pole',
   gpsActive: 'GPS Live',
@@ -816,16 +856,16 @@ const EN: TranslationDict = {
     cinemaPill: '🎬 Sky Cinema',
     cinemaPillTitle: 'Sky Cinema projection (V)',
     cameraTitle: 'Switch camera (C)',
-    camChase: '✦ FSD View',
-    camMap: '🗺 Map View',
-    camCinematic: '🎬 Cinematic',
+    camChase: 'FSD View',
+    camMap: 'Map View',
+    camCinematic: 'Cinematic',
     camMapShort: 'Map',
     camCinematicShort: 'Cinematic',
-    followBtn: '◎ Follow Sleigh',
+    followBtn: 'Follow Sleigh',
     soundTitle: 'Sound on/off',
     settingsAria: 'Settings',
     cinemaSoundBtn: '🔊 Sound',
-    cinemaNextBtn: '⏭ Next',
+    cinemaNextBtn: 'Next',
     cinemaNextTitle: 'Next clip',
     cinemaCloseAria: 'Close Sky Cinema',
     cinemaSurfaceAria: 'Display surface',
@@ -833,7 +873,7 @@ const EN: TranslationDict = {
     waitingGps: 'Waiting for GPS',
     retryGps: 'Retry GPS',
     timelineKicker: 'Elon Timeline',
-    timelineNext: 'Next ⏭',
+    timelineNext: 'Next',
     trialTitle: 'Elevation Trial · Badhausstraße',
     trialPause: 'Pause',
     trialResume: 'Resume',
@@ -901,11 +941,31 @@ const EN: TranslationDict = {
     eventConvoy: 'Holiday Convoy',
     eventTunnel: 'Boring Tunnel',
     eventCinema: '🎬 Sky Cinema',
-    eventGigaCinema: '▣ Giga Cinema',
+    eventGigaCinema: '🏢 Giga Cinema',
     surfaceLabel: 'Projection Surface',
     cinemaModeLabel: 'Sky Cinema Mode',
     cinemaAutoLabel: 'Auto Sky Cinema',
     cinemaIntervalToast: 'Auto Sky Cinema',
+    cinemaExpandTitle: 'Show or hide projection options',
+    demoChangeRouteBtn: 'Route',
+    demoModalTitle: 'Choose Demo Route (A → B)',
+    demoTabPresets: 'Famous Routes',
+    demoTabAddress: 'Addresses (A → B)',
+    demoTabMap: 'Pick on Map',
+    demoAddrHint: 'Enter any start and destination address anywhere in the world.',
+    demoAddrFromLabel: 'Start Address (A)',
+    demoAddrToLabel: 'Destination (B)',
+    demoAddrFromPlaceholder: 'e.g. Golden Gate Bridge, San Francisco',
+    demoAddrToPlaceholder: 'e.g. Sausalito, CA',
+    demoStartRouteBtn: 'Start Demo Route',
+    demoRouteLoading: 'Fetching driving route',
+    demoRouteGeocoding: 'Looking up addresses',
+    demoRouteNeedBothAddr: 'Please enter both a start and destination address.',
+    demoRouteNotFound: 'Could not find one or both addresses.',
+    demoRouteCustomMapName: 'Custom Map Route (A → B)',
+    demoMapPickA: 'Click on the map to set start point A',
+    demoMapPickB: 'Click on the map to set destination B',
+    demoMapClearBtn: 'Clear',
     autoMagicChip: '✨ Automatic Magic',
     timelineChip: '📜 Elon Timeline',
     langUnitsLabel: 'Language & Units',

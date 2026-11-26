@@ -817,6 +817,15 @@ export class OsmWorldDirector {
     }
   }
 
+  resetLiveRoute(): void {
+    this.inflightAbort?.abort();
+    this.inflightAbort = null;
+    this.lastFetchMs = 0;
+    this.isLiveOsm = false;
+    this.countryCode = null;
+    this.snapshotVersion++;
+  }
+
   onPlaceChange(cb: (state: OsmWorldState) => void): () => void {
     this.placeListeners.add(cb);
     return () => this.placeListeners.delete(cb);

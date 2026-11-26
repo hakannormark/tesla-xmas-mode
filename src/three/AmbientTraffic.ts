@@ -183,14 +183,16 @@ function getTravelRightOffset(
 
   const lanes = getEffectiveLanes(road);
   const lanesPerDir = Math.max(1, Math.floor(lanes / 2));
+  const halfRoad = road.widthM * 0.5;
   if (lanesPerDir >= 2 && road.widthM >= 10.5) {
-    const halfRoad = road.widthM * 0.5;
     const innerEdge = 0.45;
-    const outerEdge = Math.max(innerEdge + 2.4, halfRoad - 0.75);
+    const outerEdge = Math.max(innerEdge + 2.4, halfRoad - 1.05);
     const laneIdx = car.isSemi ? lanesPerDir - 1 : car.laneSlot % lanesPerDir;
     return innerEdge + ((laneIdx + 0.5) / lanesPerDir) * (outerEdge - innerEdge);
   }
-  return Math.max(2.25, Math.min(2.85, road.widthM * 0.37));
+  const maxOnRoad = Math.max(1.35, halfRoad - (car.isSemi ? 1.15 : 0.95));
+  const idealLane = Math.max(1.45, Math.min(2.35, road.widthM * 0.27));
+  return Math.min(idealLane, maxOnRoad);
 }
 
 /**
@@ -2051,7 +2053,8 @@ export class AmbientTraffic {
       car.poseTx = poseTx;
       car.poseTz = poseTz;
 
-      // Fail-safe player-corridor lateral clearance so oncoming or overtaken vehicles never clip the sleigh
+      // Fail-safe player-corridor lateral clearance so oncoming or overtaken vehicles never clip the sleigh,
+      // clamped tightly so cars remain on the road surface rather than drifting off into yards.
       const finRx = poseX - pf.px;
       const finRz = poseZ - pf.pz;
       const finFwd = finRx * pf.fwdX + finRz * pf.fwdZ;
@@ -2059,7 +2062,7 @@ export class AmbientTraffic {
       const finAlign = poseTx * pf.fwdX + poseTz * pf.fwdZ;
       let desiredAvoidLat = 0;
       if (finFwd > -14 && finFwd < 52) {
-        const minClearLat = PLAYER_CORRIDOR_HALF_W + car.halfWidth + 0.65;
+        const minClearLat = 1.15 + car.halfWidth + 0.45;
         if (Math.abs(finLat) < minClearLat) {
           if (finAlign < -0.35) {
             const env = THREE.MathUtils.smoothstep(finFwd, -14, -6) * (1 - THREE.MathUtils.smoothstep(finFwd, 32, 52));
@@ -2071,6 +2074,7 @@ export class AmbientTraffic {
           }
         }
       }
+      desiredAvoidLat = THREE.MathUtils.clamp(desiredAvoidLat, -1.35, 1.35);
       car.avoidLat = THREE.MathUtils.damp(car.avoidLat, desiredAvoidLat, 7.5, dt);
       const renderX = poseX + pf.rightX * car.avoidLat;
       const renderZ = poseZ + pf.rightZ * car.avoidLat;

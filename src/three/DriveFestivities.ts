@@ -491,7 +491,7 @@ export class DriveFestivities {
     const rawZ = plow.z + Math.sin(plow.heading) * effectiveSide;
     const safe =
       side < 0
-        ? this.enforcePlayerLaneClearance(rawX, rawZ, 3.9, this.lastCenter, this.lastHeading)
+        ? this.enforcePlayerLaneClearance(rawX, rawZ, 2.9, this.lastCenter, this.lastHeading)
         : { x: rawX, z: rawZ };
     out.set(safe.x, this.activeGroundAt(safe.x, safe.z), safe.z);
     return this.effects.worldToLocal(out);
@@ -522,7 +522,8 @@ export class DriveFestivities {
   private tunnelBlend = 0;
   private giftsDelivered = 0;
   private starsCaught = 0;
-  private crittersTapped = 0;
+  private reindeerTapped = 0;
+  private elvesTapped = 0;
   private snowballsLanded = 0;
   private nextMilestoneScore = 5;
   private comboCount = 0;
@@ -565,7 +566,6 @@ export class DriveFestivities {
     });
     scene.add(this.livingWorld.group);
 
-    this.audio.setMixMode('muted');
     void loadSkyCinemaLibrary();
     this.effects.add(this.sky.group, this.events.group);
     scene.add(this.effects, this.skyCinema.group, this.gigaCinema.group);
@@ -1026,11 +1026,12 @@ export class DriveFestivities {
     return this.comboCount;
   }
 
-  getScoreSummary(): { gifts: number; stars: number; critters: number; snowballs: number; combo: number; hoHoBanner: boolean; points: number } {
+  getScoreSummary(): { gifts: number; stars: number; reindeer: number; elves: number; snowballs: number; combo: number; hoHoBanner: boolean; points: number } {
     return {
       gifts: this.giftsDelivered,
       stars: this.starsCaught,
-      critters: this.crittersTapped,
+      reindeer: this.reindeerTapped,
+      elves: this.elvesTapped,
       snowballs: this.snowballsLanded,
       combo: this.comboCount,
       hoHoBanner: this.time < this.hoHoBannerUntil,
@@ -1112,7 +1113,7 @@ export class DriveFestivities {
       return { label: `${spec.cost} ${t.drive.magicPtsUnit}`, isOff: false };
     }
     if (id === 'magicTrail') {
-      return { label: `${TRAIL_LABELS[eq.trailStyle][locale]} ↻`, isOff: eq.trailStyle === 'classic' };
+      return { label: `${TRAIL_LABELS[eq.trailStyle][locale]} ·`, isOff: eq.trailStyle === 'classic' };
     }
     if (id === 'megaSnowball') {
       return eq.megaSnowball ? { label: t.drive.onState, isOff: false } : { label: t.drive.offState, isOff: true };
@@ -1122,7 +1123,7 @@ export class DriveFestivities {
         m => m.companionOwl === eq.companionOwl && m.cyberOwl === eq.cyberOwl
       ) ?? OWL_MODES[2];
       return {
-        label: `${locale === 'en' ? owlMode.labelEn : owlMode.label} ↻`,
+        label: `${locale === 'en' ? owlMode.labelEn : owlMode.label} ·`,
         isOff: !eq.companionOwl,
       };
     }
@@ -1130,7 +1131,7 @@ export class DriveFestivities {
       m => m.goldenSleigh === eq.goldenSleigh && m.cyberReindeer === eq.cyberReindeer
     ) ?? ROYAL_SLEIGH_MODES[3];
     return {
-      label: `${locale === 'en' ? mode.labelEn : mode.label} ↻`,
+      label: `${locale === 'en' ? mode.labelEn : mode.label} ·`,
       isOff: !eq.goldenSleigh && !eq.cyberReindeer,
     };
   }
@@ -1291,10 +1292,10 @@ export class DriveFestivities {
    * snowplows stay cleanly in the opposite/adjacent lane even on narrow residential streets.
    */
   private oncomingLaneOffset(streetWidthM: number, extraClearance = 0): number {
-    if (streetWidthM >= 5.2) {
-      return -(Math.max(2.75, Math.min(3.45, streetWidthM * 0.34)) + extraClearance);
-    }
-    return -(Math.max(3.55, streetWidthM * 0.5 + 1.15) + extraClearance);
+    const halfRoad = streetWidthM * 0.5;
+    const maxOnRoad = Math.max(1.65, halfRoad - 0.85);
+    const target = Math.max(1.65, Math.min(2.45, streetWidthM * 0.28)) + extraClearance * 0.35;
+    return -Math.min(target, maxOnRoad + 0.35);
   }
 
   /**
@@ -1332,7 +1333,7 @@ export class DriveFestivities {
   }
 
   private checkMilestoneFireworks(): void {
-    const total = this.giftsDelivered + this.starsCaught + this.crittersTapped + this.snowballsLanded;
+    const total = this.giftsDelivered + this.starsCaught + this.reindeerTapped + this.elvesTapped + this.snowballsLanded;
     if (total >= this.nextMilestoneScore) {
       while (this.nextMilestoneScore <= total) this.nextMilestoneScore += 5;
       this.sky.triggerCelebrationFireworks(5.2, this.time);
@@ -1487,7 +1488,7 @@ export class DriveFestivities {
     if (!this.skyCinema.isActive()) {
       this.startSkyCinema(this.lastCinemaIdx, false);
     } else {
-      this.announce(`▣ ${i18n.t().drive.gigaActiveToast}`, 3.4);
+      this.announce(`🏢 ${i18n.t().drive.gigaActiveToast}`, 3.4);
     }
   }
 
@@ -1707,7 +1708,11 @@ export class DriveFestivities {
   }
 
   recordCritterTap(kind: 'rudolf' | 'reindeer' | 'elf', x: number, y: number, z: number): void {
-    this.crittersTapped += 1;
+    if (kind === 'elf') {
+      this.elvesTapped += 1;
+    } else {
+      this.reindeerTapped += 1;
+    }
     const basePts = kind === 'elf' ? 15 : 20;
     const { earned, combo } = this.awardTapPoints(basePts);
     this.spawnChimneySparks(x, y + 0.8, z);
@@ -2222,7 +2227,7 @@ export class DriveFestivities {
         }
       }
 
-      const safeConvoy = this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 4.3, center, heading);
+      const safeConvoy = this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 3.15, center, heading);
       const dx = safeConvoy.x - center.x;
       const dz = safeConvoy.z - center.z;
       const ahead = dx * eastCar - dz * northCar;
@@ -2310,7 +2315,7 @@ export class DriveFestivities {
     }
 
     if (this.plowActive && this.plowHasPose) {
-      const safePlow = this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 3.9, center, heading);
+      const safePlow = this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 2.9, center, heading);
       const pdx = safePlow.x - center.x;
       const pdz = safePlow.z - center.z;
       const plowAhead = pdx * eastCar - pdz * northCar;
