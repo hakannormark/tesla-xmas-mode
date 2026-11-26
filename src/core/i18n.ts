@@ -127,6 +127,151 @@ export interface TranslationDict {
   snowmanCrownToast: string;
   wishStarToast: string;
   convoyHornToast: string;
+  unitsDistanceLabel: string;
+  unitsTempLabel: string;
+  unitsAuto: string;
+  unitsMetric: string;
+  unitsImperial: string;
+  unitsCelsius: string;
+  unitsFahrenheit: string;
+  drive: {
+    pageTitle: string;
+    worldAria: string;
+    cinemaPill: string;
+    cinemaPillTitle: string;
+    cameraTitle: string;
+    camChase: string;
+    camMap: string;
+    camCinematic: string;
+    camMapShort: string;
+    camCinematicShort: string;
+    followBtn: string;
+    soundTitle: string;
+    settingsAria: string;
+    cinemaSoundBtn: string;
+    cinemaNextBtn: string;
+    cinemaNextTitle: string;
+    cinemaCloseAria: string;
+    cinemaSurfaceAria: string;
+    cinemaModeAria: string;
+    waitingGps: string;
+    retryGps: string;
+    timelineKicker: string;
+    timelineNext: string;
+    trialTitle: string;
+    trialPause: string;
+    trialResume: string;
+    trialReplay: string;
+    trialToGps: string;
+    trialCredit: string;
+    trialMasl: string;
+    trialGrade: string;
+    demoTitle: string;
+    speedPrefix: string;
+    dockGift: string;
+    dockSnowball: string;
+    dockSalute: string;
+    dockHoHoHo: string;
+    dockLights: string;
+    dockMagicPrefix: string;
+    hohoBanner: string;
+    magicDialogAria: string;
+    magicTitle: string;
+    magicTabPowers: string;
+    magicTabWorkshop: string;
+    magicFoot: string;
+    magicPtsUnit: string;
+    drawerTitle: string;
+    drawerAria: string;
+    vehicleLabel: string;
+    vehicleSleigh: string;
+    vehicleSemi: string;
+    vehicleCybertruck: string;
+    vehicleStarman: string;
+    cameraLabel: string;
+    graphicsMoodLabel: string;
+    themeClassic: string;
+    themeNordic: string;
+    themeCyber: string;
+    skyAuto: string;
+    skyMidnight: string;
+    skyBlue: string;
+    skyDay: string;
+    calendarLabel: string;
+    calAuto: string;
+    calAdv1: string;
+    calAdv2: string;
+    calAdv3: string;
+    calAdv4: string;
+    calLucia: string;
+    calXmasEve: string;
+    fsdPathChip: string;
+    trafficChip: string;
+    frostChip: string;
+    elevationChip: string;
+    audioLabel: string;
+    mixFull: string;
+    mixSfx: string;
+    mixMuted: string;
+    volLabel: string;
+    routeDirect: string;
+    routeMedia: string;
+    micBtn: string;
+    micOnBtn: string;
+    micDeniedBtn: string;
+    soundTestChip: string;
+    magicEventsLabel: string;
+    eventCyberplow: string;
+    eventConvoy: string;
+    eventTunnel: string;
+    eventCinema: string;
+    eventGigaCinema: string;
+    surfaceLabel: string;
+    cinemaModeLabel: string;
+    cinemaAutoLabel: string;
+    cinemaIntervalToast: string;
+    autoMagicChip: string;
+    timelineChip: string;
+    langUnitsLabel: string;
+    testMoreLabel: string;
+    testDemoBtn: string;
+    testTerrainBtn: string;
+    classicModesLink: string;
+    streetYourPos: string;
+    streetFetching: string;
+    powerUnlockedToast: string;
+    powerActiveToast: string;
+    needMagicToast: string;
+    trailLabel: string;
+    megaSnowballState: string;
+    sleighStyleLabel: string;
+    owlLabel: string;
+    cinemaStartedToast: string;
+    cinemaStoppedToast: string;
+    cinemaSurfaceToast: string;
+    gigaActiveToast: string;
+    cinemaModeToast: string;
+    convoyStartedToast: string;
+    lightShowToast: string;
+    hohoToast: string;
+    wishStarEarnedToast: string;
+    wishStarShortToast: string;
+    rudolfShort: string;
+    reindeerShort: string;
+    elfShort: string;
+    giftSingle: string;
+    giftPlural: string;
+    giftDeliveredSingle: string;
+    giftDeliveredPlural: string;
+    snowballMegaHit: string;
+    snowballHit: string;
+    churchBellNamed: string;
+    churchBellAnon: string;
+    noSuperchargerToast: string;
+    magicFullToast: string;
+    onState: string;
+    offState: string;
+  };
 }
 
 const SV: TranslationDict = {
@@ -320,6 +465,151 @@ const SV: TranslationDict = {
   snowmanCrownToast: '⛄ Snögubben jublar med guldkrona! +2 🎁',
   wishStarToast: '🌠 Fångade ett stjärnfall! +3 Önskebonus 🎁',
   convoyHornToast: '📯 Konvojen tutar julhälsning · Strålkastarvåg!',
+  unitsDistanceLabel: 'Hastighet & Avstånd',
+  unitsTempLabel: 'Temperatur',
+  unitsAuto: 'Auto',
+  unitsMetric: 'km/h · km',
+  unitsImperial: 'mph · mi',
+  unitsCelsius: '°C',
+  unitsFahrenheit: '°F',
+  drive: {
+    pageTitle: 'Vintervärlden · Julkarta i 3D',
+    worldAria: 'Interaktiv julvärld',
+    cinemaPill: '🎬 Rymdbio',
+    cinemaPillTitle: 'Rymdbio i himlen (V)',
+    cameraTitle: 'Växla kamera (C)',
+    camChase: '✦ FSD Vy',
+    camMap: '🗺 Kartvy',
+    camCinematic: '🎬 Filmisk',
+    camMapShort: 'Kartvy',
+    camCinematicShort: 'Filmisk',
+    followBtn: '◎ Följ släden',
+    soundTitle: 'Ljud på/av',
+    settingsAria: 'Inställningar',
+    cinemaSoundBtn: '🔊 Ljud',
+    cinemaNextBtn: '⏭ Nästa',
+    cinemaNextTitle: 'Nästa klipp',
+    cinemaCloseAria: 'Stäng Rymdbio',
+    cinemaSurfaceAria: 'Visningsyta',
+    cinemaModeAria: 'Rymdbio-läge',
+    waitingGps: 'Väntar på GPS',
+    retryGps: 'Försök igen GPS',
+    timelineKicker: 'Elon-tidslinje',
+    timelineNext: 'Nästa ⏭',
+    trialTitle: 'Höjdtest · Badhausstraße',
+    trialPause: 'Pausa',
+    trialResume: 'Fortsätt',
+    trialReplay: 'Kör igen',
+    trialToGps: 'Till GPS',
+    trialCredit: 'Höjddata © JAXA · AW3D30',
+    trialMasl: 'ö.h.',
+    trialGrade: 'lutning',
+    demoTitle: 'Demorutt · Lokevägen',
+    speedPrefix: 'Fart',
+    dockGift: '🎁 Julklapp',
+    dockSnowball: '❄ Snöboll',
+    dockSalute: '🎺 Tut',
+    dockHoHoHo: '🎅 Ho-Ho',
+    dockLights: '✨ Ljus',
+    dockMagicPrefix: '✨ MAGI',
+    hohoBanner: '🎅 HO! HO! HO! · GOD JUL! ✨',
+    magicDialogAria: 'Julmagi',
+    magicTitle: '✨ Julmagi',
+    magicTabPowers: '⚡ Fyra av nu',
+    magicTabWorkshop: '🎁 Verkstad',
+    magicFoot: 'Tjäna Julmagi: ⭐ +25 · 🦌 +20 · 🧝 +15 · 🎁 +10 (Combo upp till x4)',
+    magicPtsUnit: 'p',
+    drawerTitle: 'Vintervärlden',
+    drawerAria: 'Kontrollpanel',
+    vehicleLabel: 'Fordon',
+    vehicleSleigh: '🎅 Släde',
+    vehicleSemi: '🚛 Semi',
+    vehicleCybertruck: '📐 Cybertruck',
+    vehicleStarman: '🚀 Starman',
+    cameraLabel: 'Kamera',
+    graphicsMoodLabel: 'Grafik & Stämning',
+    themeClassic: 'Klassisk',
+    themeNordic: 'Nordisk',
+    themeCyber: 'Cyber 2099',
+    skyAuto: 'Auto',
+    skyMidnight: 'Midnatt',
+    skyBlue: 'Blå',
+    skyDay: 'Dag',
+    calendarLabel: 'Julkalender',
+    calAuto: 'Automatisk (Riktigt datum)',
+    calAdv1: '1:a Advent',
+    calAdv2: '2:a Advent',
+    calAdv3: '3:e Advent',
+    calAdv4: '4:e Advent',
+    calLucia: '13 dec · Lucia',
+    calXmasEve: '24 dec · Julafton',
+    fsdPathChip: '❄ FSD Julbana',
+    trafficChip: '🚛 Jul- & Teslatrafik',
+    frostChip: '🌨 Frost på skärmen',
+    elevationChip: '⛰ Riktig höjddata',
+    audioLabel: 'Ljud & Bilstereo',
+    mixFull: 'Full',
+    mixSfx: 'Effekter',
+    mixMuted: 'Tyst',
+    volLabel: 'Volym',
+    routeDirect: 'Direkt',
+    routeMedia: 'Media Player',
+    micBtn: '🎙 Kupémikrofon',
+    micOnBtn: '🎙 Mikrofon PÅ',
+    micDeniedBtn: '🎙 Nekad',
+    soundTestChip: '🔊 Ljudtest',
+    magicEventsLabel: 'Julmagi & Händelser',
+    eventCyberplow: 'Cybertruck-plog',
+    eventConvoy: 'Julkaravan',
+    eventTunnel: 'Boring-tunneln',
+    eventCinema: '🎬 Rymdbio',
+    eventGigaCinema: '▣ Giga-bio',
+    surfaceLabel: 'Visningsyta',
+    cinemaModeLabel: 'Rymdbio-läge',
+    cinemaAutoLabel: 'Auto Rymdbio',
+    cinemaIntervalToast: 'Auto Rymdbio',
+    autoMagicChip: '✨ Automatisk julmagi',
+    timelineChip: '📜 Elon-tidslinje',
+    langUnitsLabel: 'Språk & Enheter',
+    testMoreLabel: 'Test & Övrigt',
+    testDemoBtn: '🧪 Testa demorutt',
+    testTerrainBtn: '⛰ Test höjdterräng',
+    classicModesLink: 'Klassiska lägen →',
+    streetYourPos: 'Din position',
+    streetFetching: 'Hämtar omgivningen',
+    powerUnlockedToast: 'upplåst & aktiverad!',
+    powerActiveToast: 'aktiverat!',
+    needMagicToast: 'Behöver',
+    trailLabel: 'Magispår',
+    megaSnowballState: 'Mega-snöboll',
+    sleighStyleLabel: 'Släde',
+    owlLabel: 'Följe-uggla',
+    cinemaStartedToast: 'Rymdbio',
+    cinemaStoppedToast: 'Rymdbio tonas ut',
+    cinemaSurfaceToast: 'Visningsyta',
+    gigaActiveToast: 'Giga-fasadbio aktiv',
+    cinemaModeToast: 'Rymdbio-läge',
+    convoyStartedToast: 'Coca-Cola & Tesla Julkaravan!',
+    lightShowToast: 'Tesla Jul-Ljusshow!',
+    hohoToast: 'HO! HO! HO! · GOD JUL!',
+    wishStarEarnedToast: 'Julmagi',
+    wishStarShortToast: 'Önskestjärna!',
+    rudolfShort: 'Rudolf!',
+    reindeerShort: 'Ren!',
+    elfShort: 'Julelv!',
+    giftSingle: 'klapp',
+    giftPlural: 'klappar',
+    giftDeliveredSingle: 'levererad julklapp',
+    giftDeliveredPlural: 'levererade julklappar',
+    snowballMegaHit: 'Mega-snöbollssalva träffade!',
+    snowballHit: 'Träff i snön!',
+    churchBellNamed: 'Kyrkklockor',
+    churchBellAnon: 'Julklockor ringer!',
+    noSuperchargerToast: 'Ingen kartlagd Tesla Supercharger i närheten',
+    magicFullToast: 'JULMAGI FULL! STORT FYRVERKERI!',
+    onState: 'På ✓',
+    offState: 'Av',
+  },
 };
 
 const EN: TranslationDict = {
@@ -513,6 +803,151 @@ const EN: TranslationDict = {
   snowmanCrownToast: '⛄ Snowman Crowned with Gold! +2 🎁',
   wishStarToast: '🌠 Shooting Star Caught! +3 Wish Bonus 🎁',
   convoyHornToast: '📯 Convoy Horn Salute · Synchronized Light Flash!',
+  unitsDistanceLabel: 'Speed & Distance',
+  unitsTempLabel: 'Temperature',
+  unitsAuto: 'Auto',
+  unitsMetric: 'km/h · km',
+  unitsImperial: 'mph · mi',
+  unitsCelsius: '°C',
+  unitsFahrenheit: '°F',
+  drive: {
+    pageTitle: 'Winter World · 3D Holiday Map',
+    worldAria: 'Interactive Holiday World',
+    cinemaPill: '🎬 Sky Cinema',
+    cinemaPillTitle: 'Sky Cinema projection (V)',
+    cameraTitle: 'Switch camera (C)',
+    camChase: '✦ FSD View',
+    camMap: '🗺 Map View',
+    camCinematic: '🎬 Cinematic',
+    camMapShort: 'Map',
+    camCinematicShort: 'Cinematic',
+    followBtn: '◎ Follow Sleigh',
+    soundTitle: 'Sound on/off',
+    settingsAria: 'Settings',
+    cinemaSoundBtn: '🔊 Sound',
+    cinemaNextBtn: '⏭ Next',
+    cinemaNextTitle: 'Next clip',
+    cinemaCloseAria: 'Close Sky Cinema',
+    cinemaSurfaceAria: 'Display surface',
+    cinemaModeAria: 'Sky Cinema mode',
+    waitingGps: 'Waiting for GPS',
+    retryGps: 'Retry GPS',
+    timelineKicker: 'Elon Timeline',
+    timelineNext: 'Next ⏭',
+    trialTitle: 'Elevation Trial · Badhausstraße',
+    trialPause: 'Pause',
+    trialResume: 'Resume',
+    trialReplay: 'Replay',
+    trialToGps: 'To GPS',
+    trialCredit: 'Elevation © JAXA · AW3D30',
+    trialMasl: 'elev.',
+    trialGrade: 'grade',
+    demoTitle: 'Demo Route · Lokevägen',
+    speedPrefix: 'Speed',
+    dockGift: '🎁 Gift',
+    dockSnowball: '❄ Snowball',
+    dockSalute: '🎺 Horn',
+    dockHoHoHo: '🎅 Ho-Ho',
+    dockLights: '✨ Lights',
+    dockMagicPrefix: '✨ MAGIC',
+    hohoBanner: '🎅 HO! HO! HO! · MERRY CHRISTMAS! ✨',
+    magicDialogAria: 'Holiday Magic',
+    magicTitle: '✨ Holiday Magic',
+    magicTabPowers: '⚡ Power-Ups',
+    magicTabWorkshop: '🎁 Workshop',
+    magicFoot: 'Earn Magic: ⭐ +25 · 🦌 +20 · 🧝 +15 · 🎁 +10 (Combo up to x4)',
+    magicPtsUnit: 'pts',
+    drawerTitle: 'Winter World',
+    drawerAria: 'Control Panel',
+    vehicleLabel: 'Vehicle',
+    vehicleSleigh: '🎅 Sleigh',
+    vehicleSemi: '🚛 Semi',
+    vehicleCybertruck: '📐 Cybertruck',
+    vehicleStarman: '🚀 Starman',
+    cameraLabel: 'Camera',
+    graphicsMoodLabel: 'Graphics & Mood',
+    themeClassic: 'Classic',
+    themeNordic: 'Nordic',
+    themeCyber: 'Cyber 2099',
+    skyAuto: 'Auto',
+    skyMidnight: 'Midnight',
+    skyBlue: 'Dusk',
+    skyDay: 'Day',
+    calendarLabel: 'Holiday Calendar',
+    calAuto: 'Auto (Today)',
+    calAdv1: '1st Advent',
+    calAdv2: '2nd Advent',
+    calAdv3: '3rd Advent',
+    calAdv4: '4th Advent',
+    calLucia: 'Dec 13 · Lucia',
+    calXmasEve: 'Dec 24 · Xmas Eve',
+    fsdPathChip: '❄ FSD Holiday Path',
+    trafficChip: '🚛 Holiday & Tesla Traffic',
+    frostChip: '🌨 Screen Frost',
+    elevationChip: '⛰ Real Elevation',
+    audioLabel: 'Audio & Cabin Sound',
+    mixFull: 'Full',
+    mixSfx: 'SFX Only',
+    mixMuted: 'Muted',
+    volLabel: 'Volume',
+    routeDirect: 'Direct',
+    routeMedia: 'Media Player',
+    micBtn: '🎙 Cabin Mic',
+    micOnBtn: '🎙 Mic ON',
+    micDeniedBtn: '🎙 Denied',
+    soundTestChip: '🔊 Sound Check',
+    magicEventsLabel: 'Holiday Magic & Events',
+    eventCyberplow: 'Cybertruck Plow',
+    eventConvoy: 'Holiday Convoy',
+    eventTunnel: 'Boring Tunnel',
+    eventCinema: '🎬 Sky Cinema',
+    eventGigaCinema: '▣ Giga Cinema',
+    surfaceLabel: 'Projection Surface',
+    cinemaModeLabel: 'Sky Cinema Mode',
+    cinemaAutoLabel: 'Auto Sky Cinema',
+    cinemaIntervalToast: 'Auto Sky Cinema',
+    autoMagicChip: '✨ Automatic Magic',
+    timelineChip: '📜 Elon Timeline',
+    langUnitsLabel: 'Language & Units',
+    testMoreLabel: 'Test & More',
+    testDemoBtn: '🧪 Test Demo Route',
+    testTerrainBtn: '⛰ Elevation Trial',
+    classicModesLink: 'Classic Modes →',
+    streetYourPos: 'Your location',
+    streetFetching: 'Loading surroundings',
+    powerUnlockedToast: 'unlocked & active!',
+    powerActiveToast: 'activated!',
+    needMagicToast: 'Need',
+    trailLabel: 'Magic Trail',
+    megaSnowballState: 'Mega Snowball',
+    sleighStyleLabel: 'Sleigh',
+    owlLabel: 'Companion Owl',
+    cinemaStartedToast: 'Sky Cinema',
+    cinemaStoppedToast: 'Sky Cinema fading out',
+    cinemaSurfaceToast: 'Display surface',
+    gigaActiveToast: 'Gigafactory Facade Cinema active',
+    cinemaModeToast: 'Sky Cinema mode',
+    convoyStartedToast: 'Coca-Cola & Tesla Holiday Convoy!',
+    lightShowToast: 'Tesla Holiday Light Show!',
+    hohoToast: 'HO! HO! HO! · MERRY CHRISTMAS!',
+    wishStarEarnedToast: 'Holiday Magic',
+    wishStarShortToast: 'Wishing Star!',
+    rudolfShort: 'Rudolph!',
+    reindeerShort: 'Reindeer!',
+    elfShort: 'Holiday Elf!',
+    giftSingle: 'gift',
+    giftPlural: 'gifts',
+    giftDeliveredSingle: 'gift delivered',
+    giftDeliveredPlural: 'gifts delivered',
+    snowballMegaHit: 'Mega Snowball volley landed!',
+    snowballHit: 'Snowball hit!',
+    churchBellNamed: 'Church bells',
+    churchBellAnon: 'Holiday bells chiming!',
+    noSuperchargerToast: 'No mapped Tesla Supercharger nearby',
+    magicFullToast: 'MAGIC FULL! GRAND FIREWORKS!',
+    onState: 'On ✓',
+    offState: 'Off',
+  },
 };
 
 const DICTS: Record<Locale, TranslationDict> = { sv: SV, en: EN };
@@ -526,9 +961,16 @@ class I18nStore {
       const saved = localStorage.getItem('tesla-xmas-locale');
       if (saved === 'sv' || saved === 'en') {
         this.locale = saved;
+      } else if (typeof navigator !== 'undefined' && !navigator.language.toLowerCase().startsWith('sv')) {
+        this.locale = 'en';
       }
     } catch {
-      // Ignore storage access errors in restricted browsers
+      if (typeof navigator !== 'undefined' && !navigator.language.toLowerCase().startsWith('sv')) {
+        this.locale = 'en';
+      }
+    }
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = this.locale;
     }
   }
 
@@ -543,6 +985,9 @@ class I18nStore {
       localStorage.setItem('tesla-xmas-locale', locale);
     } catch {
       // Ignore
+    }
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = locale;
     }
     for (const cb of this.listeners) cb(locale);
   }

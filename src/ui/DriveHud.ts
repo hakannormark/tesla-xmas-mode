@@ -7,13 +7,20 @@ import type {
   SkyMood,
 } from '../core/environment';
 import type { ElonEventType } from '../core/i18n';
+import { i18n, type Locale } from '../core/i18n';
 import type { TelemetryFrame } from '../core/telemetry';
+import { units, type TempPreference, type UnitPreference } from '../core/units';
 import type {
   DriveFestivities,
   MagicPowerId,
   MagicUnlockId,
 } from '../three/DriveFestivities';
-import { MAGIC_POWERS, MAGIC_UNLOCKS } from '../three/DriveFestivities';
+import {
+  MAGIC_POWERS,
+  MAGIC_UNLOCKS,
+  SKY_CINEMA_INTERVALS,
+  type SkyCinemaInterval,
+} from '../three/DriveFestivities';
 import {
   SKY_CINEMA_MODES,
   SKY_CINEMA_SURFACES,
@@ -41,12 +48,6 @@ export interface DriveHudCallbacks {
   onToggleLiveElevation(): boolean;
   getFsdOptions(): { fsdPath: boolean; traffic: boolean; elevation: boolean };
 }
-
-const CAMERA_LABELS: Record<CameraMode, string> = {
-  chase: '✦ FSD Vy',
-  map: '🗺 Kartvy',
-  cinematic: '🎬 Filmisk',
-};
 
 export class DriveHud {
   readonly worldEl: HTMLElement;
@@ -96,6 +97,8 @@ export class DriveHud {
   private drawerOpen = false;
   private magicOpen = false;
   private micState: 'off' | 'active' | 'denied' = 'off';
+  private currentCameraMode: CameraMode = 'chase';
+  private lastDemoSpeedKmh = 34;
 
   constructor(private readonly root: HTMLElement) {
     this.root.innerHTML = `
@@ -141,7 +144,7 @@ export class DriveHud {
       </aside>
 
       <aside class="drive-timeline" data-timeline-card hidden>
-        <div class="timeline-kicker">Elon-tidslinje <span data-timeline-step></span></div>
+        <div class="timeline-kicker"><span data-lbl="timeline-kicker">Elon-tidslinje</span> <span data-timeline-step></span></div>
         <strong data-timeline-title></strong>
         <span data-timeline-text></span>
         <button data-timeline-next type="button">Nästa ⏭</button>
@@ -182,7 +185,7 @@ export class DriveHud {
             <span class="speed-limit-sign" data-maxspeed hidden>50</span>
           </div>
           <div class="meta-row">
-            <span class="pole-distance" data-north hidden><b data-north-arrow aria-hidden="true">↑</b> Nordpolen <span data-distance></span></span>
+            <span class="pole-distance" data-north hidden><b data-north-arrow aria-hidden="true">↑</b> <span data-north-label>Nordpolen</span> <span data-distance></span></span>
             <span class="gift-pill" data-gift-pill hidden></span>
           </div>
         </div>
@@ -254,7 +257,7 @@ export class DriveHud {
         </div>
         <div class="drawer-scroll">
           <section class="drawer-section">
-            <div class="drawer-label">Fordon</div>
+            <div class="drawer-label" data-lbl="vehicle">Fordon</div>
             <div class="segmented cols-2">
               <button type="button" class="active" data-vehicle="sleigh">🎅 Släde</button>
               <button type="button" data-vehicle="semi">🚛 Semi</button>
@@ -264,7 +267,7 @@ export class DriveHud {
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-label">Kamera</div>
+            <div class="drawer-label" data-lbl="camera">Kamera</div>
             <div class="segmented cols-3">
               <button type="button" class="active" data-cam="chase">✦ FSD Vy</button>
               <button type="button" data-cam="map">Kartvy</button>
@@ -273,7 +276,7 @@ export class DriveHud {
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-label">Grafik & Stämning</div>
+            <div class="drawer-label" data-lbl="graphics-mood">Grafik & Stämning</div>
             <div class="segmented cols-2">
               <button type="button" data-quality="ultra">✨ Pixar Ultra</button>
               <button type="button" data-quality="eco">Eco (MCU2)</button>
@@ -290,7 +293,7 @@ export class DriveHud {
               <button type="button" data-sky="daylight">Dag</button>
             </div>
             <label class="select-row">
-              <span>Julkalender</span>
+              <span data-lbl="calendar">Julkalender</span>
               <select data-calendar aria-label="Julkalender">
                 <option value="auto">Automatisk (Riktigt datum)</option>
                 <option value="advent1">1:a Advent</option>
@@ -312,14 +315,14 @@ export class DriveHud {
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-label">Ljud & Bilstereo</div>
+            <div class="drawer-label" data-lbl="audio">Ljud & Bilstereo</div>
             <div class="segmented cols-3">
               <button type="button" data-mix="full">Full</button>
               <button type="button" data-mix="sfx">Effekter</button>
               <button type="button" data-mix="muted">Tyst</button>
             </div>
             <label class="slider-row">
-              <span>Volym <b data-vol-val></b></span>
+              <span><span data-lbl="vol">Volym</span> <b data-vol-val></b></span>
               <input type="range" min="0" max="1" step="0.02" data-vol-slider />
             </label>
             <div class="segmented cols-2">
@@ -333,7 +336,7 @@ export class DriveHud {
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-label">Julmagi & Händelser</div>
+            <div class="drawer-label" data-lbl="magic-events">Julmagi & Händelser</div>
             <div class="live-launch-chip" data-live-launch hidden></div>
             <div class="chip-grid">
               <button type="button" data-event="starlink">Starlink</button>
@@ -346,16 +349,22 @@ export class DriveHud {
               <button type="button" data-cinema-drawer>🎬 Rymdbio</button>
               <button type="button" data-giga-cinema-drawer>▣ Giga-bio</button>
             </div>
-            <div class="drawer-label">Visningsyta</div>
+            <div class="drawer-label" data-lbl="surface">Visningsyta</div>
             <div class="segmented cols-3">
               ${SKY_CINEMA_SURFACES.map(
                 s => `<button type="button" data-cinema-surface="${s.id}">${s.shortLabel}</button>`
               ).join('')}
             </div>
-            <div class="drawer-label">Rymdbio-läge</div>
+            <div class="drawer-label" data-lbl="cinema-mode">Rymdbio-läge</div>
             <div class="segmented cols-4">
               ${SKY_CINEMA_MODES.map(
                 m => `<button type="button" data-cinema-mode="${m.id}" title="${m.description}">${m.shortLabel}</button>`
+              ).join('')}
+            </div>
+            <div class="drawer-label" data-lbl="cinema-auto">Auto Rymdbio</div>
+            <div class="segmented cols-4">
+              ${SKY_CINEMA_INTERVALS.map(
+                iv => `<button type="button" data-cinema-interval="${iv.id}">${iv.label}</button>`
               ).join('')}
             </div>
             <div class="drawer-row-2">
@@ -365,7 +374,27 @@ export class DriveHud {
           </section>
 
           <section class="drawer-section">
-            <div class="drawer-label">Test & Övrigt</div>
+            <div class="drawer-label" data-lbl="lang-units">Språk &amp; Enheter</div>
+            <div class="segmented cols-2">
+              <button type="button" data-lang="sv">🇸🇪 Svenska</button>
+              <button type="button" data-lang="en">🇬🇧 English</button>
+            </div>
+            <div class="drawer-label" data-lbl="units-dist">Hastighet &amp; Avstånd</div>
+            <div class="segmented cols-3">
+              <button type="button" data-unit-dist="auto">Auto</button>
+              <button type="button" data-unit-dist="metric">km/h · km</button>
+              <button type="button" data-unit-dist="imperial">mph · mi</button>
+            </div>
+            <div class="drawer-label" data-lbl="units-temp">Temperatur</div>
+            <div class="segmented cols-3">
+              <button type="button" data-unit-temp="auto">Auto</button>
+              <button type="button" data-unit-temp="C">°C</button>
+              <button type="button" data-unit-temp="F">°F</button>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="drawer-label" data-lbl="test-more">Test & Övrigt</div>
             <div class="drawer-row-2">
               <button type="button" class="toggle-chip" data-demo-toggle aria-pressed="false">🧪 Testa demorutt</button>
               <button type="button" class="toggle-chip" data-terrain>⛰ Test höjdterräng</button>
@@ -417,6 +446,7 @@ export class DriveHud {
     this.demoPanelEl = q('[data-demo-panel]');
     this.demoSpeedSlider = q('[data-demo-speed]');
     this.demoSpeedValEl = q('[data-demo-speed-val]');
+    this.applyLocaleAndUnits();
   }
 
   connect(
@@ -428,6 +458,9 @@ export class DriveHud {
     this.telemetry = telemetry;
     this.callbacks = callbacks;
     this.bindEvents();
+    i18n.onChange(() => this.applyLocaleAndUnits());
+    units.onChange(() => this.applyLocaleAndUnits());
+    this.applyLocaleAndUnits();
     this.syncSettings();
     this.syncMagicUi();
     this.syncCinemaUi();
@@ -675,7 +708,7 @@ export class DriveHud {
         const surface = btn.dataset.cinemaSurface as SkyCinemaSurface;
         this.festivities.setSkyCinemaSurface(surface);
         if (!this.festivities.skyCinema.isActive() && btn.closest('.drive-drawer')) {
-          this.festivities.startSkyCinema(0, false);
+          this.festivities.startSkyCinema(undefined, false);
         }
         this.syncCinemaUi();
         this.syncSettings();
@@ -687,9 +720,17 @@ export class DriveHud {
         const mode = btn.dataset.cinemaMode as SkyCinemaMode;
         this.festivities.setSkyCinemaMode(mode);
         if (!this.festivities.skyCinema.isActive() && btn.closest('.drive-drawer')) {
-          this.festivities.startSkyCinema(0, false);
+          this.festivities.startSkyCinema(undefined, false);
         }
         this.syncCinemaUi();
+        this.syncSettings();
+      };
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-interval]').forEach(btn => {
+      btn.onclick = () => {
+        const iv = btn.dataset.cinemaInterval as SkyCinemaInterval;
+        this.festivities.setSkyCinemaInterval(iv);
         this.syncSettings();
       };
     });
@@ -705,6 +746,24 @@ export class DriveHud {
       this.setDrawerOpen(false);
     };
 
+    this.root.querySelectorAll<HTMLButtonElement>('[data-lang]').forEach(btn => {
+      btn.onclick = () => {
+        i18n.setLocale(btn.dataset.lang as Locale);
+      };
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-unit-dist]').forEach(btn => {
+      btn.onclick = () => {
+        units.setDistancePref(btn.dataset.unitDist as UnitPreference);
+      };
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-unit-temp]').forEach(btn => {
+      btn.onclick = () => {
+        units.setTempPref(btn.dataset.unitTemp as TempPreference);
+      };
+    });
+
     q('[data-demo-toggle]').onclick = () => {
       this.callbacks.onToggleDemo();
       this.setDrawerOpen(false);
@@ -712,7 +771,8 @@ export class DriveHud {
     q('[data-demo-exit]').onclick = () => this.callbacks.onExitDemo();
     this.demoSpeedSlider.oninput = () => {
       const kmh = parseInt(this.demoSpeedSlider.value, 10);
-      this.demoSpeedValEl.textContent = `${kmh} km/h`;
+      this.lastDemoSpeedKmh = kmh;
+      this.demoSpeedValEl.textContent = units.formatSpeed(kmh);
       this.callbacks.onDemoSpeedChange(kmh);
     };
 
@@ -761,13 +821,218 @@ export class DriveHud {
     });
   }
 
+  private getCameraLabel(mode: CameraMode): string {
+    const d = i18n.t().drive;
+    return mode === 'chase' ? d.camChase : mode === 'map' ? d.camMap : d.camCinematic;
+  }
+
+  private applyLocaleAndUnits(): void {
+    const t = i18n.t();
+    const d = t.drive;
+    const isEn = i18n.getLocale() === 'en';
+    const setText = (sel: string, txt: string) => {
+      const el = this.root.querySelector<HTMLElement>(sel);
+      if (el && el.textContent !== txt) el.textContent = txt;
+    };
+
+    if (typeof document !== 'undefined') {
+      document.title = d.pageTitle;
+    }
+    this.worldEl.setAttribute('aria-label', d.worldAria);
+
+    this.cinemaBtn.textContent = d.cinemaPill;
+    this.cinemaBtn.title = d.cinemaPillTitle;
+    this.cameraBtn.textContent = this.getCameraLabel(this.currentCameraMode);
+    this.cameraBtn.title = d.cameraTitle;
+    this.followBtn.textContent = d.followBtn;
+    this.soundQuickBtn.title = d.soundTitle;
+    this.root.querySelector<HTMLElement>('[data-drawer-toggle]')?.setAttribute('aria-label', d.settingsAria);
+
+    this.cinemaUnmuteBtn.textContent = d.cinemaSoundBtn;
+    setText('[data-cinema-next]', d.cinemaNextBtn);
+    this.root.querySelector<HTMLElement>('[data-cinema-next]')?.setAttribute('title', d.cinemaNextTitle);
+    this.root.querySelector<HTMLElement>('[data-cinema-stop]')?.setAttribute('aria-label', d.cinemaCloseAria);
+    this.root.querySelector<HTMLElement>('.cinema-surface-row')?.setAttribute('aria-label', d.cinemaSurfaceAria);
+    this.cinemaModeRowEl.setAttribute('aria-label', d.cinemaModeAria);
+
+    for (const s of SKY_CINEMA_SURFACES) {
+      const text = isEn ? s.shortLabelEn : s.shortLabel;
+      this.root.querySelectorAll<HTMLElement>(`[data-cinema-surface="${s.id}"]`).forEach(el => {
+        el.textContent = text;
+      });
+    }
+    for (const m of SKY_CINEMA_MODES) {
+      const text = isEn ? m.shortLabelEn : m.shortLabel;
+      const desc = isEn ? m.descriptionEn : m.description;
+      this.root.querySelectorAll<HTMLElement>(`[data-cinema-mode="${m.id}"]`).forEach(el => {
+        el.textContent = text;
+        el.title = desc;
+      });
+    }
+
+    if (this.streetEl.textContent === 'Väntar på GPS' || this.streetEl.textContent === 'Waiting for GPS') {
+      this.streetEl.textContent = d.waitingGps;
+    }
+    this.gpsBtn.textContent = d.retryGps;
+    setText('[data-lbl="timeline-kicker"]', d.timelineKicker);
+    setText('[data-timeline-next]', d.timelineNext);
+    setText('[data-trial-panel] strong', d.trialTitle);
+    setText('[data-trial-exit]', d.trialToGps);
+    setText('[data-trial-panel] a', d.trialCredit);
+    if (this.trialPauseBtn.textContent === 'Kör igen' || this.trialPauseBtn.textContent === 'Replay') {
+      this.trialPauseBtn.textContent = d.trialReplay;
+    } else if (this.trialPauseBtn.textContent === 'Fortsätt' || this.trialPauseBtn.textContent === 'Resume') {
+      this.trialPauseBtn.textContent = d.trialResume;
+    } else {
+      this.trialPauseBtn.textContent = d.trialPause;
+    }
+    setText('[data-demo-panel] strong', d.demoTitle);
+    setText('[data-demo-exit]', d.trialToGps);
+    const demoLabelSpan = this.root.querySelector<HTMLElement>('.demo-speed-row > span');
+    if (demoLabelSpan) {
+      const speedVal = units.formatSpeed(this.lastDemoSpeedKmh);
+      if (demoLabelSpan.firstChild && demoLabelSpan.firstChild.nodeType === Node.TEXT_NODE) {
+        demoLabelSpan.firstChild.textContent = `${d.speedPrefix}: `;
+      }
+      this.demoSpeedValEl.textContent = speedVal;
+    }
+
+    setText('.speed-unit', units.speedUnit());
+    setText('[data-north-label]', t.northPoleShort);
+    setText('[data-gift]', d.dockGift);
+    setText('[data-snowball]', d.dockSnowball);
+    setText('[data-salute]', d.dockSalute);
+    setText('[data-hohoho]', d.dockHoHoHo);
+    setText('[data-light-wave]', d.dockLights);
+    this.hohoBannerEl.textContent = d.hohoBanner;
+
+    this.magicPopoverEl.setAttribute('aria-label', d.magicDialogAria);
+    setText('.magic-popover-title strong', d.magicTitle);
+    this.root.querySelector<HTMLElement>('[data-magic-close]')?.setAttribute('aria-label', t.closeDrawer);
+    setText('[data-magic-tab="powers"]', d.magicTabPowers);
+    setText('[data-magic-tab="workshop"]', d.magicTabWorkshop);
+    setText('.magic-popover-foot', d.magicFoot);
+    for (const p of MAGIC_POWERS) {
+      const card = this.root.querySelector<HTMLElement>(`[data-magic-power="${p.id}"]`);
+      if (!card) continue;
+      const titleEl = card.querySelector<HTMLElement>('.magic-card-title');
+      const descEl = card.querySelector<HTMLElement>('.magic-card-desc');
+      if (titleEl) titleEl.textContent = isEn ? p.labelEn : p.label;
+      if (descEl) descEl.textContent = isEn ? p.descriptionEn : p.description;
+    }
+    for (const u of MAGIC_UNLOCKS) {
+      const card = this.root.querySelector<HTMLElement>(`[data-magic-unlock="${u.id}"]`);
+      if (!card) continue;
+      const titleEl = card.querySelector<HTMLElement>('.magic-card-title');
+      const descEl = card.querySelector<HTMLElement>('.magic-card-desc');
+      if (titleEl) titleEl.textContent = isEn ? u.labelEn : u.label;
+      if (descEl) descEl.textContent = isEn ? u.descriptionEn : u.description;
+    }
+
+    this.drawerEl.setAttribute('aria-label', d.drawerAria);
+    const drawerTitle = this.drawerEl.querySelector<HTMLElement>('.drawer-head h2');
+    if (drawerTitle) drawerTitle.innerHTML = `<span>✦</span> ${d.drawerTitle}`;
+    this.drawerEl.querySelector<HTMLElement>('[data-drawer-close]')?.setAttribute('aria-label', t.closeDrawer);
+
+    setText('[data-lbl="vehicle"]', d.vehicleLabel);
+    setText('[data-vehicle="sleigh"]', d.vehicleSleigh);
+    setText('[data-vehicle="semi"]', d.vehicleSemi);
+    setText('[data-vehicle="cybertruck"]', d.vehicleCybertruck);
+    setText('[data-vehicle="starman"]', d.vehicleStarman);
+
+    setText('[data-lbl="camera"]', d.cameraLabel);
+    setText('[data-cam="chase"]', d.camChase);
+    setText('[data-cam="map"]', d.camMapShort);
+    setText('[data-cam="cinematic"]', d.camCinematicShort);
+
+    setText('[data-lbl="graphics-mood"]', d.graphicsMoodLabel);
+    setText('[data-theme="classic"]', d.themeClassic);
+    setText('[data-theme="nordic"]', d.themeNordic);
+    setText('[data-theme="cyber2099"]', d.themeCyber);
+    setText('[data-sky="auto"]', d.skyAuto);
+    setText('[data-sky="midnight"]', d.skyMidnight);
+    setText('[data-sky="twilight"]', d.skyBlue);
+    setText('[data-sky="daylight"]', d.skyDay);
+
+    setText('[data-lbl="calendar"]', d.calendarLabel);
+    const calSel = this.root.querySelector<HTMLSelectElement>('[data-calendar]');
+    if (calSel) {
+      calSel.setAttribute('aria-label', d.calendarLabel);
+      const mapOpt: Record<string, string> = {
+        auto: d.calAuto,
+        advent1: d.calAdv1,
+        advent2: d.calAdv2,
+        advent3: d.calAdv3,
+        advent4: d.calAdv4,
+        lucia: d.calLucia,
+        xmas_eve: d.calXmasEve,
+      };
+      for (const opt of Array.from(calSel.options)) {
+        if (mapOpt[opt.value]) opt.textContent = mapOpt[opt.value];
+      }
+    }
+
+    setText('[data-fsd-path]', d.fsdPathChip);
+    setText('[data-traffic]', d.trafficChip);
+    setText('[data-frost]', d.frostChip);
+    setText('[data-live-elevation]', d.elevationChip);
+
+    setText('[data-lbl="audio"]', d.audioLabel);
+    setText('[data-mix="full"]', d.mixFull);
+    setText('[data-mix="sfx"]', d.mixSfx);
+    setText('[data-mix="muted"]', d.mixMuted);
+    setText('[data-lbl="vol"]', d.volLabel);
+    setText('[data-routing="direct"]', d.routeDirect);
+    setText('[data-routing="media"]', d.routeMedia);
+    setText('[data-sound-test]', d.soundTestChip);
+
+    setText('[data-lbl="magic-events"]', d.magicEventsLabel);
+    setText('[data-event="cyberplow"]', d.eventCyberplow);
+    setText('[data-convoy]', d.eventConvoy);
+    setText('[data-tunnel]', d.eventTunnel);
+    setText('[data-cinema-drawer]', d.eventCinema);
+    setText('[data-giga-cinema-drawer]', d.eventGigaCinema);
+    setText('[data-lbl="surface"]', d.surfaceLabel);
+    setText('[data-lbl="cinema-mode"]', d.cinemaModeLabel);
+    setText('[data-lbl="cinema-auto"]', d.cinemaAutoLabel);
+    for (const iv of SKY_CINEMA_INTERVALS) {
+      setText(`[data-cinema-interval="${iv.id}"]`, isEn ? iv.labelEn : iv.label);
+    }
+    setText('[data-auto-magic]', d.autoMagicChip);
+    setText('[data-timeline]', d.timelineChip);
+
+    setText('[data-lbl="lang-units"]', d.langUnitsLabel);
+    setText('[data-lbl="units-dist"]', t.unitsDistanceLabel);
+    setText('[data-lbl="units-temp"]', t.unitsTempLabel);
+    const countryTag = units.getDetectedCountry()?.toUpperCase();
+    const autoText = countryTag ? `${t.unitsAuto} (${countryTag})` : t.unitsAuto;
+    setText('[data-unit-dist="auto"]', autoText);
+    setText('[data-unit-dist="metric"]', t.unitsMetric);
+    setText('[data-unit-dist="imperial"]', t.unitsImperial);
+    setText('[data-unit-temp="auto"]', autoText);
+    setText('[data-unit-temp="C"]', t.unitsCelsius);
+    setText('[data-unit-temp="F"]', t.unitsFahrenheit);
+
+    setText('[data-lbl="test-more"]', d.testMoreLabel);
+    setText('[data-demo-toggle]', d.testDemoBtn);
+    setText('[data-terrain]', d.testTerrainBtn);
+    setText('.classic-link', d.classicModesLink);
+
+    if (this.festivities) {
+      this.syncSettings();
+      this.syncMagicUi();
+      this.syncCinemaUi();
+    }
+  }
+
   private syncMagicUi(): void {
     if (!this.festivities) return;
+    const d = i18n.t().drive;
     const state = this.festivities.getMagicState();
     const activePowers = this.festivities.getActivePowers();
     const activeById = new Map(activePowers.map(p => [p.id, p]));
 
-    const dockLabel = `✨ MAGI · ${state.points}`;
+    const dockLabel = `${d.dockMagicPrefix} · ${state.points}`;
     if (this.magicToggleBtn.textContent !== dockLabel) {
       this.magicToggleBtn.textContent = dockLabel;
     }
@@ -783,7 +1048,7 @@ export class DriveHud {
       }
     }
 
-    const ptsText = `${state.points} p`;
+    const ptsText = `${state.points} ${d.magicPtsUnit}`;
     if (this.magicPopoverPointsEl.textContent !== ptsText) {
       this.magicPopoverPointsEl.textContent = ptsText;
     }
@@ -807,7 +1072,7 @@ export class DriveHud {
       card.classList.toggle('is-running', Boolean(running));
       card.classList.toggle('is-affordable', !running && affordable);
       card.classList.toggle('is-locked-cost', !running && !affordable);
-      const badgeText = running ? `⏱ ${Math.ceil(running.remainingSec)}s` : `${spec.cost} p`;
+      const badgeText = running ? `⏱ ${Math.ceil(running.remainingSec)}s` : `${spec.cost} ${d.magicPtsUnit}`;
       if (badge.textContent !== badgeText) badge.textContent = badgeText;
       if (prog) {
         const pct = running ? Math.max(0, Math.min(100, (running.remainingSec / running.durationSec) * 100)) : 0;
@@ -836,22 +1101,26 @@ export class DriveHud {
   }
 
   setCameraMode(mode: CameraMode): void {
-    this.cameraBtn.textContent = CAMERA_LABELS[mode];
+    this.currentCameraMode = mode;
+    this.cameraBtn.textContent = this.getCameraLabel(mode);
     this.root.querySelectorAll<HTMLButtonElement>('[data-cam]').forEach(btn =>
       btn.classList.toggle('active', btn.dataset.cam === mode)
     );
   }
 
   setDemoState(active: boolean, speedKmh: number): void {
+    this.lastDemoSpeedKmh = speedKmh;
     this.demoPanelEl.hidden = !active;
     this.demoSpeedSlider.value = String(Math.round(speedKmh));
-    this.demoSpeedValEl.textContent = `${Math.round(speedKmh)} km/h`;
+    this.demoSpeedValEl.textContent = units.formatSpeed(speedKmh);
     this.root.querySelector('[data-demo-toggle]')?.setAttribute('aria-pressed', String(active));
   }
 
   syncSettings(): void {
     const env = this.festivities.environment;
     const audio = this.festivities.audio;
+    const d = i18n.t().drive;
+    const locale = i18n.getLocale();
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach(b =>
       b.classList.toggle('active', b.dataset.quality === env.getQuality())
@@ -886,10 +1155,24 @@ export class DriveHud {
 
     const micBtn = this.root.querySelector<HTMLButtonElement>('[data-mic]')!;
     micBtn.setAttribute('aria-pressed', String(this.micState === 'active'));
-    micBtn.textContent = this.micState === 'active' ? '🎙 Mikrofon PÅ' : this.micState === 'denied' ? '🎙 Nekad' : '🎙 Kupémikrofon';
+    micBtn.textContent = this.micState === 'active' ? d.micOnBtn : this.micState === 'denied' ? d.micDeniedBtn : d.micBtn;
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-lang]').forEach(b =>
+      b.classList.toggle('active', b.dataset.lang === locale)
+    );
+    this.root.querySelectorAll<HTMLButtonElement>('[data-unit-dist]').forEach(b =>
+      b.classList.toggle('active', b.dataset.unitDist === units.getDistancePref())
+    );
+    this.root.querySelectorAll<HTMLButtonElement>('[data-unit-temp]').forEach(b =>
+      b.classList.toggle('active', b.dataset.unitTemp === units.getTempPref())
+    );
 
     this.root.querySelector('[data-tunnel]')?.setAttribute('aria-pressed', String(this.telemetry.getForceTunnel()));
     this.root.querySelector('[data-cinema-drawer]')?.setAttribute('aria-pressed', String(this.festivities.skyCinema.isActive()));
+    const cinemaInterval = this.festivities.getSkyCinemaInterval();
+    this.root.querySelectorAll<HTMLButtonElement>('[data-cinema-interval]').forEach(b =>
+      b.classList.toggle('active', b.dataset.cinemaInterval === cinemaInterval)
+    );
     this.root.querySelector('[data-auto-magic]')?.setAttribute('aria-pressed', String(this.festivities.isAutomaticMagic()));
     this.root.querySelector('[data-timeline]')?.setAttribute('aria-pressed', String(this.festivities.timeline.isEnabled()));
     this.syncCinemaUi();
@@ -897,6 +1180,7 @@ export class DriveHud {
 
   private syncCinemaUi(): void {
     if (!this.festivities) return;
+    const isEn = i18n.getLocale() === 'en';
     const cinema = this.festivities.skyCinema;
     const active = cinema.isActive();
     const info = cinema.getActiveClip();
@@ -917,7 +1201,7 @@ export class DriveHud {
       btn.setAttribute('aria-pressed', String(isCur));
     });
     if (active && info) {
-      const titleText = `🎬 ${info.clip.titleSv}`;
+      const titleText = `🎬 ${isEn ? info.clip.title : (info.clip.titleSv ?? info.clip.title)}`;
       if (this.cinemaTitleEl.textContent !== titleText) {
         this.cinemaTitleEl.textContent = titleText;
       }
@@ -956,14 +1240,16 @@ export class DriveHud {
       viewHeading,
     } = opts;
 
+    const locale = i18n.getLocale();
     const metaParts: string[] = [];
     if (placeName) metaParts.push(placeName);
-    if (hasWorld) metaParts.push(`${env.temperatureC}°C`);
+    if (hasWorld) metaParts.push(units.formatTemp(env.temperatureC));
     if (elevationM !== undefined && Number.isFinite(elevationM)) {
       const g = gradePct ? ` (${gradePct > 0 ? '+' : ''}${gradePct}%)` : '';
-      metaParts.push(`⛰ ${Math.round(elevationM)} m${g}`);
+      metaParts.push(`⛰ ${units.formatElevation(elevationM)}${g}`);
     }
-    if (env.holidayCalendar.badgeSv) metaParts.push(env.holidayCalendar.badgeSv);
+    const calBadge = locale === 'en' ? env.holidayCalendar.badgeEn : env.holidayCalendar.badgeSv;
+    if (calBadge) metaParts.push(calBadge);
     const metaText = metaParts.join(' · ');
     if (this.placeEl.textContent !== metaText) this.placeEl.textContent = metaText;
 
@@ -971,20 +1257,24 @@ export class DriveHud {
     this.junctionEl.hidden = !aheadJunction;
     if (aheadJunction) {
       const glyph = aheadJunction.turn === 'left' ? '↰ ' : aheadJunction.turn === 'right' ? '↱ ' : '↑ ';
-      this.junctionEl.textContent = `${glyph}${aheadJunction.name} · ${aheadJunction.meters} m`;
+      this.junctionEl.textContent = `${glyph}${aheadJunction.name} · ${units.formatShortDistance(aheadJunction.meters)}`;
     }
     this.gpsBtn.hidden = frame.gpsStatus !== 'error';
 
-    this.speedEl.textContent = String(Math.round(frame.speedKmh));
+    const dispSpeed = units.speedValue(frame.speedKmh);
+    const speedUnitStr = units.speedUnit();
+    const speedUnitEl = this.root.querySelector<HTMLElement>('.speed-unit');
+    if (speedUnitEl && speedUnitEl.textContent !== speedUnitStr) speedUnitEl.textContent = speedUnitStr;
+    this.speedEl.textContent = String(dispSpeed);
     this.maxspeedEl.hidden = !maxspeedKmh;
     if (maxspeedKmh) {
-      this.maxspeedEl.textContent = String(maxspeedKmh);
+      this.maxspeedEl.textContent = String(units.speedLimitValue(maxspeedKmh));
       this.maxspeedEl.classList.toggle('is-exceeded', Math.round(frame.speedKmh) > maxspeedKmh + 5);
     }
     this.fsdBadgeEl.classList.toggle('is-active', hasWorld && fsdActive !== false);
 
     this.northEl.hidden = !hasWorld;
-    this.northDistEl.textContent = Math.round(frame.northPoleDistanceKm).toLocaleString('sv-SE') + ' km';
+    this.northDistEl.textContent = units.formatLongDistance(frame.northPoleDistanceKm, locale);
     this.northArrowEl.style.transform = `rotate(${-viewHeading}rad)`;
 
     const summary = this.festivities.getScoreSummary();

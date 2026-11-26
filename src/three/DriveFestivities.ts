@@ -6,7 +6,13 @@ import { EnvironmentManager, type EnvironmentState } from '../core/environment';
 import { i18n, type ElonEventType } from '../core/i18n';
 import type { LiveWorldState } from '../core/liveWorldData';
 import { geoDeltaMeters, type OsmMapSnapshot } from '../core/osmWorld';
-import { SKY_CINEMA_TEST_CLIPS } from '../core/skyCinemaClips';
+import {
+  getSkyCinemaLibrary,
+  loadSkyCinemaLibrary,
+  pickNextSkyCinemaClip,
+  recordSkyCinemaPlayed,
+  type SkyCinemaContext,
+} from '../core/skyCinemaClips';
 import type { TelemetryFrame } from '../core/telemetry';
 import { FrostCanvasOverlay } from '../ui/FrostCanvas';
 import type { ChristmasMap } from './ChristmasMap';
@@ -34,6 +40,34 @@ function loadCinemaSurface(): SkyCinemaSurface {
     // Ignore
   }
   return 'both';
+}
+
+export type SkyCinemaInterval = 'off' | '2' | '5' | '10';
+
+export const SKY_CINEMA_INTERVALS: ReadonlyArray<{
+  id: SkyCinemaInterval;
+  label: string;
+  labelEn: string;
+  seconds: number;
+}> = [
+  { id: 'off', label: 'Manuell', labelEn: 'Manual', seconds: 0 },
+  { id: '2', label: '2 min', labelEn: '2 min', seconds: 120 },
+  { id: '5', label: '5 min', labelEn: '5 min', seconds: 300 },
+  { id: '10', label: '10 min', labelEn: '10 min', seconds: 600 },
+];
+
+function loadCinemaInterval(): SkyCinemaInterval {
+  try {
+    const raw = localStorage.getItem('tesla-xmas-cinema-interval');
+    if (raw === 'off' || raw === '2' || raw === '5' || raw === '10') return raw;
+  } catch {
+    // Ignore
+  }
+  return '5';
+}
+
+function getCinemaIntervalSeconds(iv: SkyCinemaInterval): number {
+  return SKY_CINEMA_INTERVALS.find(item => item.id === iv)?.seconds ?? 300;
 }
 
 const BURST_COUNT = 160;
@@ -79,7 +113,9 @@ export interface MagicPowerSpec {
   id: MagicPowerId;
   icon: string;
   label: string;
+  labelEn: string;
   description: string;
+  descriptionEn: string;
   cost: number;
   durationSec: number;
 }
@@ -88,7 +124,9 @@ export interface MagicUnlockSpec {
   id: MagicUnlockId;
   icon: string;
   label: string;
+  labelEn: string;
   description: string;
+  descriptionEn: string;
   cost: number;
 }
 
@@ -97,7 +135,9 @@ export const MAGIC_POWERS: readonly MagicPowerSpec[] = [
     id: 'giftRain',
     icon: '🎁',
     label: 'Klappregn',
+    labelEn: 'Gift Rain',
     description: 'Skjuter julklappar automatiskt mot husen längs gatan (20s)',
+    descriptionEn: 'Auto-launches holiday gifts at cottages along the street (20s)',
     cost: 40,
     durationSec: 20,
   },
@@ -105,7 +145,9 @@ export const MAGIC_POWERS: readonly MagicPowerSpec[] = [
     id: 'superAurora',
     icon: '🌌',
     label: 'Super-Norrsken',
+    labelEn: 'Super Aurora',
     description: 'Maxar norrsken, fyrverkeriblixtar & guldsnö (30s)',
+    descriptionEn: 'Maximizes northern lights, sky fireworks & golden snow (30s)',
     cost: 50,
     durationSec: 30,
   },
@@ -113,7 +155,9 @@ export const MAGIC_POWERS: readonly MagicPowerSpec[] = [
     id: 'grandFinale',
     icon: '🎆',
     label: 'Fyrverkerifinal',
+    labelEn: 'Grand Finale',
     description: 'Synkad Tesla Ljusshow & storslagen fyrverkerifinal (25s)',
+    descriptionEn: 'Synchronized Tesla Light Show & grand fireworks finale (25s)',
     cost: 80,
     durationSec: 25,
   },
@@ -124,51 +168,59 @@ export const MAGIC_UNLOCKS: readonly MagicUnlockSpec[] = [
     id: 'magicTrail',
     icon: '🌈',
     label: 'Magispår',
+    labelEn: 'Magic Trail',
     description: 'Växla stjärnspår: Norrsken, Plaid, Polkagris eller Klassisk',
+    descriptionEn: 'Cycle stardust trails: Aurora, Plaid, Candy Cane, or Classic',
     cost: 60,
   },
   {
     id: 'megaSnowball',
     icon: '❄️',
     label: 'Mega-snöboll',
+    labelEn: 'Mega Snowball',
     description: 'Avfyrar 3-snöbollssalva med stora snöexplosionsringar',
+    descriptionEn: 'Launches a 3-snowball volley with giant frost burst rings',
     cost: 75,
   },
   {
     id: 'companionOwl',
     icon: '🦉',
     label: 'Följe-uggla',
+    labelEn: 'Companion Owl',
     description: 'Växla mellan magisk snöuggla och futuristisk Cyber-uggla',
+    descriptionEn: 'Switch between Snowy Owl and futuristic Cyber Owl',
     cost: 90,
   },
   {
     id: 'royalSleigh',
     icon: '👑',
     label: 'Guldsläde & Cyber-renar',
+    labelEn: 'Royal Sleigh & Cyber Reindeer',
     description: 'Växla lyxig guldsläde och futuristiska cyber-renar',
+    descriptionEn: 'Cycle luxury Golden Sleigh and futuristic Cyber Reindeer',
     cost: 100,
   },
 ];
 
 const TRAIL_CYCLE: readonly TrailStyle[] = ['aurora', 'plaid', 'candycane', 'classic'];
-const TRAIL_LABELS: Record<TrailStyle, string> = {
-  aurora: 'Norrsken',
-  plaid: 'Plaid',
-  candycane: 'Polkagris',
-  classic: 'Klassisk',
+const TRAIL_LABELS: Record<TrailStyle, { sv: string; en: string }> = {
+  aurora: { sv: 'Norrsken', en: 'Aurora' },
+  plaid: { sv: 'Plaid', en: 'Plaid' },
+  candycane: { sv: 'Polkagris', en: 'Candy Cane' },
+  classic: { sv: 'Klassisk', en: 'Classic' },
 };
 
-const ROYAL_SLEIGH_MODES: ReadonlyArray<{ goldenSleigh: boolean; cyberReindeer: boolean; label: string }> = [
-  { goldenSleigh: true, cyberReindeer: true, label: 'Guld + Cyber-renar' },
-  { goldenSleigh: false, cyberReindeer: true, label: 'Cyber-renar' },
-  { goldenSleigh: true, cyberReindeer: false, label: 'Guldsläde' },
-  { goldenSleigh: false, cyberReindeer: false, label: 'Klassisk' },
+const ROYAL_SLEIGH_MODES: ReadonlyArray<{ goldenSleigh: boolean; cyberReindeer: boolean; label: string; labelEn: string }> = [
+  { goldenSleigh: true, cyberReindeer: true, label: 'Guld + Cyber-renar', labelEn: 'Gold + Cyber Reindeer' },
+  { goldenSleigh: false, cyberReindeer: true, label: 'Cyber-renar', labelEn: 'Cyber Reindeer' },
+  { goldenSleigh: true, cyberReindeer: false, label: 'Guldsläde', labelEn: 'Golden Sleigh' },
+  { goldenSleigh: false, cyberReindeer: false, label: 'Klassisk', labelEn: 'Classic' },
 ];
 
-const OWL_MODES: ReadonlyArray<{ companionOwl: boolean; cyberOwl: boolean; label: string }> = [
-  { companionOwl: true, cyberOwl: false, label: 'Snöuggla' },
-  { companionOwl: true, cyberOwl: true, label: 'Cyber-uggla' },
-  { companionOwl: false, cyberOwl: false, label: 'Av' },
+const OWL_MODES: ReadonlyArray<{ companionOwl: boolean; cyberOwl: boolean; label: string; labelEn: string }> = [
+  { companionOwl: true, cyberOwl: false, label: 'Snöuggla', labelEn: 'Snowy Owl' },
+  { companionOwl: true, cyberOwl: true, label: 'Cyber-uggla', labelEn: 'Cyber Owl' },
+  { companionOwl: false, cyberOwl: false, label: 'Av', labelEn: 'Off' },
 ];
 
 function createDefaultMagicState(): JulmagiState {
@@ -439,7 +491,7 @@ export class DriveFestivities {
     const rawZ = plow.z + Math.sin(plow.heading) * effectiveSide;
     const safe =
       side < 0
-        ? this.enforcePlayerLaneClearance(rawX, rawZ, 3.5, this.lastCenter, this.lastHeading)
+        ? this.enforcePlayerLaneClearance(rawX, rawZ, 3.9, this.lastCenter, this.lastHeading)
         : { x: rawX, z: rawZ };
     out.set(safe.x, this.activeGroundAt(safe.x, safe.z), safe.z);
     return this.effects.worldToLocal(out);
@@ -483,6 +535,10 @@ export class DriveFestivities {
   private elonCycleIdx = 0;
   private lastCinemaIdx = 0;
   private cinemaSurface: SkyCinemaSurface = loadCinemaSurface();
+  private cinemaInterval: SkyCinemaInterval = loadCinemaInterval();
+  private cinemaCooldownSec = Math.min(75, getCinemaIntervalSeconds(this.cinemaInterval) * 0.45);
+  private wasCinemaActive = false;
+  private stoppedTriggerConsumed = false;
   private lastChurchBellTime = -30;
 
   private statusText = '';
@@ -510,6 +566,7 @@ export class DriveFestivities {
     scene.add(this.livingWorld.group);
 
     this.audio.setMixMode('muted');
+    void loadSkyCinemaLibrary();
     this.effects.add(this.sky.group, this.events.group);
     scene.add(this.effects, this.skyCinema.group, this.gigaCinema.group);
 
@@ -1018,12 +1075,13 @@ export class DriveFestivities {
 
   getActivePowers(): ActivePowerInfo[] {
     const out: ActivePowerInfo[] = [];
+    const isEn = i18n.getLocale() === 'en';
     for (const spec of MAGIC_POWERS) {
       const rem = this.powerTimers[spec.id];
       if (rem > 0) {
         out.push({
           id: spec.id,
-          label: spec.label,
+          label: isEn ? spec.labelEn : spec.label,
           icon: spec.icon,
           remainingSec: rem,
           durationSec: spec.durationSec,
@@ -1047,22 +1105,24 @@ export class DriveFestivities {
   getUnlockStatusLabel(id: MagicUnlockId): { label: string; isOff: boolean } {
     const u = this.magicState.unlocked;
     const eq = this.magicState.equipped;
+    const locale = i18n.getLocale();
+    const t = i18n.t();
     if (!u[id]) {
       const spec = MAGIC_UNLOCKS.find(item => item.id === id)!;
-      return { label: `${spec.cost} p`, isOff: false };
+      return { label: `${spec.cost} ${t.drive.magicPtsUnit}`, isOff: false };
     }
     if (id === 'magicTrail') {
-      return { label: `${TRAIL_LABELS[eq.trailStyle]} ↻`, isOff: eq.trailStyle === 'classic' };
+      return { label: `${TRAIL_LABELS[eq.trailStyle][locale]} ↻`, isOff: eq.trailStyle === 'classic' };
     }
     if (id === 'megaSnowball') {
-      return eq.megaSnowball ? { label: 'På ✓', isOff: false } : { label: 'Av', isOff: true };
+      return eq.megaSnowball ? { label: t.drive.onState, isOff: false } : { label: t.drive.offState, isOff: true };
     }
     if (id === 'companionOwl') {
       const owlMode = OWL_MODES.find(
         m => m.companionOwl === eq.companionOwl && m.cyberOwl === eq.cyberOwl
       ) ?? OWL_MODES[2];
       return {
-        label: `${owlMode.label} ↻`,
+        label: `${locale === 'en' ? owlMode.labelEn : owlMode.label} ↻`,
         isOff: !eq.companionOwl,
       };
     }
@@ -1070,7 +1130,7 @@ export class DriveFestivities {
       m => m.goldenSleigh === eq.goldenSleigh && m.cyberReindeer === eq.cyberReindeer
     ) ?? ROYAL_SLEIGH_MODES[3];
     return {
-      label: `${mode.label} ↻`,
+      label: `${locale === 'en' ? mode.labelEn : mode.label} ↻`,
       isOff: !eq.goldenSleigh && !eq.cyberReindeer,
     };
   }
@@ -1095,8 +1155,16 @@ export class DriveFestivities {
   activatePower(id: MagicPowerId): boolean {
     const spec = MAGIC_POWERS.find(p => p.id === id);
     if (!spec) return false;
+    const t = i18n.t();
+    const isEn = i18n.getLocale() === 'en';
+    const specLabel = isEn ? spec.labelEn : spec.label;
     if (this.magicState.points < spec.cost) {
-      this.announce(`✨ Behöver ${spec.cost} Julmagi (du har ${this.magicState.points} p)`, 3.4);
+      this.announce(
+        isEn
+          ? `✨ Need ${spec.cost} Magic (you have ${this.magicState.points} pts)`
+          : `✨ Behöver ${spec.cost} Julmagi (du har ${this.magicState.points} p)`,
+        3.4
+      );
       return false;
     }
 
@@ -1110,14 +1178,14 @@ export class DriveFestivities {
       this.giftRainCooldown = 0.05;
       this.sleigh.triggerReaction('gift');
       this.spawnRingBurst(['#ff3b5c', '#ffd866', '#46e891'], 1.05);
-      this.announce(`🎁 Klappregn aktiverat! (${spec.durationSec}s)`, 4.5);
+      this.announce(`🎁 ${specLabel} ${t.drive.powerActiveToast} (${spec.durationSec}s)`, 4.5);
     } else if (id === 'superAurora') {
       this.superAuroraPulseTimer = 3.2;
       this.sleigh.triggerReaction('landmark');
       this.sky.triggerCelebrationFireworks(6.5, this.time);
       this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
       this.spawnRingBurst(['#2dffaa', '#3ce8ff', '#ff4fa8', '#a855ff'], 1.18);
-      this.announce(`🌌 Super-Norrsken aktiverat! (${spec.durationSec}s)`, 4.5);
+      this.announce(`🌌 ${specLabel} ${t.drive.powerActiveToast} (${spec.durationSec}s)`, 4.5);
     } else if (id === 'grandFinale') {
       this.lightShowTimer = Math.max(this.lightShowTimer, spec.durationSec);
       this.hornFlashTimer = Math.max(this.hornFlashTimer, spec.durationSec);
@@ -1127,7 +1195,7 @@ export class DriveFestivities {
       this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
       this.audio.playLightWaveChime();
       this.spawnRingBurst(['#ffd866', '#ff2e55', '#56f5b8', '#6ff0ff'], 1.25);
-      this.announce(`🎆 Fyrverkerifinal & Ljusshow! (${spec.durationSec}s)`, 5.0);
+      this.announce(`🎆 ${specLabel} & Light Show! (${spec.durationSec}s)`, 5.0);
     }
     return true;
   }
@@ -1135,10 +1203,19 @@ export class DriveFestivities {
   activateOrCycleUnlock(id: MagicUnlockId): boolean {
     const spec = MAGIC_UNLOCKS.find(u => u.id === id);
     if (!spec) return false;
+    const locale = i18n.getLocale();
+    const isEn = locale === 'en';
+    const t = i18n.t();
+    const specLabel = isEn ? spec.labelEn : spec.label;
 
     if (!this.magicState.unlocked[id]) {
       if (this.magicState.points < spec.cost) {
-        this.announce(`✨ Behöver ${spec.cost} Julmagi för ${spec.label} (du har ${this.magicState.points} p)`, 3.6);
+        this.announce(
+          isEn
+            ? `✨ Need ${spec.cost} Magic for ${specLabel} (${this.magicState.points} pts)`
+            : `✨ Behöver ${spec.cost} Julmagi för ${specLabel} (du har ${this.magicState.points} p)`,
+          3.6
+        );
         return false;
       }
       this.magicState.points -= spec.cost;
@@ -1159,7 +1236,7 @@ export class DriveFestivities {
       this.audio.playPowerActivate();
       this.sleigh.triggerReaction('hohoho');
       this.spawnRingBurst(['#ffe37a', '#56f5b8', '#6ff0ff'], 1.1);
-      this.announce(`${spec.icon} ${spec.label} upplåst & aktiverad!`, 4.4);
+      this.announce(`${spec.icon} ${specLabel} ${t.drive.powerUnlockedToast}`, 4.4);
       return true;
     }
 
@@ -1167,11 +1244,16 @@ export class DriveFestivities {
       const idx = TRAIL_CYCLE.indexOf(this.magicState.equipped.trailStyle);
       const next = TRAIL_CYCLE[(idx + 1) % TRAIL_CYCLE.length];
       this.magicState.equipped.trailStyle = next;
-      this.announce(`🌈 Magispår: ${TRAIL_LABELS[next]}`, 3.2);
+      this.announce(`🌈 ${t.drive.trailLabel}: ${TRAIL_LABELS[next][locale]}`, 3.2);
     } else if (id === 'megaSnowball') {
       const next = !this.magicState.equipped.megaSnowball;
       this.magicState.equipped.megaSnowball = next;
-      this.announce(`❄️ Mega-snöboll: ${next ? 'PÅ (3-salva!)' : 'AV'}`, 3.2);
+      this.announce(
+        isEn
+          ? `❄️ Mega Snowball: ${next ? 'ON (3-volley!)' : 'OFF'}`
+          : `❄️ Mega-snöboll: ${next ? 'PÅ (3-salva!)' : 'AV'}`,
+        3.2
+      );
     } else if (id === 'royalSleigh') {
       const curIdx = ROYAL_SLEIGH_MODES.findIndex(
         m =>
@@ -1181,7 +1263,7 @@ export class DriveFestivities {
       const next = ROYAL_SLEIGH_MODES[(curIdx + 1 + ROYAL_SLEIGH_MODES.length) % ROYAL_SLEIGH_MODES.length];
       this.magicState.equipped.goldenSleigh = next.goldenSleigh;
       this.magicState.equipped.cyberReindeer = next.cyberReindeer;
-      this.announce(`👑 Släde: ${next.label}`, 3.2);
+      this.announce(`👑 ${t.drive.sleighStyleLabel}: ${isEn ? next.labelEn : next.label}`, 3.2);
     } else if (id === 'companionOwl') {
       const curIdx = OWL_MODES.findIndex(
         m =>
@@ -1193,10 +1275,8 @@ export class DriveFestivities {
       this.magicState.equipped.cyberOwl = next.cyberOwl;
       this.announce(
         next.cyberOwl
-          ? '🤖 Cyber-uggla aktiverad!'
-          : next.companionOwl
-            ? '🦉 Följe-uggla: Snöuggla'
-            : '🦉 Följe-uggla: Av',
+          ? isEn ? '🤖 Cyber Owl activated!' : '🤖 Cyber-uggla aktiverad!'
+          : `${next.companionOwl ? '🦉' : '🦉'} ${t.drive.owlLabel}: ${isEn ? next.labelEn : next.label}`,
         3.2
       );
     }
@@ -1258,7 +1338,7 @@ export class DriveFestivities {
       this.sky.triggerCelebrationFireworks(5.2, this.time);
       this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
       this.audio.playComboFanfare(4);
-      this.announce('🎉 JULMAGI FULL! STORT FYRVERKERI!', 5.0);
+      this.announce(`🎉 ${i18n.t().drive.magicFullToast}`, 5.0);
     }
   }
 
@@ -1291,11 +1371,22 @@ export class DriveFestivities {
     this.director.trigger(next);
   }
 
-  startSkyCinema(index = 0, allowMutedFallback = false): void {
-    const total = SKY_CINEMA_TEST_CLIPS.length;
+  startSkyCinema(index?: number, allowMutedFallback = false): void {
+    const lib = getSkyCinemaLibrary();
+    const total = lib.length;
     if (total === 0) return;
-    const safeIdx = ((index % total) + total) % total;
-    this.lastCinemaIdx = safeIdx;
+
+    const picked =
+      index === undefined
+        ? pickNextSkyCinemaClip('manual', this.skyCinema.getActiveClip()?.clip.id)
+        : (() => {
+            const safeIdx = ((index % total) + total) % total;
+            const clip = lib[safeIdx];
+            recordSkyCinemaPlayed(clip);
+            return { clip, index: safeIdx, total };
+          })();
+
+    this.lastCinemaIdx = picked.index;
     if (!allowMutedFallback) {
       this.audio.unlock();
       if (this.audio.getMixMode() !== 'muted') {
@@ -1303,28 +1394,69 @@ export class DriveFestivities {
       }
     }
     this.skyCinema.setVolume(Math.max(0.75, this.audio.getVolume()));
-    void this.skyCinema.playClip(safeIdx, { allowMutedFallback });
+    void this.skyCinema.playClipObject(picked.clip, picked.index, picked.total, { allowMutedFallback });
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('landmark');
-    const clip = SKY_CINEMA_TEST_CLIPS[safeIdx];
-    this.announce(`🎬 Rymdbio · ${clip.titleSv}`, 4.5);
+    const isEn = i18n.getLocale() === 'en';
+    const t = i18n.t();
+    this.announce(`🎬 ${t.drive.cinemaStartedToast} · ${isEn ? picked.clip.title : (picked.clip.titleSv ?? picked.clip.title)}`, 4.5);
+  }
+
+  private startAutoSkyCinema(context: SkyCinemaContext): void {
+    const picked = pickNextSkyCinemaClip(context, this.skyCinema.getActiveClip()?.clip.id);
+    this.lastCinemaIdx = picked.index;
+    const isMuted = this.audio.getMixMode() === 'muted';
+    if (!isMuted) {
+      this.audio.playSkyCinemaChime();
+    }
+    this.skyCinema.setVolume(Math.max(0.75, this.audio.getVolume()));
+    void this.skyCinema.playClipObject(picked.clip, picked.index, picked.total, {
+      allowMutedFallback: true,
+      forceMuted: isMuted,
+    });
+    this.sleighAlert = 1.0;
+    this.sleigh.triggerReaction('landmark');
+    this.cinemaCooldownSec = getCinemaIntervalSeconds(this.cinemaInterval);
+    const isEn = i18n.getLocale() === 'en';
+    const t = i18n.t();
+    this.announce(`🎬 ${t.drive.cinemaStartedToast} · ${isEn ? picked.clip.title : (picked.clip.titleSv ?? picked.clip.title)}`, 4.5);
   }
 
   toggleSkyCinema(): void {
     if (this.skyCinema.isActive()) {
       this.stopSkyCinema();
     } else {
-      this.startSkyCinema(this.lastCinemaIdx, false);
+      this.startSkyCinema(undefined, false);
     }
   }
 
   nextSkyCinemaClip(): void {
-    this.startSkyCinema(this.lastCinemaIdx + 1, false);
+    this.startSkyCinema(undefined, false);
+  }
+
+  getSkyCinemaInterval(): SkyCinemaInterval {
+    return this.cinemaInterval;
+  }
+
+  setSkyCinemaInterval(interval: SkyCinemaInterval): void {
+    this.cinemaInterval = interval;
+    try {
+      localStorage.setItem('tesla-xmas-cinema-interval', interval);
+    } catch {
+      // Ignore
+    }
+    const secs = getCinemaIntervalSeconds(interval);
+    this.cinemaCooldownSec = secs > 0 ? Math.min(secs, 45) : 0;
+    const spec = SKY_CINEMA_INTERVALS.find(item => item.id === interval);
+    const t = i18n.t();
+    if (spec) {
+      this.announce(`🎬 ${t.drive.cinemaIntervalToast} · ${i18n.getLocale() === 'en' ? spec.labelEn : spec.label}`, 3.0);
+    }
   }
 
   stopSkyCinema(): void {
     this.skyCinema.stop();
-    this.announce('🎬 Rymdbio tonas ut', 2.4);
+    this.announce(`🎬 ${i18n.t().drive.cinemaStoppedToast}`, 2.4);
   }
 
   getSkyCinemaIntensity(): number {
@@ -1344,8 +1476,9 @@ export class DriveFestivities {
     }
     this.skyCinema.setSkyVisible(surface !== 'giga');
     const spec = SKY_CINEMA_SURFACES.find((s) => s.id === surface);
+    const t = i18n.t();
     if (this.skyCinema.isActive() && spec) {
-      this.announce(`🎬 Visningsyta · ${spec.label}`, 3.2);
+      this.announce(`🎬 ${t.drive.cinemaSurfaceToast} · ${i18n.getLocale() === 'en' ? spec.labelEn : spec.label}`, 3.2);
     }
   }
 
@@ -1354,7 +1487,7 @@ export class DriveFestivities {
     if (!this.skyCinema.isActive()) {
       this.startSkyCinema(this.lastCinemaIdx, false);
     } else {
-      this.announce('▣ Giga-fasadbio aktiv', 3.4);
+      this.announce(`▣ ${i18n.t().drive.gigaActiveToast}`, 3.4);
     }
   }
 
@@ -1365,8 +1498,9 @@ export class DriveFestivities {
   setSkyCinemaMode(mode: SkyCinemaMode): void {
     this.skyCinema.setMode(mode);
     const spec = SKY_CINEMA_MODES.find((m) => m.id === mode);
+    const t = i18n.t();
     if (this.skyCinema.isActive() && spec) {
-      this.announce(`🎬 Rymdbio-läge · ${spec.label}`, 3.2);
+      this.announce(`🎬 ${t.drive.cinemaModeToast} · ${i18n.getLocale() === 'en' ? spec.labelEn : spec.label}`, 3.2);
     }
   }
 
@@ -1378,7 +1512,7 @@ export class DriveFestivities {
     this.sleighAlert = 1.0;
     this.sleigh.triggerReaction('hohoho');
     this.audio.playConvoyHorn();
-    this.announce('🚛 Coca-Cola & Tesla Julkaravan!', 6);
+    this.announce(`🚛 ${i18n.t().drive.convoyStartedToast}`, 6);
   }
 
   triggerConvoySalute(): void {
@@ -1438,7 +1572,7 @@ export class DriveFestivities {
     this.audio.playHoHoHo();
     this.map.villageLights.startWave(this.time, this.lastCenter, this.lastHeading);
     this.sky.triggerCelebrationFireworks(4.2, this.time);
-    this.announce('🎅 HO! HO! HO! · GOD JUL!', 3.6);
+    this.announce(`🎅 ${i18n.t().drive.hohoToast}`, 3.6);
     this.spawnRingBurst(['#ffe37a', '#ff3b5c', '#6ff0ff']);
   }
 
@@ -1563,10 +1697,11 @@ export class DriveFestivities {
     const { earned, combo } = this.awardTapPoints(25);
     this.spawnChimneySparks(star.mesh.position.x, star.mesh.position.y, star.mesh.position.z);
     this.audio.playComboChime(combo);
+    const t = i18n.t();
     const toast =
       combo >= 2
-        ? `⭐ +${earned} Julmagi (x${combo} COMBO!)`
-        : `⭐ +${earned} Julmagi · Önskestjärna!`;
+        ? `⭐ +${earned} ${t.drive.wishStarEarnedToast} (x${combo} COMBO!)`
+        : `⭐ +${earned} ${t.drive.wishStarEarnedToast} · ${t.drive.wishStarShortToast}`;
     this.announce(toast, 3.8);
     this.checkMilestoneFireworks();
   }
@@ -1577,13 +1712,14 @@ export class DriveFestivities {
     const { earned, combo } = this.awardTapPoints(basePts);
     this.spawnChimneySparks(x, y + 0.8, z);
     this.audio.playComboChime(combo);
+    const t = i18n.t();
     const comboSuffix = combo >= 2 ? ` (x${combo} COMBO!)` : '';
     const msg =
       kind === 'rudolf'
-        ? `🔴 +${earned} Julmagi · Rudolf!${comboSuffix}`
+        ? `🔴 +${earned} ${t.drive.wishStarEarnedToast} · ${t.drive.rudolfShort}${comboSuffix}`
         : kind === 'reindeer'
-          ? `🦌 +${earned} Julmagi · Ren!${comboSuffix}`
-          : `🧝 +${earned} Julmagi · Julelv!${comboSuffix}`;
+          ? `🦌 +${earned} ${t.drive.wishStarEarnedToast} · ${t.drive.reindeerShort}${comboSuffix}`
+          : `🧝 +${earned} ${t.drive.wishStarEarnedToast} · ${t.drive.elfShort}${comboSuffix}`;
     this.announce(msg, 3.6);
     this.checkMilestoneFireworks();
   }
@@ -1603,7 +1739,7 @@ export class DriveFestivities {
     this.sky.triggerCelebrationFireworks(5.8, this.time);
     this.audio.playLightWaveChime();
     this.spawnRingBurst(['#ffd866', '#ff2e55', '#55f0ff'], 1.12);
-    this.announce('✨ Tesla Jul-Ljusshow!', 4.8);
+    this.announce(`✨ ${i18n.t().drive.lightShowToast}`, 4.8);
   }
 
   private launchGift(preferSide: -1 | 1, fromPower: boolean): boolean {
@@ -1685,10 +1821,11 @@ export class DriveFestivities {
       this.giftsDelivered += 3;
       const { earned, combo } = this.awardTapPoints(25);
       this.audio.playComboChime(combo);
+      const t = i18n.t();
       const starMsg =
         combo >= 2
-          ? `🌠 +${earned} Julmagi (x${combo} COMBO!)`
-          : `🌠 +${earned} Julmagi · ${i18n.t().wishStarToast}`;
+          ? `🌠 +${earned} ${t.drive.wishStarEarnedToast} (x${combo} COMBO!)`
+          : `🌠 +${earned} ${t.drive.wishStarEarnedToast} · ${t.wishStarToast}`;
       this.announce(starMsg, 4.2);
     }
 
@@ -1836,6 +1973,9 @@ export class DriveFestivities {
     } else {
       this.stoppedSec = Math.max(0, this.stoppedSec - dt * 4.0);
     }
+    if (frame.speedKmh > 6.0) {
+      this.stoppedTriggerConsumed = false;
+    }
     this.sleigh.setStoppedMode(this.stoppedSec);
     this.sleigh.setTheme(env.theme);
 
@@ -1898,6 +2038,52 @@ export class DriveFestivities {
     }
     const street = this.matchedStreet;
 
+    // Cooldown-gated Sky Cinema auto-trigger ("Sällsynt Stjärnstund" + stopped-car pause)
+    const intervalSec = getCinemaIntervalSeconds(this.cinemaInterval);
+    const isCinemaActiveNow = this.skyCinema.isActive();
+    if (this.wasCinemaActive && !isCinemaActiveNow) {
+      this.cinemaCooldownSec = intervalSec;
+    }
+    this.wasCinemaActive = isCinemaActiveNow;
+
+    if (
+      intervalSec > 0 &&
+      hasActiveWorld &&
+      !frame.forceTunnel &&
+      !street?.tunnel &&
+      !isCinemaActiveNow &&
+      this.skyCinema.getIntensity() <= 0.01
+    ) {
+      this.cinemaCooldownSec = Math.max(0, this.cinemaCooldownSec - dt);
+      const nearSupercharger = Boolean(
+        mapSnapshot?.pois.some(
+          p => p.tesla && p.kind === 'charger' && Math.hypot(p.x - center.x, p.z - center.z) < 60
+        )
+      );
+      if (
+        this.stoppedSec >= 8.5 &&
+        !this.stoppedTriggerConsumed &&
+        this.cinemaCooldownSec <= intervalSec * 0.4
+      ) {
+        this.stoppedTriggerConsumed = true;
+        this.startAutoSkyCinema(nearSupercharger ? 'giga' : 'stopped');
+      } else if (
+        (event?.type === 'starship' || superAurora > 0.35) &&
+        this.cinemaCooldownSec <= intervalSec * 0.25
+      ) {
+        this.startAutoSkyCinema('space');
+      } else if (
+        this.cinemaCooldownSec <= 0 &&
+        frame.speedKmh >= 10 &&
+        Math.abs(frame.turnRate) < 0.22 &&
+        !event
+      ) {
+        const hasGigaInView =
+          this.cinemaSurface !== 'sky' && this.map.getGigaFacadeSlots(center, 150).length > 0;
+        this.startAutoSkyCinema(hasGigaInView ? 'giga' : 'cruise');
+      }
+    }
+
     // Update Living World (ice skaters on real lakes, woodland wildlife, town tree, crown snowmen, road signs)
     this.livingWorld.update(
       dt,
@@ -1920,7 +2106,8 @@ export class DriveFestivities {
           this.audio.playChurchBells();
           this.sleighAlert = 1.0;
           this.sleigh.triggerReaction('landmark');
-          this.announce(ch.name ? `🔔 Kyrkklockor · ${ch.name}` : '🔔 Julklockor ringer!');
+          const t = i18n.t();
+          this.announce(ch.name ? `🔔 ${t.drive.churchBellNamed} · ${ch.name}` : `🔔 ${t.drive.churchBellAnon}`);
           break;
         }
       }
@@ -1943,7 +2130,7 @@ export class DriveFestivities {
     const charger = event?.type === 'supercharger' && mapSnapshot?.pois.find(p =>
       p.tesla && p.kind === 'charger' && Math.hypot(p.x - center.x, p.z - center.z) < 180);
     if (event?.type === 'supercharger' && event.elapsed <= dt && !charger) {
-      this.announce('Ingen kartlagd Tesla Supercharger i närheten');
+      this.announce(i18n.t().drive.noSuperchargerToast);
     }
     let plow: { x: number; z: number; heading: number } | false = false;
     if (event?.type === 'cyberplow') {
@@ -2035,7 +2222,7 @@ export class DriveFestivities {
         }
       }
 
-      const safeConvoy = this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 4.0, center, heading);
+      const safeConvoy = this.enforcePlayerLaneClearance(entry.worldX, entry.worldZ, 4.3, center, heading);
       const dx = safeConvoy.x - center.x;
       const dz = safeConvoy.z - center.z;
       const ahead = dx * eastCar - dz * northCar;
@@ -2123,7 +2310,7 @@ export class DriveFestivities {
     }
 
     if (this.plowActive && this.plowHasPose) {
-      const safePlow = this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 3.4, center, heading);
+      const safePlow = this.enforcePlayerLaneClearance(this.plowWorldX, this.plowWorldZ, 3.9, center, heading);
       const pdx = safePlow.x - center.x;
       const pdz = safePlow.z - center.z;
       const plowAhead = pdx * eastCar - pdz * northCar;
@@ -2158,15 +2345,15 @@ export class DriveFestivities {
           const earned = g.awardsPoints ? 10 : 0;
           if (earned > 0) this.awardPoints(earned);
           const t = i18n.t();
-          const ptsTag = earned > 0 ? ` (+${earned} Julmagi)` : '';
+          const ptsTag = earned > 0 ? ` (+${earned} ${t.drive.wishStarEarnedToast})` : '';
           const bonusMsg =
             g.bonusKind === 'town_tree'
               ? `${t.townTreeLitToast}${ptsTag}`
               : g.bonusKind === 'snowman'
                 ? `${t.snowmanCrownToast}${ptsTag}`
                 : earned > 0
-                  ? `🎁 +${earned} Julmagi · ${this.giftsDelivered} ${this.giftsDelivered === 1 ? 'klapp' : 'klappar'}!`
-                  : `${this.giftsDelivered} ${this.giftsDelivered === 1 ? 'levererad julklapp' : 'levererade julklappar'}`;
+                  ? `🎁 +${earned} ${t.drive.wishStarEarnedToast} · ${this.giftsDelivered} ${this.giftsDelivered === 1 ? t.drive.giftSingle : t.drive.giftPlural}!`
+                  : `${this.giftsDelivered} ${this.giftsDelivered === 1 ? t.drive.giftDeliveredSingle : t.drive.giftDeliveredPlural}`;
           this.announce(bonusMsg, 3.8);
           if (g.bonusKind) {
             this.audio.playComboFanfare(3);
@@ -2200,7 +2387,8 @@ export class DriveFestivities {
         }
         this.audio.playSnowballSplat();
         if (!s.silentToast) {
-          this.announce(s.isMega ? '❄️ Mega-snöbollssalva träffade!' : '❄ Träff i snön!', 3.0);
+          const t = i18n.t();
+          this.announce(s.isMega ? `❄️ ${t.drive.snowballMegaHit}` : `❄ ${t.drive.snowballHit}`, 3.0);
         }
         this.checkMilestoneFireworks();
       } else {

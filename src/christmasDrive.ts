@@ -7,6 +7,8 @@ import { LocalDemoDrive } from './core/localDemo';
 import { geoDeltaMeters, OsmWorldDirector, type OsmRoadRibbon } from './core/osmWorld';
 import { TelemetryEngine, type TelemetryFrame } from './core/telemetry';
 import { TerrainTrial, terrainBounds, terrainDatum, terrainFloor, terrainMap, trialHeight } from './core/terrainTrial';
+import { i18n } from './core/i18n';
+import { units } from './core/units';
 import { createAlpineHorizon } from './three/alpineHorizon';
 import { AmbientTraffic } from './three/AmbientTraffic';
 import { ChristmasMap, updateChristmasMapAtmosphere } from './three/ChristmasMap';
@@ -400,7 +402,7 @@ if (!stage) {
     hud.trialPanelEl.hidden = !enabled;
     if (enabled) relief ??= createTrialTerrain();
     if (relief) relief.visible = enabled;
-    hud.trialPauseBtn.textContent = 'Pausa';
+    hud.trialPauseBtn.textContent = i18n.t().drive.trialPause;
     resetTrackState();
     follow();
   }
@@ -422,7 +424,8 @@ if (!stage) {
       if (trial?.complete) setTrial(true);
       else if (trial) {
         trial.paused = !trial.paused;
-        hud.trialPauseBtn.textContent = trial.paused ? 'Fortsätt' : 'Pausa';
+        const d = i18n.t().drive;
+        hud.trialPauseBtn.textContent = trial.paused ? d.trialResume : d.trialPause;
       }
     },
     onExitTrial: () => setTrial(false),
@@ -677,6 +680,12 @@ if (!stage) {
         ? stepDemoFrame(gpsFrame, dt)
         : gpsFrame;
 
+    if (trial) {
+      units.setGeoLocation(frame.latitude, frame.longitude, 'de');
+    } else if (demo) {
+      units.setGeoLocation(frame.latitude, frame.longitude, 'se');
+    }
+
     const osm = trial
       ? terrainMap
       : demo
@@ -879,7 +888,8 @@ if (!stage) {
         activeElevation,
         elevVersion,
         festivities.convoyPositions,
-        festivities.getSleighAlert()
+        festivities.getSleighAlert(),
+        frame.speedKmh / 3.6
       );
     }
     ambientTraffic.group.visible = !!snapshot && ambientTraffic.isEnabled() && !trial;
@@ -1077,9 +1087,10 @@ if (!stage) {
       lastFlightStateSec = time;
       activeFlights = trial ? [] : liveState.flights;
       if (trial) {
+        const d = i18n.t().drive;
         const inclination = Math.round(100 * Math.tan(avatar.rotation.x));
-        hud.trialElevationEl.textContent = `${Math.round(avatar.position.y + terrainDatum)} m ö.h. · ${inclination}% lutning`;
-        if (trial.complete) hud.trialPauseBtn.textContent = 'Kör igen';
+        hud.trialElevationEl.textContent = `${units.formatElevation(avatar.position.y + terrainDatum)} ${d.trialMasl} · ${inclination}% ${d.trialGrade}`;
+        if (trial.complete) hud.trialPauseBtn.textContent = d.trialReplay;
       }
       const ids = new Set(activeFlights.map(f => f.hex || f.callsign));
       for (const [id, model] of aircraftModels) {
@@ -1094,8 +1105,9 @@ if (!stage) {
         aircraftModels.set(id, model);
         flightsRoot.add(model);
       }
+      const d = i18n.t().drive;
       const ahead = matchedRoad && map.nextStreet(matchedRoad, position, direction);
-      const streetLabel = matchedRoad?.name || (snapshot ? 'Din position' : gpsFix ? 'Hämtar omgivningen' : 'Väntar på GPS');
+      const streetLabel = matchedRoad?.name || (snapshot ? d.streetYourPos : gpsFix ? d.streetFetching : d.waitingGps);
       const viewHeading = Math.atan2(orbit.target.x - camera.position.x, camera.position.z - orbit.target.z);
 
       const elevationM = trial

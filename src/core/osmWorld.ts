@@ -1,4 +1,5 @@
 import { DriveSource } from './telemetry';
+import { units } from './units';
 
 export type OsmBiome = 'village' | 'forest' | 'water' | 'highway' | 'open';
 export type OsmBuildingKind =
@@ -98,6 +99,7 @@ export interface OsmWorldState {
   waterCount: number;
   forestCount: number;
   demoTravelM: number;
+  countryCode?: string | null;
 }
 
 interface DemoStop {
@@ -774,6 +776,7 @@ export class OsmWorldDirector {
   private biome: OsmBiome = SWEDISH_WINTER_TOUR[0].biome;
   private nearbyLandmark: string | null = SWEDISH_WINTER_TOUR[0].nearbyLandmark;
   private nearbyChargerName: string | null = SWEDISH_WINTER_TOUR[0].nearbyChargerName;
+  private countryCode: string | null = 'se';
   private isNearRealTunnel = false;
   private landmarkPulse = 0.7;
 
@@ -831,6 +834,7 @@ export class OsmWorldDirector {
     this.demoTravelM = 0;
     const stop = SWEDISH_WINTER_TOUR[this.demoIdx];
     this.isLiveOsm = false;
+    this.countryCode = 'se';
     this.placeName = stop.placeName;
     this.roadName = stop.roadName;
     this.biome = stop.biome;
@@ -867,6 +871,7 @@ export class OsmWorldDirector {
     }
 
     if (source === 'gps') {
+      units.setGeoLocation(lat, lon, this.countryCode !== 'se' ? this.countryCode : null);
       if (!this.isLiveOsm) {
         this.tryHydrateFromCache(lat, lon);
       }
@@ -890,6 +895,8 @@ export class OsmWorldDirector {
       }
     } else {
       // Curated offline Swedish Street-View corridors
+      this.countryCode = 'se';
+      units.setGeoLocation(lat, lon, 'se');
       if (this.isLiveOsm) {
         this.isLiveOsm = false;
         this.snapshotVersion++;
@@ -1000,6 +1007,11 @@ export class OsmWorldDirector {
           const addr = nomData.address;
           const nextPlace = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || this.placeName;
           const nextRoad = addr.road || addr.neighbourhood || this.roadName || nextPlace;
+          const nextCountry = typeof addr.country_code === 'string' ? addr.country_code.toLowerCase() : this.countryCode;
+          if (nextCountry) {
+            this.countryCode = nextCountry;
+            units.setGeoLocation(lat, lon, nextCountry);
+          }
           if (nextPlace !== this.placeName || nextRoad !== this.roadName) {
             this.placeName = nextPlace;
             this.roadName = nextRoad;
@@ -1440,6 +1452,7 @@ export class OsmWorldDirector {
       waterCount: this.snapshot.waters.length,
       forestCount: this.snapshot.forests.length,
       demoTravelM: this.demoTravelM,
+      countryCode: this.countryCode,
     };
   }
 }

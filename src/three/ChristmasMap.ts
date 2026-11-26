@@ -1875,22 +1875,6 @@ export class ChristmasMap {
                     });
                   }
                 }
-              } else {
-                const screenW = Math.min(length * 0.68, 7.8);
-                const screenH = screenW / 1.778;
-                const crownY = height + 0.58 + screenH * 0.5;
-                job.gigaFacadeSlots.push({
-                  id: `${b.id}-f${i}-crown`,
-                  x: a.x + dx * 0.5 + nx * slotInset,
-                  y: base + crownY,
-                  z: a.z + dz * 0.5 + nz * slotInset,
-                  nx,
-                  nz,
-                  yaw,
-                  width: screenW,
-                  height: screenH,
-                  isMainFace: true,
-                });
               }
             }
           }

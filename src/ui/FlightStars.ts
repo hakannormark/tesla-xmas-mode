@@ -1,3 +1,4 @@
+import { i18n } from '../core/i18n';
 import type { LiveFlight } from '../core/liveWorldData';
 import type { TelemetryFrame } from '../core/telemetry';
 
@@ -8,7 +9,7 @@ interface Airport {
   icao_code?: string;
 }
 const shortAirport = (a?: Airport) =>
-  a?.municipality || a?.name || a?.iata_code || a?.icao_code || 'Okänd';
+  a?.municipality || a?.name || a?.iata_code || a?.icao_code || (i18n.getLocale() === 'en' ? 'Unknown' : 'Okänd');
 
 const cleanRouteCity = (label: string) => label.split(' · ')[0].trim();
 
@@ -36,13 +37,13 @@ export class FlightStars {
     void this.show(id);
   }
 
-  private button(id: string, label: string): HTMLButtonElement {
+  private button(id: string, label: string, badgeLabel?: string): HTMLButtonElement {
     let button = this.buttons.get(id);
     if (!button) {
       button = document.createElement('button');
       button.type = 'button';
       button.className = 'flight-star';
-      button.textContent = id === 'pole' ? '✧ N' : `✈ ${label.replace(/^Visa flyg /, '')}`;
+      button.textContent = id === 'pole' ? '✧ N' : `✈ ${badgeLabel ?? label}`;
       button.addEventListener('pointerdown', e => {
         e.stopPropagation();
         e.preventDefault();
@@ -66,9 +67,10 @@ export class FlightStars {
     this.selected = id;
     this.panel.hidden = false;
 
+    const isEn = i18n.getLocale() === 'en';
     const close = document.createElement('button');
     close.type = 'button';
-    close.textContent = 'Stäng ×';
+    close.textContent = isEn ? 'Close ×' : 'Stäng ×';
     close.onclick = () => {
       this.selected = '';
       this.panel.hidden = true;
@@ -77,9 +79,9 @@ export class FlightStars {
 
     const title = document.createElement('strong');
     if (!flight) {
-      title.textContent = '🧭 Nordpolen';
+      title.textContent = isEn ? '🧭 North Pole' : '🧭 Nordpolen';
       const note = document.createElement('div');
-      note.textContent = 'Geografisk nord · 90° N';
+      note.textContent = isEn ? 'Geographic North · 90° N' : 'Geografisk nord · 90° N';
       this.panel.replaceChildren(close, title, note);
       return;
     }
@@ -92,7 +94,8 @@ export class FlightStars {
     const trees = Math.max(50, Math.round(flight.altitudeM / 15));
     const height = document.createElement('div');
     height.className = 'flight-twist';
-    height.textContent = `🎄 ${trees.toLocaleString('sv-SE')} julgranar högt`;
+    const treesStr = trees.toLocaleString(isEn ? 'en-US' : 'sv-SE');
+    height.textContent = isEn ? `🎄 ${treesStr} Christmas trees high` : `🎄 ${treesStr} julgranar högt`;
     this.panel.replaceChildren(close, title, route, height);
 
     const seededRoute =
@@ -110,7 +113,7 @@ export class FlightStars {
       return;
     }
 
-    route.textContent = seededRoute || '🛫 Hämtar rutt…';
+    route.textContent = seededRoute || (isEn ? '🛫 Loading route…' : '🛫 Hämtar rutt…');
 
     try {
       const res = await fetch('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(flight.callsign), {
@@ -128,7 +131,7 @@ export class FlightStars {
       }
     } catch {
       if (this.selected === id && !seededRoute) {
-        route.textContent = '🛫 Polcirkeln · Julrutt';
+        route.textContent = isEn ? '🛫 Arctic Circle · Holiday Route' : '🛫 Polcirkeln · Julrutt';
       }
     }
   }
@@ -139,14 +142,15 @@ export class FlightStars {
     project?: (flight: LiveFlight) => { x: number; y: number; visible: boolean; width?: number; height?: number }
   ): void {
     this.flights.clear();
-    const pole = this.button('pole', 'Visa Nordpolen');
+    const isEn = i18n.getLocale() === 'en';
+    const pole = this.button('pole', isEn ? 'Show North Pole' : 'Visa Nordpolen');
     pole.classList.add('pole-star');
     pole.hidden = !!project;
 
     for (const f of flights) {
       const id = f.hex || f.callsign;
       this.flights.set(id, f);
-      const button = this.button(id, `Visa flyg ${f.callsign}`);
+      const button = this.button(id, isEn ? `Show flight ${f.callsign}` : `Visa flyg ${f.callsign}`, f.callsign);
       if (project) {
         button.classList.add('starman-marker');
         let label = button.querySelector('span');

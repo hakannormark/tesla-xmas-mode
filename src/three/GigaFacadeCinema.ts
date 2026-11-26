@@ -69,12 +69,13 @@ interface SlotVisual {
   haloMat: THREE.MeshBasicMaterial;
 }
 
-const POOL_SIZE = 6;
+const POOL_SIZE = 10;
 
 export class GigaFacadeCinema {
   readonly group = new THREE.Group();
 
   private readonly pool: SlotVisual[] = [];
+  private activeSlotIds = new Set<string>();
   private readonly screenMat: THREE.ShaderMaterial;
   private readonly bezelGeo = new THREE.BoxGeometry(1, 1, 0.2);
   private readonly accentGeo = new THREE.BoxGeometry(1, 0.08, 0.06);
@@ -163,6 +164,7 @@ export class GigaFacadeCinema {
     if (reveal <= 0.002 || slots.length === 0) {
       this.group.visible = false;
       this.visibleCount = 0;
+      this.activeSlotIds.clear();
       for (const item of this.pool) {
         item.root.visible = false;
       }
@@ -184,7 +186,8 @@ export class GigaFacadeCinema {
       const ahead = dx * fwdX + dz * fwdZ;
       const aheadBonus = ahead > -10 ? -ahead * 0.45 : 60;
       const mainBonus = slot.isMainFace ? -8 : 0;
-      const score = dist + aheadBonus + mainBonus - Math.min(20, slot.width * 1.1);
+      const stickyBonus = this.activeSlotIds.has(slot.id) ? -18 : 0;
+      const score = dist + aheadBonus + mainBonus + stickyBonus - Math.min(20, slot.width * 1.1);
       scored.push({ slot, score });
     }
 
@@ -193,6 +196,10 @@ export class GigaFacadeCinema {
     const activeCount = Math.min(POOL_SIZE, scored.length);
     this.visibleCount = activeCount;
     this.group.visible = activeCount > 0;
+    this.activeSlotIds.clear();
+    for (let i = 0; i < activeCount; i++) {
+      this.activeSlotIds.add(scored[i].slot.id);
+    }
 
     this.screenMat.uniforms.uVideo.value = videoTex;
     this.screenMat.uniforms.uTime.value = time;

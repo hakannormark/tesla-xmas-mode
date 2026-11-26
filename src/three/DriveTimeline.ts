@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ELON_MILESTONES } from '../core/elonTimelineData';
+import { i18n } from '../core/i18n';
 import { geoDeltaMeters, type OsmMapSnapshot, type OsmRoadRibbon } from '../core/osmWorld';
 import type { mapClearance } from './mapClearance';
 import { createRoadsideMilestoneEvent, disposeTimelineGroup, type RoadsideMilestoneSlot } from './elonTimelineRoadside';
@@ -18,6 +19,9 @@ export class DriveTimeline {
   constructor(root: HTMLElement, private readonly scene: THREE.Scene) {
     this.card = root.querySelector('[data-timeline-card]')!;
     this.card.querySelector<HTMLButtonElement>('[data-timeline-next]')!.onclick = () => this.advance();
+    i18n.onChange(() => {
+      if (this.enabled) this.renderCardText();
+    });
   }
 
   isEnabled(): boolean {
@@ -40,11 +44,17 @@ export class DriveTimeline {
     this.needsPortal = false;
   }
 
-  private show(): void {
+  private renderCardText(): void {
     const milestone = ELON_MILESTONES[this.index];
-    this.card.querySelector('[data-timeline-step]')!.textContent = `${milestone.year} · ${this.index+1}/${ELON_MILESTONES.length}`;
-    this.card.querySelector('[data-timeline-title]')!.textContent = milestone.sv.title;
-    this.card.querySelector('[data-timeline-text]')!.textContent = milestone.sv.text;
+    const locale = i18n.getLocale();
+    const copy = milestone[locale];
+    this.card.querySelector('[data-timeline-step]')!.textContent = `${milestone.year} · ${this.index + 1}/${ELON_MILESTONES.length}`;
+    this.card.querySelector('[data-timeline-title]')!.textContent = copy.title;
+    this.card.querySelector('[data-timeline-text]')!.textContent = copy.text;
+  }
+
+  private show(): void {
+    this.renderCardText();
     this.needsPortal = true;
     this.nextDistance = 230;
     this.nextTime = 14;

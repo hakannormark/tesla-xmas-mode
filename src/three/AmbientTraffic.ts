@@ -93,6 +93,7 @@ interface MovingVehicle {
   smoothPitch: number;
   smoothRoll: number;
   blockedSec: number;
+  avoidLat: number;
   turnArc?: TurnArc;
 }
 
@@ -189,7 +190,7 @@ function getTravelRightOffset(
     const laneIdx = car.isSemi ? lanesPerDir - 1 : car.laneSlot % lanesPerDir;
     return innerEdge + ((laneIdx + 0.5) / lanesPerDir) * (outerEdge - innerEdge);
   }
-  return Math.max(1.75, Math.min(2.65, road.widthM * 0.34));
+  return Math.max(2.25, Math.min(2.85, road.widthM * 0.37));
 }
 
 /**
@@ -731,6 +732,7 @@ export class AmbientTraffic {
         smoothPitch: 0,
         smoothRoll: 0,
         blockedSec: 0,
+        avoidLat: 0,
       });
     }
 
@@ -865,7 +867,7 @@ export class AmbientTraffic {
     const { fwdX, fwdZ } = pf;
     const desiredAhead = THREE.MathUtils.lerp(targetAheadMin, targetAheadMax, (k * 0.37) % 1);
     const isSameDir = car.flow === 'same_dir';
-    const minAheadGate = isSameDir ? 42 : 72;
+    const minAheadGate = isSameDir ? 58 : 72;
 
     let bestScore = Infinity;
     let bestRoadIdx = car.roadIdx;
@@ -905,7 +907,7 @@ export class AmbientTraffic {
         const dx = candX - playerPos.x;
         const dz = candZ - playerPos.z;
         const ahead = dx * fwdX + dz * fwdZ;
-        const effMinAhead = travelDotFwd >= 0.2 ? 42 : minAheadGate;
+        const effMinAhead = travelDotFwd >= 0.2 ? 58 : minAheadGate;
         if (ahead < effMinAhead || ahead > 240) continue;
 
         // Never spawn a crossing vehicle whose footprint or immediate path cuts across the player's approaching corridor
@@ -1018,6 +1020,7 @@ export class AmbientTraffic {
     car.hasPose = false;
     car.coasting = false;
     car.blockedSec = 0;
+    car.avoidLat = 0;
     const dr = this.drivableRoads[bestRoadIdx];
     const sInit = dr ? sampleRoad(dr, bestDist) : undefined;
     const actualSameDir = sInit ? (sInit.tx * bestDir) * fwdX + (sInit.tz * bestDir) * fwdZ >= 0.2 : isSameDir;
@@ -1029,7 +1032,7 @@ export class AmbientTraffic {
       : dr?.road.maxspeed && dr.road.maxspeed > 40
         ? 38
         : 28;
-    const flowMul = actualSameDir && !isHighway ? 0.78 : 1.0;
+    const flowMul = actualSameDir && !isHighway ? 0.95 : 1.0;
     car.baseSpeed = (car.isSemi ? 0.85 : 1.0) * flowMul * (speedKmh / 3.6);
     car.currentSpeed = car.baseSpeed;
   }
@@ -1325,14 +1328,15 @@ export class AmbientTraffic {
   private tryPlaceParkedAhead(
     slot: ParkedVehicleSlot,
     slotIdx: number,
+    mapData: ChristmasMapData,
     playerPos: THREE.Vector3,
     playerHeading: number,
     groundAt?: (x: number, z: number) => number,
     minAhead = 46,
     maxAhead = 185,
   ): boolean {
-    const fwdX = Math.sin(playerHeading);
-    const fwdZ = -Math.cos(playerHeading);
+    const pf = makePlayerFrame(playerPos, playerHeading);
+    const { fwdX, fwdZ } = pf;
     const desiredAhead = THREE.MathUtils.lerp(minAhead, maxAhead, ((slotIdx * 0.31) + 0.18) % 1);
     let bestScore = Infinity;
     let bestX = 0;
@@ -1353,7 +1357,7 @@ export class AmbientTraffic {
       }
       for (let d = 20; d < dr.totalLen - 16; d += 38) {
         const s = sampleRoad(dr, d);
-        const curbOffset = Math.max(1.5, dr.road.widthM * 0.5 - 0.85);
+        const curbOffset = Math.max(3.85, dr.road.widthM * 0.5 + 1.35);
         const px = s.x + s.nx * slot.side * curbOffset;
         const pz = s.z + s.nz * slot.side * curbOffset;
         const dx = px - playerPos.x;
@@ -1361,6 +1365,8 @@ export class AmbientTraffic {
         const ahead = dx * fwdX + dz * fwdZ;
         if (ahead < minAhead || ahead > maxAhead) continue;
         if (Math.hypot(dx, dz) < 22) continue;
+        if (mapData.clearance && !mapData.clearance.clear({ x: px, z: pz }, 1.45)) continue;
+        if (footprintHitsPlayerCorridor(px, pz, s.tx, s.tz, 3.2, 1.3, pf, -14, 48, 0.8)) continue;
 
         let nearJunction = false;
         for (let j = 0; j < this.junctionPts.length; j++) {
@@ -1615,6 +1621,7 @@ export class AmbientTraffic {
       this.tryPlaceParkedAhead(
         ps,
         i,
+        mapData,
         playerPos,
         playerHeading,
         groundAt,
@@ -1666,6 +1673,7 @@ export class AmbientTraffic {
     elevationVersion = 0,
     convoyPositions: ReadonlyArray<{ x: number; y: number; z: number; heading: number }> = [],
     sleighAlert = 0,
+    playerSpeedMs = 0,
   ): void {
     const resolvedElev = groundAt ? elevationVersion : -1;
     if (this.builtSnapshotVersion !== snapshot.version) {
@@ -1795,22 +1803,38 @@ export class AmbientTraffic {
 
       let yieldForPlayer = this.shouldYieldForPlayer(car, poseX, poseZ, poseTx, poseTz, dr, pf);
 
+      const relRx = poseX - pf.px;
+      const relRz = poseZ - pf.pz;
+      const relAlong = relRx * pf.fwdX + relRz * pf.fwdZ;
+      const relLat = relRx * pf.rightX + relRz * pf.rightZ;
+      const relAlign = poseTx * pf.fwdX + poseTz * pf.fwdZ;
+      const sameDirAheadInCorridor =
+        relAlign > 0.65 &&
+        relAlong > -(car.halfLength + 2.5) &&
+        relAlong < 46 &&
+        Math.abs(relLat) < PLAYER_CORRIDOR_HALF_W + car.halfWidth + 0.85;
+
       // When yielding for the player, stay cleanly stopped until the player passes (never creep forward into player!)
       // When yielding only for ambient traffic, gently ease forward if deadlocked > 2.2s.
+      const effectiveYieldTraffic = shouldYieldTraffic && !(sameDirAheadInCorridor && relAlong < 24);
       car.blockedSec =
-        shouldYieldTraffic && !yieldForPlayer ? car.blockedSec + dt : Math.max(0, car.blockedSec - dt * 2);
-      let isBraking = yieldForPlayer || (shouldYieldTraffic && car.blockedSec <= 2.2);
-      const targetSpeed = yieldForPlayer
+        effectiveYieldTraffic && !yieldForPlayer ? car.blockedSec + dt : Math.max(0, car.blockedSec - dt * 2);
+      let isBraking = yieldForPlayer || (effectiveYieldTraffic && car.blockedSec <= 2.2);
+      let targetSpeed = yieldForPlayer
         ? 0
-        : shouldYieldTraffic
+        : effectiveYieldTraffic
           ? car.blockedSec > 2.2
             ? car.baseSpeed * 0.35
             : 0
           : car.baseSpeed;
+      if (sameDirAheadInCorridor && !yieldForPlayer) {
+        targetSpeed = Math.max(targetSpeed, playerSpeedMs + 3.8);
+        isBraking = false;
+      }
       car.currentSpeed = THREE.MathUtils.damp(
         car.currentSpeed,
         targetSpeed,
-        yieldForPlayer ? 9.5 : shouldYieldTraffic ? 7.5 : 3.2,
+        yieldForPlayer ? 9.5 : sameDirAheadInCorridor ? 6.8 : effectiveYieldTraffic ? 7.5 : 3.2,
         dt,
       );
       if (yieldForPlayer && car.currentSpeed < 0.25) car.currentSpeed = 0;
@@ -2026,13 +2050,38 @@ export class AmbientTraffic {
       car.worldZ = poseZ;
       car.poseTx = poseTx;
       car.poseTz = poseTz;
-      const wy = groundAt?.(poseX, poseZ) ?? 0;
+
+      // Fail-safe player-corridor lateral clearance so oncoming or overtaken vehicles never clip the sleigh
+      const finRx = poseX - pf.px;
+      const finRz = poseZ - pf.pz;
+      const finFwd = finRx * pf.fwdX + finRz * pf.fwdZ;
+      const finLat = finRx * pf.rightX + finRz * pf.rightZ;
+      const finAlign = poseTx * pf.fwdX + poseTz * pf.fwdZ;
+      let desiredAvoidLat = 0;
+      if (finFwd > -14 && finFwd < 52) {
+        const minClearLat = PLAYER_CORRIDOR_HALF_W + car.halfWidth + 0.65;
+        if (Math.abs(finLat) < minClearLat) {
+          if (finAlign < -0.35) {
+            const env = THREE.MathUtils.smoothstep(finFwd, -14, -6) * (1 - THREE.MathUtils.smoothstep(finFwd, 32, 52));
+            desiredAvoidLat = (-minClearLat - finLat) * env;
+          } else if (finAlign > 0.35 && finFwd > -10 && finFwd < 24) {
+            const env = THREE.MathUtils.smoothstep(finFwd, -10, -4) * (1 - THREE.MathUtils.smoothstep(finFwd, 15, 24));
+            const sideSign = Math.abs(finLat) >= 0.2 ? Math.sign(finLat) : 1;
+            desiredAvoidLat = (sideSign * minClearLat - finLat) * env;
+          }
+        }
+      }
+      car.avoidLat = THREE.MathUtils.damp(car.avoidLat, desiredAvoidLat, 7.5, dt);
+      const renderX = poseX + pf.rightX * car.avoidLat;
+      const renderZ = poseZ + pf.rightZ * car.avoidLat;
+
+      const wy = groundAt?.(renderX, renderZ) ?? 0;
       const hover = car.role === 'gift_sleigh' ? 0.08 * Math.sin(time * 3.1 + car.phase) : 0;
       const targetPitch =
         dPlayer < 150 && groundAt
           ? Math.atan2(
-              groundAt(poseX + poseTx * 2.0, poseZ + poseTz * 2.0) -
-                groundAt(poseX - poseTx * 2.0, poseZ - poseTz * 2.0),
+              groundAt(renderX + poseTx * 2.0, renderZ + poseTz * 2.0) -
+                groundAt(renderX - poseTx * 2.0, renderZ - poseTz * 2.0),
               4.0
             )
           : 0;
@@ -2044,7 +2093,7 @@ export class AmbientTraffic {
       car.smoothPitch = THREE.MathUtils.damp(car.smoothPitch, targetPitch, 5.5, dt);
       car.smoothRoll = THREE.MathUtils.damp(car.smoothRoll, targetRoll, 5.5, dt);
 
-      car.group.position.set(poseX, wy + hover, poseZ);
+      car.group.position.set(renderX, wy + hover, renderZ);
       car.group.rotation.order = 'YXZ';
       car.group.rotation.y = car.smoothYaw;
       car.group.rotation.x = -car.smoothPitch;
@@ -2064,7 +2113,7 @@ export class AmbientTraffic {
         if (!ps.placed || ahead < -32 || dist > 195) {
           ps.placed = false;
           ps.group.visible = false;
-          this.tryPlaceParkedAhead(ps, i, playerPos, playerHeading, groundAt, 112, 195);
+          this.tryPlaceParkedAhead(ps, i, mapData, playerPos, playerHeading, groundAt, 112, 195);
         }
       }
     }

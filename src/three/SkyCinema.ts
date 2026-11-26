@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { HolidayThemeId } from '../core/environment';
+import { i18n } from '../core/i18n';
 import {
+  getSkyCinemaLibrary,
   resolveSkyCinemaUrl,
   SKY_CINEMA_TEST_CLIPS,
   type SkyCinemaClip,
@@ -12,18 +14,23 @@ export type SkyCinemaSurface = 'sky' | 'giga' | 'both';
 export const SKY_CINEMA_SURFACES: ReadonlyArray<{
   id: SkyCinemaSurface;
   label: string;
+  labelEn: string;
   shortLabel: string;
+  shortLabelEn: string;
 }> = [
-  { id: 'sky', label: 'Himmel', shortLabel: '✦ Himmel' },
-  { id: 'giga', label: 'Giga-fasad', shortLabel: '▣ Giga-fasad' },
-  { id: 'both', label: 'Båda', shortLabel: '◈ Båda' },
+  { id: 'sky', label: 'Himmel', labelEn: 'Sky', shortLabel: '✦ Himmel', shortLabelEn: '✦ Sky' },
+  { id: 'giga', label: 'Giga-fasad', labelEn: 'Giga Facade', shortLabel: '▣ Giga-fasad', shortLabelEn: '▣ Giga Facade' },
+  { id: 'both', label: 'Båda', labelEn: 'Both', shortLabel: '◈ Båda', shortLabelEn: '◈ Both' },
 ];
 
 export interface SkyCinemaModeSpec {
   id: SkyCinemaMode;
   label: string;
+  labelEn: string;
   shortLabel: string;
+  shortLabelEn: string;
   description: string;
+  descriptionEn: string;
   radius: number;
   elevation: number;
   azimuth: number;
@@ -45,8 +52,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
   {
     id: 'skyvault',
     label: 'Himlavalv',
+    labelEn: 'Sky Vault',
     shortLabel: 'Himlavalv',
+    shortLabelEn: 'Sky Vault',
     description: 'Stor duk som fyller himlen ned bakom bergen, lätt vinklad',
+    descriptionEn: 'Wide canvas spanning across the sky behind the mountains',
     radius: 670,
     elevation: 0.215,
     azimuth: 0.05,
@@ -66,8 +76,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
   {
     id: 'aurora',
     label: 'Norrsken',
+    labelEn: 'Aurora',
     shortLabel: 'Norrsken',
+    shortLabelEn: 'Aurora',
     description: 'Tydlig, stor norrskensbio rakt fram ned mot horisonten',
+    descriptionEn: 'Vivid wide northern lights cinema straight ahead',
     radius: 670,
     elevation: 0.21,
     azimuth: 0.0,
@@ -87,8 +100,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
   {
     id: 'oblique',
     label: 'Sned sky',
+    labelEn: 'Angled Sky',
     shortLabel: 'Sned sky',
+    shortLabelEn: 'Angled',
     description: 'Stor duk åt sidan och snett krökt över himlavalvet',
+    descriptionEn: 'Off-center curved projection angled across the sky',
     radius: 670,
     elevation: 0.22,
     azimuth: -0.14,
@@ -108,8 +124,11 @@ export const SKY_CINEMA_MODES: readonly SkyCinemaModeSpec[] = [
   {
     id: 'classic',
     label: 'Klassisk ram',
+    labelEn: 'Classic Frame',
     shortLabel: 'Ram',
+    shortLabelEn: 'Frame',
     description: 'Närmare bioduk med tydlig norrskensram',
+    descriptionEn: 'Closer cinema frame with aurora border & caption',
     radius: 155,
     elevation: 0.21,
     azimuth: 0.0,
@@ -342,6 +361,8 @@ export class SkyCinema {
   private state: CinemaState = 'idle';
   private reveal = 0;
   private activeIndex = 0;
+  private currentClip: SkyCinemaClip | null = null;
+  private currentTotal = SKY_CINEMA_TEST_CLIPS.length;
   private hasPlaced = false;
   private cinemaHeading = 0;
   private hasVideoFrame = false;
@@ -500,6 +521,11 @@ export class SkyCinema {
 
     this.group.add(this.veilMesh, this.screenMesh, this.captionMesh);
     this.applyRenderOrder();
+    i18n.onChange(() => {
+      if (this.isActive() && this.currentClip) {
+        this.drawCaption(this.currentClip, this.activeIndex, this.currentTotal);
+      }
+    });
   }
 
   private applyRenderOrder(): void {
@@ -593,10 +619,14 @@ export class SkyCinema {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    const isEn = i18n.getLocale() === 'en';
+    const modeTag = isEn ? 'SKY CINEMA' : 'RYMDBIO';
+    const captionTitle = isEn ? clip.title : (clip.titleSv ?? clip.title);
+
     ctx.fillStyle = '#7fffe0';
     ctx.font = '700 20px Inter, sans-serif';
     ctx.fillText(
-      `✦ ELONVERSE · RYMDBIO (${index + 1}/${total}) · ${clip.source} ${clip.year}`,
+      `✦ ELONVERSE · ${modeTag} (${index + 1}/${total}) · ${clip.source} ${clip.year}`,
       w * 0.5,
       38,
       w - 84
@@ -604,33 +634,45 @@ export class SkyCinema {
 
     ctx.fillStyle = '#fff9ec';
     ctx.font = '700 32px "Cinzel", Georgia, serif';
-    ctx.fillText(`“${clip.titleSv}”`, w * 0.5, 84, w - 76);
+    ctx.fillText(`“${captionTitle}”`, w * 0.5, 84, w - 76);
 
     this.captionTex.needsUpdate = true;
   }
 
-  async playClip(index: number, opts?: { allowMutedFallback?: boolean }): Promise<void> {
-    const total = SKY_CINEMA_TEST_CLIPS.length;
+  async playClip(index: number, opts?: { allowMutedFallback?: boolean; forceMuted?: boolean }): Promise<void> {
+    const lib = getSkyCinemaLibrary();
+    const total = lib.length;
     if (total === 0) return;
 
     const safeIdx = ((index % total) + total) % total;
-    const clip = SKY_CINEMA_TEST_CLIPS[safeIdx];
+    const clip = lib[safeIdx];
+    await this.playClipObject(clip, safeIdx, total, opts);
+  }
+
+  async playClipObject(
+    clip: SkyCinemaClip,
+    index: number,
+    total: number,
+    opts?: { allowMutedFallback?: boolean; forceMuted?: boolean }
+  ): Promise<void> {
     const token = ++this.playToken;
 
-    this.activeIndex = safeIdx;
+    this.activeIndex = index;
+    this.currentClip = clip;
+    this.currentTotal = Math.max(1, total);
     this.hasRequestedPlayback = true;
     this.hasPlaced = false;
     this.state = 'entering';
     this.group.visible = true;
     this.hasVideoFrame = false;
     this.screenMat.uniforms.uHasVideo.value = 0;
-    this.drawCaption(clip, safeIdx, total);
+    this.drawCaption(clip, this.activeIndex, this.currentTotal);
 
     const url = resolveSkyCinemaUrl(clip.file);
     this.video.pause();
     this.video.src = url;
     this.video.currentTime = 0;
-    this.video.muted = false;
+    this.video.muted = Boolean(opts?.forceMuted);
     this.video.load();
 
     try {
@@ -700,9 +742,13 @@ export class SkyCinema {
 
   getActiveClip(): { clip: SkyCinemaClip; index: number; total: number } | null {
     if (!this.isActive() && this.reveal <= 0.01) return null;
-    const clip = SKY_CINEMA_TEST_CLIPS[this.activeIndex];
+    if (this.currentClip) {
+      return { clip: this.currentClip, index: this.activeIndex, total: this.currentTotal };
+    }
+    const lib = getSkyCinemaLibrary();
+    const clip = lib[this.activeIndex];
     if (!clip) return null;
-    return { clip, index: this.activeIndex, total: SKY_CINEMA_TEST_CLIPS.length };
+    return { clip, index: this.activeIndex, total: lib.length };
   }
 
   isMuted(): boolean {

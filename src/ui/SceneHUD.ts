@@ -12,6 +12,7 @@ import { ElonEventType, i18n, SceneId } from '../core/i18n';
 import { LiveWorldState } from '../core/liveWorldData';
 import { OsmWorldDirector, OsmWorldState } from '../core/osmWorld';
 import { DriveSource, TelemetryEngine, TelemetryFrame } from '../core/telemetry';
+import { units, type TempPreference, type UnitPreference } from '../core/units';
 import { FrostCanvasOverlay } from './FrostCanvas';
 
 export interface HudCallbacks {
@@ -126,6 +127,7 @@ export class SceneHUD {
 
     this.renderMarkup();
     i18n.onChange(() => this.renderMarkup());
+    units.onChange(() => this.renderMarkup());
 
     this.elon.onEventStart((type) => {
       this.showToast(i18n.t().elonEvents[type].toast);
@@ -166,14 +168,14 @@ export class SceneHUD {
       </div>
       <div class="hud-telemetry-pill">
         <span class="tele-place" data-hud="place">📍 Stockholm</span>
-        <span class="tele-speed"><strong data-hud="speed">0</strong> km/h</span>
+        <span class="tele-speed"><strong data-hud="speed">0</strong> ${units.speedUnit()}</span>
         <span class="tele-sep">·</span>
         <span class="tele-np">
           <span class="np-arrow" data-hud="np-arrow">▲</span>
-          <span data-hud="np-dist">3410 km</span>
+          <span data-hud="np-dist">${units.formatLongDistance(3410, locale)}</span>
         </span>
         <span class="tele-sep">·</span>
-        <span data-hud="temp">-6°C</span>
+        <span data-hud="temp">${units.formatTemp(-6)}</span>
         <span class="tele-status" data-hud="status">${t.demoActive}</span>
       </div>
     `;
@@ -210,7 +212,7 @@ export class SceneHUD {
             <button type="button" class="${curDrive === 'manual' ? 'active' : ''}" data-drawer-drive="manual">${t.driveManual}</button>
           </div>
           <div class="slider-row">
-            <span>${t.drawerSpeedLabel}: <strong data-hud="slider-speed-val">${Math.round(this.telemetry.getManualSpeed())} km/h</strong></span>
+            <span>${t.drawerSpeedLabel}: <strong data-hud="slider-speed-val">${units.formatSpeed(this.telemetry.getManualSpeed())}</strong></span>
             <input type="range" min="0" max="150" step="1" value="${Math.round(this.telemetry.getManualSpeed())}" data-hud="speed-slider" />
           </div>
           <div class="slider-row">
@@ -313,9 +315,22 @@ export class SceneHUD {
           <div class="osm-stats-box" data-hud="osm-stats"></div>
           <div class="drawer-sublabel" style="margin-top: 10px;">${t.liveSectionLabel}</div>
           <div class="live-stats-box" data-hud="live-stats">Loading live feeds…</div>
-          <div class="segmented full" style="margin-top: 8px;">
+          <div class="drawer-sublabel" style="margin-top: 10px;">${t.languageLabel}</div>
+          <div class="segmented full" style="margin-top: 4px;">
             <button type="button" class="${locale === 'sv' ? 'active' : ''}" data-hud-lang="sv">Svenska (SV)</button>
             <button type="button" class="${locale === 'en' ? 'active' : ''}" data-hud-lang="en">English (EN)</button>
+          </div>
+          <div class="drawer-sublabel" style="margin-top: 8px;">${t.unitsDistanceLabel}</div>
+          <div class="segmented full">
+            <button type="button" class="${units.getDistancePref() === 'auto' ? 'active' : ''}" data-hud-unit-dist="auto">${t.unitsAuto}${units.getDetectedCountry() ? ` (${units.getDetectedCountry()!.toUpperCase()})` : ''}</button>
+            <button type="button" class="${units.getDistancePref() === 'metric' ? 'active' : ''}" data-hud-unit-dist="metric">${t.unitsMetric}</button>
+            <button type="button" class="${units.getDistancePref() === 'imperial' ? 'active' : ''}" data-hud-unit-dist="imperial">${t.unitsImperial}</button>
+          </div>
+          <div class="drawer-sublabel" style="margin-top: 6px;">${t.unitsTempLabel}</div>
+          <div class="segmented full">
+            <button type="button" class="${units.getTempPref() === 'auto' ? 'active' : ''}" data-hud-unit-temp="auto">${t.unitsAuto}${units.getDetectedCountry() ? ` (${units.getDetectedCountry()!.toUpperCase()})` : ''}</button>
+            <button type="button" class="${units.getTempPref() === 'C' ? 'active' : ''}" data-hud-unit-temp="C">${t.unitsCelsius}</button>
+            <button type="button" class="${units.getTempPref() === 'F' ? 'active' : ''}" data-hud-unit-temp="F">${t.unitsFahrenheit}</button>
           </div>
         </section>
       </div>
@@ -429,7 +444,7 @@ export class SceneHUD {
       const val = Number(this.speedSlider.value);
       this.telemetry.setSource('manual');
       this.telemetry.setManualSpeed(val);
-      this.speedReadout.textContent = `${val} km/h`;
+      this.speedReadout.textContent = units.formatSpeed(val);
       this.syncDrawerButtons();
     });
 
@@ -549,6 +564,18 @@ export class SceneHUD {
     this.drawer.querySelectorAll<HTMLButtonElement>('[data-hud-lang]').forEach((btn) => {
       btn.addEventListener('click', () => {
         i18n.setLocale(btn.dataset.hudLang as 'sv' | 'en');
+      });
+    });
+
+    this.drawer.querySelectorAll<HTMLButtonElement>('[data-hud-unit-dist]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        units.setDistancePref(btn.dataset.hudUnitDist as UnitPreference);
+      });
+    });
+
+    this.drawer.querySelectorAll<HTMLButtonElement>('[data-hud-unit-temp]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        units.setTempPref(btn.dataset.hudUnitTemp as TempPreference);
       });
     });
   }
@@ -689,7 +716,7 @@ export class SceneHUD {
       this.livePillEl.textContent = calBadge;
     } else {
       const aurIcon = live.isAuroraAlert ? '🌌!' : '🌌';
-      this.livePillEl.textContent = `${aurIcon} Kp ${live.kpIndex.toFixed(1)} · 🛰 ${live.issDistanceKm} km`;
+      this.livePillEl.textContent = `${aurIcon} Kp ${live.kpIndex.toFixed(1)} · 🛰 ${units.formatLongDistance(live.issDistanceKm, locale)}`;
     }
 
     this.osmStatsEl.classList.toggle('hidden', !osm.enabled);
@@ -700,16 +727,16 @@ export class SceneHUD {
     if (this.drawerOpen) {
       const leadFlight = live.flights[0];
       const flightTag = leadFlight
-        ? `${leadFlight.isLive ? '✈' : '🎅✈'} ${leadFlight.callsign} (${leadFlight.altitudeM}m)`
+        ? `${leadFlight.isLive ? '✈' : '🎅✈'} ${leadFlight.callsign} (${units.formatElevation(leadFlight.altitudeM)})`
         : '—';
       this.liveStatsEl.textContent =
-        `☀ ${env.sunriseText}–${env.sunsetText} · 🌌 Kp ${live.kpIndex.toFixed(1)}${live.isAuroraAlert ? ' ALERT!' : ''} · 🛰 ISS ${live.issDistanceKm.toLocaleString()} km · 🚀 ${live.nextSpaceXCountdown} · 💨 ${env.windSpeedKmh} km/h · ${flightTag}`;
+        `☀ ${env.sunriseText}–${env.sunsetText} · 🌌 Kp ${live.kpIndex.toFixed(1)}${live.isAuroraAlert ? ' ALERT!' : ''} · 🛰 ISS ${units.formatLongDistance(live.issDistanceKm, locale)} · 🚀 ${live.nextSpaceXCountdown} · 💨 ${units.formatWindSpeed(env.windSpeedKmh)} · ${flightTag}`;
     }
 
-    this.speedEl.textContent = String(Math.round(telemetry.speedKmh));
+    this.speedEl.textContent = String(units.speedValue(telemetry.speedKmh));
     this.compassArrowEl.style.transform = `rotate(${Math.round(telemetry.northPoleRelativeBearingDeg)}deg)`;
-    this.npDistEl.textContent = `${Math.round(telemetry.northPoleDistanceKm)} km`;
-    this.tempEl.textContent = `${env.temperatureC}°C`;
+    this.npDistEl.textContent = units.formatLongDistance(telemetry.northPoleDistanceKm, locale);
+    this.tempEl.textContent = units.formatTemp(env.temperatureC);
     this.plaidBadgeEl.classList.toggle('hidden', !telemetry.isPlaidSpeed);
 
     // Status pill text
