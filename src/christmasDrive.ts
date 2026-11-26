@@ -66,7 +66,9 @@ if (!stage) {
   festivities.onCosmeticsChange(applyEquippedCosmetics);
   applyEquippedCosmetics(festivities.getMagicState().equipped);
   const snowBaseColor = new THREE.Color('#f2f8ff');
-  const snowGoldColor = new THREE.Color('#ffe27a');
+  const snowAuroraMint = new THREE.Color('#8effd4');
+  const snowAuroraViolet = new THREE.Color('#d8a8ff');
+  const snowAuroraGold = new THREE.Color('#ffe494');
   const snowWorkColor = new THREE.Color();
   const fsdPath = new FsdHolidayPath();
   const vehicleLighting = new VehicleLighting();
@@ -599,9 +601,12 @@ if (!stage) {
       hud.syncSettings();
     } else if (e.key === 'e' || e.key === 'E') {
       festivities.triggerNextEvent();
+    } else if (e.key === 'v' || e.key === 'V') {
+      festivities.toggleSkyCinema();
     } else if (e.key === 'Escape') {
       if (hud.isMagicOpen()) hud.setMagicOpen(false);
       else if (hud.isDrawerOpen()) hud.setDrawerOpen(false);
+      else if (festivities.skyCinema.isActive()) festivities.stopSkyCinema();
     }
   });
 
@@ -610,6 +615,9 @@ if (!stage) {
     setDemo(true);
   } else {
     follow();
+  }
+  if (new URLSearchParams(window.location.search).get('cinema') === '1') {
+    festivities.startSkyCinema(0, true);
   }
 
   function stepDemoFrame(base: TelemetryFrame, dt: number): TelemetryFrame {
@@ -923,6 +931,7 @@ if (!stage) {
       idleModeAllowed &&
       alignWithHeading &&
       !idleOrbitDismissed &&
+      !festivities.skyCinema.isActive() &&
       idleStoppedSec > 2.8;
 
     if (idleShowcaseActive) {
@@ -1004,13 +1013,14 @@ if (!stage) {
     stage!.updateKeyShadowFocus(orbit.target, shadowOffset);
 
     const superAurora = festivities.getSuperAuroraIntensity();
+    const cinemaAurora = festivities.getSkyCinemaIntensity() * 0.48;
+    const effectiveSuperAurora = Math.max(superAurora, cinemaAurora);
     (magic as { setSuperAuroraBoost?: (active: boolean) => void }).setSuperAuroraBoost?.(superAurora > 0.01);
-    const skyLightShow = Math.max(lightShow, superAurora * 0.9);
     sky.mesh.position.copy(camera.position);
     sky.material.uniforms.uTime.value = time;
-    applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor, skyLightShow);
-    if (superAurora > 0.001 && sky.material.uniforms.uAuroraBoost) {
-      sky.material.uniforms.uAuroraBoost.value += superAurora * 2.2;
+    applyChristmasSkyEnv(sky.material, env, liveState, beat, flightFactor, lightShow);
+    if (sky.material.uniforms.uSuperAurora) {
+      sky.material.uniforms.uSuperAurora.value = effectiveSuperAurora;
     }
 
     const targetHorizonY = trial ? terrainFloor : activeElevation ? avatar.position.y : 0;
@@ -1019,8 +1029,15 @@ if (!stage) {
     horizon.update(time, env);
 
     snowfall.group.position.copy(avatar.position);
-    const goldMix = superAurora * (0.76 + 0.24 * Math.sin(time * 4.2));
-    snowWorkColor.copy(snowBaseColor).lerp(snowGoldColor, goldMix);
+    if (superAurora > 0.01) {
+      const p = (time * 0.85) % 3;
+      if (p < 1) snowWorkColor.copy(snowAuroraMint).lerp(snowAuroraViolet, p);
+      else if (p < 2) snowWorkColor.copy(snowAuroraViolet).lerp(snowAuroraGold, p - 1);
+      else snowWorkColor.copy(snowAuroraGold).lerp(snowAuroraMint, p - 2);
+      snowWorkColor.lerp(snowBaseColor, 1 - superAurora * 0.72);
+    } else {
+      snowWorkColor.copy(snowBaseColor);
+    }
     for (const child of snowfall.group.children) {
       const mat = (child as THREE.Points).material;
       if (mat && 'color' in mat && mat.color instanceof THREE.Color) {

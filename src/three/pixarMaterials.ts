@@ -1215,6 +1215,7 @@ const PIXAR_SKY_FRAG = `
   varying vec3 vWorldDir;
   uniform float uTime;
   uniform float uAuroraBoost;
+  uniform float uSuperAurora;
   uniform float uThemeMode;
   uniform float uDaylight;
   uniform vec3 uTopColor;
@@ -1294,6 +1295,44 @@ const PIXAR_SKY_FRAG = `
     col += mix(emerald, goldTint, 0.28 + 0.22 * sin(az * 2.0 + uTime * 0.3)) * band1 * rays1 * (0.48 * uAuroraBoost * nightVis);
     col += mix(vec3(0.22, 0.82, 1.0), violetTint, 0.4) * band2 * rays2 * (0.34 * uAuroraBoost * nightVis);
 
+    // Super-Norrsken: multi-layered colorful silk aurora ribbons without harsh white blowout
+    if (uSuperAurora > 0.001 && y > 0.02) {
+      float sVis = uSuperAurora * smoothstep(0.02, 0.14, y) * (0.35 + 0.65 * nightVis);
+      // Deepen sky backdrop slightly so emerald, cyan, magenta & violet curtains pop cleanly
+      col = mix(col, col * vec3(0.48, 0.54, 0.80), sVis * 0.55);
+
+      float sw1 = sin(az * 4.0 + uTime * 0.42) * 0.08 + cos(az * 7.0 - uTime * 0.28) * 0.04;
+      float sw2 = cos(az * 5.0 - uTime * 0.38 + 1.2) * 0.09 + sin(az * 9.0 + uTime * 0.31) * 0.035;
+      float sw3 = sin(az * 3.0 + uTime * 0.24 + 2.5) * 0.10;
+
+      float c1 = smoothstep(-0.04, 0.025, y - (0.17 + sw1)) * exp(-max(0.0, y - (0.17 + sw1)) * 5.6);
+      float c2 = smoothstep(-0.035, 0.025, y - (0.30 + sw2)) * exp(-max(0.0, y - (0.30 + sw2)) * 5.0);
+      float c3 = smoothstep(-0.04, 0.03, y - (0.46 + sw3)) * exp(-max(0.0, y - (0.46 + sw3)) * 4.4);
+
+      float r1 = 0.45 + 0.55 * sin(az * 34.0 + y * 10.0 - uTime * 1.35);
+      float r2 = 0.45 + 0.55 * cos(az * 28.0 - y * 8.0 + uTime * 1.10);
+      float r3 = 0.50 + 0.50 * sin(az * 20.0 + y * 6.0 + uTime * 0.85);
+
+      vec3 colEmerald = vec3(0.04, 0.96, 0.54);
+      vec3 colCyan    = vec3(0.06, 0.84, 1.00);
+      vec3 colMagenta = vec3(0.98, 0.16, 0.72);
+      vec3 colViolet  = vec3(0.58, 0.24, 1.00);
+      vec3 colGold    = vec3(1.00, 0.78, 0.24);
+
+      vec3 tint1 = mix(colEmerald, colCyan, 0.5 + 0.5 * sin(az * 2.2 + uTime * 0.45));
+      vec3 tint2 = mix(colCyan, colMagenta, 0.5 + 0.5 * cos(az * 2.6 - uTime * 0.38));
+      vec3 tint3 = mix(colViolet, mix(colMagenta, colGold, 0.35 + 0.35 * sin(uTime * 0.6)), 0.5 + 0.5 * sin(az * 1.8 + 0.9));
+
+      vec3 superRibbon =
+        tint1 * c1 * (0.42 + 0.58 * r1) * 0.78 +
+        tint2 * c2 * (0.40 + 0.60 * r2) * 0.68 +
+        tint3 * c3 * (0.45 + 0.55 * r3) * 0.56;
+
+      // Soft luminance compression prevents bloom blowout into flat white
+      vec3 compressedAurora = superRibbon / (vec3(1.0) + superRibbon * 0.75);
+      col += compressedAurora * sVis;
+    }
+
     // Seam-free 3D unit-direction starfield (zero zenith pinching or +-PI seam)
     if (y > 0.03 && nightVis > 0.06) {
       float starFade = smoothstep(0.03, 0.20, y) * nightVis;
@@ -1325,6 +1364,7 @@ export function createPixarSkyDome(radius = 300): { mesh: THREE.Mesh; material: 
     uniforms: {
       uTime: { value: 0 },
       uAuroraBoost: { value: 1.0 },
+      uSuperAurora: { value: 0.0 },
       uThemeMode: { value: 0.0 },
       uDaylight: { value: 0.0 },
       uTopColor: { value: new THREE.Color('#040a1e') },

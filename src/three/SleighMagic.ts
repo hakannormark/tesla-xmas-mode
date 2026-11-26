@@ -4,7 +4,7 @@ import type { TelemetryFrame } from '../core/telemetry';
 import { getSoftGlowTexture } from './pixarMaterials';
 import type { PixarSleighHandle } from './pixarModels';
 
-const TRAIL_COUNT = 240;
+const TRAIL_COUNT = 360;
 const SPRAY_COUNT = 120;
 const STREAK_COUNT = 48;
 const CLOUD_COUNT = 14;
@@ -34,7 +34,7 @@ const SOFT_PARTICLE_VERT = /* glsl */ `
     gl_Position = projectionMatrix * mvPosition;
     float life = clamp(aLife, 0.0, 1.0);
     float curve = mix(
-      mix(0.35, 1.15, sin(life * 3.14159265)),
+      mix(0.45, 1.18, sin(life * 3.14159265)),
       mix(1.45, 0.55, life),
       uGrowOut
     );
@@ -55,18 +55,19 @@ const SOFT_PARTICLE_FRAG = /* glsl */ `
     vec2 uv = gl_PointCoord - 0.5;
     float r = length(uv) * 2.0;
     if (r > 1.0) discard;
-    float radial = pow(max(0.0, 1.0 - r), 2.1);
-    float spikeX = exp(-abs(uv.y) * 22.0) * max(0.0, 1.0 - abs(uv.x) * 2.1);
-    float spikeY = exp(-abs(uv.x) * 22.0) * max(0.0, 1.0 - abs(uv.y) * 2.1);
+    float radial = pow(max(0.0, 1.0 - r), 1.9);
+    float spikeX = exp(-abs(uv.y) * 20.0) * max(0.0, 1.0 - abs(uv.x) * 2.05);
+    float spikeY = exp(-abs(uv.x) * 20.0) * max(0.0, 1.0 - abs(uv.y) * 2.05);
     float star = (spikeX + spikeY) * 0.65;
     float shape = mix(radial, max(radial, star), uStarMix);
     float life = clamp(vLife, 0.0, 1.0);
-    float fadeIn = 1.0 - smoothstep(0.90, 1.0, life);
-    float fadeOut = smoothstep(0.0, 0.30, life);
+    float fadeIn = 1.0 - smoothstep(0.92, 1.0, life);
+    float fadeOut = smoothstep(0.0, 0.28, life);
     float alpha = shape * fadeIn * fadeOut * uOpacity;
     if (alpha < 0.004) discard;
-    vec3 hot = mix(vColor, vec3(1.0, 0.99, 0.92), smoothstep(0.65, 1.0, life) * (0.45 * uStarMix + 0.15));
-    vec3 col = mix(uCoolTint, hot, smoothstep(0.0, 0.72, life));
+    // Preserve vivid saturated vColor across particle lifetime; add only a tiny center glint & gentle tail tint
+    vec3 coreCol = mix(vColor, vec3(1.0, 0.99, 0.96), smoothstep(0.42, 0.0, r) * 0.20);
+    vec3 col = mix(coreCol, uCoolTint, smoothstep(0.32, 0.0, life) * 0.35);
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -217,6 +218,9 @@ export class SleighMagic {
   private owlSparkleSide: -1 | 1 = 1;
 
   private readonly trailOrigin = new THREE.Vector3();
+  private hasTrailOrigin = false;
+  private lastTrailHeading = 0;
+  private lastTrailTime = 0;
   private flightFactor = 0;
 
   constructor() {
@@ -510,7 +514,13 @@ export class SleighMagic {
     return halo;
   }
 
-  private writeTrailColor(idx: number, time: number, seq: number, isOwlSparkle: boolean): void {
+  private writeTrailColor(
+    idx: number,
+    time: number,
+    seq: number,
+    isOwlSparkle: boolean,
+    sideSign: -1 | 1 = 1
+  ): void {
     const o = idx * 3;
     if (isOwlSparkle) {
       if (seq % 2 === 0) {
@@ -526,94 +536,101 @@ export class SleighMagic {
     }
 
     if (this.superAuroraBoost && seq % 3 === 0) {
-      const t = (time * 1.1 + seq * 0.13) % 2;
-      if (t < 1) {
-        this.trailColors[o] = 0.22 + 0.78 * t;
-        this.trailColors[o + 1] = 1.0 - 0.12 * t;
-        this.trailColors[o + 2] = 0.66 - 0.26 * t;
+      const phase = ((time * 1.15 + seq * 0.17) % 3 + 3) % 3;
+      if (phase < 1) {
+        this.trailColors[o] = 0.08 + 0.12 * phase;
+        this.trailColors[o + 1] = 0.98;
+        this.trailColors[o + 2] = 0.54 + 0.46 * phase;
+      } else if (phase < 2) {
+        const u = phase - 1;
+        this.trailColors[o] = 0.20 + 0.72 * u;
+        this.trailColors[o + 1] = 0.98 - 0.70 * u;
+        this.trailColors[o + 2] = 1.0 - 0.14 * u;
       } else {
-        const u = t - 1;
-        this.trailColors[o] = 1.0 - 0.78 * u;
-        this.trailColors[o + 1] = 0.88 + 0.12 * u;
-        this.trailColors[o + 2] = 0.40 + 0.26 * u;
+        const u = phase - 2;
+        this.trailColors[o] = 0.92 - 0.84 * u;
+        this.trailColors[o + 1] = 0.28 + 0.70 * u;
+        this.trailColors[o + 2] = 0.86 - 0.32 * u;
       }
       return;
     }
 
     if (this.trailStyle === 'aurora') {
-      // Vivid shifting emerald -> arctic cyan -> aurora violet
-      const phase = ((time * 0.85 + seq * 0.11) % 3 + 3) % 3;
+      // Vivid shifting emerald -> arctic turquoise -> aurora orchid-violet
+      const phase = ((time * 0.95 + seq * 0.12) % 3 + 3) % 3;
       if (phase < 1) {
-        this.trailColors[o] = 0.16 + 0.08 * phase;
-        this.trailColors[o + 1] = 1.0 - 0.06 * phase;
-        this.trailColors[o + 2] = 0.58 + 0.42 * phase;
+        this.trailColors[o] = 0.08;
+        this.trailColors[o + 1] = 1.0 - 0.12 * phase;
+        this.trailColors[o + 2] = 0.56 + 0.44 * phase;
       } else if (phase < 2) {
         const u = phase - 1;
-        this.trailColors[o] = 0.24 + 0.52 * u;
-        this.trailColors[o + 1] = 0.94 - 0.58 * u;
+        this.trailColors[o] = 0.08 + 0.68 * u;
+        this.trailColors[o + 1] = 0.88 - 0.64 * u;
         this.trailColors[o + 2] = 1.0;
       } else {
         const u = phase - 2;
-        this.trailColors[o] = 0.76 - 0.60 * u;
-        this.trailColors[o + 1] = 0.36 + 0.64 * u;
-        this.trailColors[o + 2] = 1.0 - 0.42 * u;
+        this.trailColors[o] = 0.76 - 0.68 * u;
+        this.trailColors[o + 1] = 0.24 + 0.76 * u;
+        this.trailColors[o + 2] = 1.0 - 0.44 * u;
       }
       return;
     }
 
     if (this.trailStyle === 'plaid') {
-      // Electric Tesla Plaid purple -> magenta -> hyper-cyan plasma
-      const phase = ((time * 1.45 + seq * 0.21) % 3 + 3) % 3;
+      // Electric Tesla Plaid violet -> neon magenta -> hyper-cyan plasma
+      const phase = ((time * 1.55 + seq * 0.20) % 3 + 3) % 3;
       if (phase < 1) {
-        this.trailColors[o] = 0.56 + 0.44 * phase;
-        this.trailColors[o + 1] = 0.20 - 0.02 * phase;
-        this.trailColors[o + 2] = 1.0 - 0.16 * phase;
+        this.trailColors[o] = 0.62 + 0.38 * phase;
+        this.trailColors[o + 1] = 0.12 - 0.04 * phase;
+        this.trailColors[o + 2] = 1.0 - 0.28 * phase;
       } else if (phase < 2) {
         const u = phase - 1;
-        this.trailColors[o] = 1.0 - 0.86 * u;
-        this.trailColors[o + 1] = 0.18 + 0.78 * u;
-        this.trailColors[o + 2] = 0.84 + 0.16 * u;
+        this.trailColors[o] = 1.0 - 0.95 * u;
+        this.trailColors[o + 1] = 0.08 + 0.87 * u;
+        this.trailColors[o + 2] = 0.72 + 0.28 * u;
       } else {
         const u = phase - 2;
-        this.trailColors[o] = 0.14 + 0.42 * u;
-        this.trailColors[o + 1] = 0.96 - 0.76 * u;
+        this.trailColors[o] = 0.05 + 0.57 * u;
+        this.trailColors[o + 1] = 0.95 - 0.83 * u;
         this.trailColors[o + 2] = 1.0;
       }
       return;
     }
 
     if (this.trailStyle === 'candycane') {
-      // Bold alternating festive crimson and snow-white peppermint bands
-      const isCrimson = Math.floor(seq / 2) % 2 === 0;
+      // Bold alternating candy-cane bands in time/distance so red & white never blend into pink
+      const isCrimson = time > 0.01
+        ? Math.floor(time * 4.5 + (sideSign > 0 ? 0.5 : 0)) % 2 === 0
+        : Math.floor(seq / 10) % 2 === 0;
       this.trailColors[o] = 1.0;
-      this.trailColors[o + 1] = isCrimson ? 0.16 : 0.98;
-      this.trailColors[o + 2] = isCrimson ? 0.24 : 0.99;
+      this.trailColors[o + 1] = isCrimson ? 0.05 : 0.99;
+      this.trailColors[o + 2] = isCrimson ? 0.12 : 1.0;
       return;
     }
 
     // Classic warm gold + ice-cyan sparkles
     const isCyan = seq % 3 === 0;
-    this.trailColors[o] = isCyan ? 0.56 : 1.0;
-    this.trailColors[o + 1] = isCyan ? 0.90 : 0.84;
-    this.trailColors[o + 2] = isCyan ? 1.0 : 0.44;
+    this.trailColors[o] = isCyan ? 0.52 : 1.0;
+    this.trailColors[o + 1] = isCyan ? 0.88 : 0.82;
+    this.trailColors[o + 2] = isCyan ? 1.0 : 0.30;
   }
 
   private applyTrailUniforms(): void {
     const tint = this.trailMat.uniforms.uCoolTint.value as THREE.Color;
-    if (this.superAuroraBoost) {
+    if (this.superAuroraBoost && this.trailStyle === 'classic') {
       tint.set('#38ffb8');
-      this.trailMat.uniforms.uStarMix.value = 0.86;
+      this.trailMat.uniforms.uStarMix.value = 0.88;
       return;
     }
     if (this.trailStyle === 'aurora') {
       tint.set('#2dffaa');
-      this.trailMat.uniforms.uStarMix.value = 0.80;
+      this.trailMat.uniforms.uStarMix.value = 0.86;
     } else if (this.trailStyle === 'plaid') {
-      tint.set('#8c2eff');
-      this.trailMat.uniforms.uStarMix.value = 0.88;
+      tint.set('#a438ff');
+      this.trailMat.uniforms.uStarMix.value = 0.90;
     } else if (this.trailStyle === 'candycane') {
-      tint.set('#ffd6de');
-      this.trailMat.uniforms.uStarMix.value = 0.78;
+      tint.set('#ff1a35');
+      this.trailMat.uniforms.uStarMix.value = 0.84;
     } else {
       tint.set('#4ca8ff');
       this.trailMat.uniforms.uStarMix.value = 0.72;
@@ -624,7 +641,22 @@ export class SleighMagic {
     if (style === this.trailStyle) return;
     this.trailStyle = style;
     for (let i = 0; i < TRAIL_COUNT; i++) {
-      this.writeTrailColor(i, 0, i, false);
+      this.writeTrailColor(i, this.lastTrailTime, i, false, i % 2 === 0 ? -1 : 1);
+    }
+    if (this.hasTrailOrigin) {
+      // Celebratory burst behind sleigh so switching styles in Verkstaden is immediately unmistakable
+      for (let b = 0; b < 28; b++) {
+        const side: -1 | 1 = b % 2 === 0 ? -1 : 1;
+        this.emitTrail(
+          this.trailOrigin.x,
+          this.trailOrigin.y + 0.15,
+          this.trailOrigin.z,
+          0.65,
+          this.lastTrailHeading,
+          side,
+          this.lastTrailTime + b * 0.04
+        );
+      }
     }
     this.trailColorDirty = true;
     this.applyTrailUniforms();
@@ -695,16 +727,17 @@ export class SleighMagic {
     const rightZ = Math.sin(heading);
     const backX = -Math.sin(heading);
     const backZ = Math.cos(heading);
-    const runnerOffset = sideSign * 0.88;
-    const spread = 0.18 + speedNorm * 0.28;
+    const runnerOffset = sideSign * 0.94;
+    const spread = this.trailStyle === 'candycane' ? 0.09 + speedNorm * 0.14 : 0.16 + speedNorm * 0.26;
     this.trailPos[i * 3] = x + rightX * runnerOffset + (Math.random() - 0.5) * spread;
-    this.trailPos[i * 3 + 1] = y - 0.42 + (Math.random() - 0.5) * 0.14;
+    this.trailPos[i * 3 + 1] = y - 0.14 + (Math.random() - 0.5) * 0.14;
     this.trailPos[i * 3 + 2] = z + rightZ * runnerOffset + (Math.random() - 0.5) * spread;
-    this.trailVel[i * 3] = backX * (0.9 + speedNorm * 1.9) + rightX * sideSign * 0.38;
-    this.trailVel[i * 3 + 1] = 0.08 + Math.random() * 0.24;
-    this.trailVel[i * 3 + 2] = backZ * (0.9 + speedNorm * 1.9) + rightZ * sideSign * 0.38;
+    const swirl = this.trailStyle === 'plaid' ? Math.sin(time * 9 + this.trailEmitSeq * 0.45) * 0.65 : 0;
+    this.trailVel[i * 3] = backX * (1.0 + speedNorm * 2.0) + rightX * (sideSign * 0.34 + swirl);
+    this.trailVel[i * 3 + 1] = 0.16 + Math.random() * 0.28;
+    this.trailVel[i * 3 + 2] = backZ * (1.0 + speedNorm * 2.0) + rightZ * (sideSign * 0.34 + swirl);
     this.trailLife[i] = 1.0;
-    this.writeTrailColor(i, time, this.trailEmitSeq++, false);
+    this.writeTrailColor(i, time, this.trailEmitSeq++, false, sideSign);
     this.trailColorDirty = true;
   }
 
@@ -760,20 +793,29 @@ export class SleighMagic {
     if (visible) {
       this.groundGlowMesh.position.set(avatarPos.x, avatarPos.y + 0.09, avatarPos.z);
       this.groundGlowMesh.rotation.y = -heading;
-      this.groundGlowMat.color.set(
-        this.superAuroraBoost
-          ? '#42ffb8'
-          : env.theme === 'cyber2099'
+      if (this.trailStyle === 'candycane') {
+        const bandMix = 0.5 + 0.5 * Math.sin(time * 9.0);
+        this.groundGlowMat.color.setRGB(1.0, 0.20 + bandMix * 0.72, 0.25 + bandMix * 0.68);
+      } else if (this.trailStyle === 'plaid') {
+        const pMix = 0.5 + 0.5 * Math.sin(time * 4.5);
+        this.groundGlowMat.color.setRGB(0.68 + pMix * 0.28, 0.22 + (1 - pMix) * 0.58, 1.0);
+      } else if (this.trailStyle === 'aurora' || this.superAuroraBoost) {
+        const aMix = 0.5 + 0.5 * Math.sin(time * 2.8);
+        this.groundGlowMat.color.setRGB(0.18 + aMix * 0.42, 0.92 - aMix * 0.32, 0.68 + aMix * 0.32);
+      } else {
+        this.groundGlowMat.color.set(
+          env.theme === 'cyber2099'
             ? '#4cecff'
             : env.theme === 'nordic'
               ? '#82e4ff'
               : '#ffb860'
-      );
+        );
+      }
       const liftFade = Math.max(0.15, 1 - sleighLift * 0.22);
-      const auroraExtra = this.superAuroraBoost ? 0.14 : 0;
+      const auroraExtra = this.superAuroraBoost ? 0.10 : 0;
       this.groundGlowMat.opacity = Math.min(
-        0.62,
-        (0.28 + beat * 0.18 + this.flightFactor * 0.12 + auroraExtra) * liftFade * (1 - env.daylightFactor * 0.6)
+        0.44,
+        (0.24 + beat * 0.14 + this.flightFactor * 0.10 + auroraExtra) * liftFade * (1 - env.daylightFactor * 0.6)
       );
     }
 
@@ -781,19 +823,25 @@ export class SleighMagic {
     const north = Math.cos(heading);
     const rightX = north;
     const rightZ = east;
+    this.lastTrailHeading = heading;
+    this.lastTrailTime = time;
 
     // 2. Twin-Runner Magic Stardust Wake (classic / aurora / plaid / candycane + superAuroraBoost)
-    if (visible && (sleigh.group.visible || frame.speedKmh > 8 || this.superAuroraBoost)) {
+    if (visible) {
       if (sleigh.group.visible) {
         sleigh.getTrailOrigin(this.trailOrigin);
       } else {
         this.trailOrigin.set(avatarPos.x - east * 2.2, avatarPos.y + 0.55, avatarPos.z + north * 2.2);
       }
-      const baseEmit = frame.speedKmh > 75 ? 3 : frame.speedKmh > 35 ? 2 : frame.speedKmh > 8 ? 1 : 0;
-      const emitCount = baseEmit + (this.superAuroraBoost ? 2 : 0);
-      for (let e = 0; e < emitCount; e++) {
-        const side: -1 | 1 = this.trailCursor % 2 === 0 ? -1 : 1;
-        this.emitTrail(this.trailOrigin.x, this.trailOrigin.y, this.trailOrigin.z, speedNorm, heading, side, time);
+      this.hasTrailOrigin = true;
+      const styled = this.trailStyle !== 'classic';
+      if (sleigh.group.visible || frame.speedKmh > 6 || this.superAuroraBoost || styled) {
+        const baseEmit = frame.speedKmh > 75 ? 5 : frame.speedKmh > 45 ? 4 : frame.speedKmh > 6 ? 3 : (styled || this.superAuroraBoost ? 1 : 0);
+        const emitCount = baseEmit + (this.superAuroraBoost ? 2 : 0) + (styled && frame.speedKmh > 6 ? 1 : 0);
+        for (let e = 0; e < emitCount; e++) {
+          const side: -1 | 1 = this.trailCursor % 2 === 0 ? -1 : 1;
+          this.emitTrail(this.trailOrigin.x, this.trailOrigin.y, this.trailOrigin.z, speedNorm, heading, side, time);
+        }
       }
     }
 
@@ -874,7 +922,8 @@ export class SleighMagic {
       }
     }
 
-    const decay = 0.88 + (1 - speedNorm) * 0.32;
+    const styledTrail = this.trailStyle !== 'classic';
+    const decay = styledTrail ? 0.62 + (1 - speedNorm) * 0.22 : 0.82 + (1 - speedNorm) * 0.28;
     let trailActive = 0;
     for (let i = 0; i < TRAIL_COUNT; i++) {
       if (this.trailLife[i] > 0) {
@@ -897,11 +946,12 @@ export class SleighMagic {
       this.trailWasActive = trailActive > 0;
     }
     this.trailPoints.visible = trailActive > 0;
+    const styleSizeMult = styledTrail ? 1.32 : 1.0;
     this.trailMat.uniforms.uSizeScale.value =
-      0.34 + speedNorm * 0.24 + this.flightFactor * 0.14 + beat * 0.08 + (this.superAuroraBoost ? 0.14 : 0);
+      (0.46 + speedNorm * 0.26 + this.flightFactor * 0.14 + beat * 0.08 + (this.superAuroraBoost ? 0.12 : 0)) * styleSizeMult;
     this.trailMat.uniforms.uOpacity.value = Math.min(
-      0.92,
-      0.46 + speedNorm * 0.28 + beat * 0.12 + (this.superAuroraBoost ? 0.14 : 0)
+      0.95,
+      (styledTrail ? 0.78 : 0.54) + speedNorm * 0.22 + beat * 0.10 + (this.superAuroraBoost ? 0.10 : 0)
     );
 
     // 3. Soft-Fade Powder Snow Spray behind wheels & low sleigh runners + convoy trucks

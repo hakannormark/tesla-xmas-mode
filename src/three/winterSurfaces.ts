@@ -343,8 +343,13 @@ export function shapeChristmasSky(material: THREE.ShaderMaterial): void {
       vec3 auroraB = uThemeMode > 1.5
         ? vec3(0.95, 0.20, 0.78)
         : (uThemeMode > 0.5 ? vec3(0.24, 0.78, 0.86) : vec3(0.84, 0.26, 0.64));
+      if (uSuperAurora > 0.01) {
+        auroraA = mix(auroraA, mix(vec3(0.04, 0.95, 0.58), vec3(0.08, 0.84, 1.0), 0.5 + 0.5 * sin(az * 2.5 + uTime * 0.45)), uSuperAurora);
+        auroraB = mix(auroraB, mix(vec3(0.96, 0.18, 0.72), vec3(0.62, 0.28, 1.0), 0.5 + 0.5 * cos(az * 2.2 - uTime * 0.35)), uSuperAurora);
+      }
       vec3 aurora = mix(auroraA, auroraB, smoothstep(-0.35,0.8,sin(az*2.7+0.8)+fromRim*2.0));
-      col += aurora*(band*0.38+0.10*exp(-abs(fromRim)*39.0)*folds)*nightVis*(0.55+0.45*uAuroraBoost);
+      vec3 curtainGlow = aurora * (band * 0.38 + 0.10 * exp(-abs(fromRim) * 39.0) * folds) * nightVis * (0.55 + 0.45 * min(uAuroraBoost, 2.2)) * (1.0 + uSuperAurora * 0.35);
+      col += curtainGlow / (vec3(1.0) + curtainGlow * 0.55);
       vec3 moonRight = normalize(cross(uMoonDirection, vec3(0.0,1.0,0.0)));
       vec3 moonUp = cross(moonRight,uMoonDirection);
       vec2 lunar = vec2(dot(dir,moonRight),dot(dir,moonUp)) / 0.054;
