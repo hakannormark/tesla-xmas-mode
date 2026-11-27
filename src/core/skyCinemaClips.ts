@@ -182,39 +182,66 @@ export function pickNextSkyCinemaClip(
     candidates = lib.map((clip, index) => ({ clip, index }));
   }
 
-  let best = candidates[0];
-  let bestScore = -Infinity;
-
-  for (const item of candidates) {
+  const weights = candidates.map(item => {
     const c = item.clip;
-    let w = Math.random() * 14;
+    const dur = Number.isFinite(c.durationSec) ? c.durationSec : 14;
+    const tags = Array.isArray(c.tags) ? c.tags : [];
+    let w = 1.0;
+
+    // Soft preference for score-5 highlights without locking out the 210 score-4 clips
     if (c.score >= 5) {
-      w += context === 'manual' ? 18 : 32;
+      w *= context === 'manual' ? 1.8 : 2.2;
     }
+
+    // Strongly discourage repeating the same interview source back-to-back
     if (c.sourceId && recentSources.includes(c.sourceId)) {
-      w -= 26;
+      w *= 0.15;
     }
 
+    // Favor fuller, substantive clips (12–32s) and down-weight very brief <10s snippets
     if (context === 'stopped') {
-      if (c.durationSec <= 18) w += 18;
-      if (STOPPED_CATS.has(c.category)) w += 14;
-    } else if (context === 'space') {
-      if (SPACE_CATS.has(c.category)) w += 24;
-      if (c.tags.some(t => SPACE_TAGS.has(t))) w += 20;
-    } else if (context === 'giga') {
-      if (c.durationSec <= 16) w += 14;
-      if (GIGA_CATS.has(c.category)) w += 24;
-      if (c.tags.some(t => GIGA_TAGS.has(t))) w += 18;
-    } else if (context === 'cruise') {
-      if (CRUISE_CATS.has(c.category)) w += 10;
+      if (dur < 8) w *= 0.25;
+      else if (dur < 12) w *= 0.7;
+      else if (dur <= 24) w *= 1.6;
+      else w *= 1.25;
+    } else {
+      if (dur < 8) w *= 0.2;
+      else if (dur < 12) w *= 0.6;
+      else if (dur < 18) w *= 1.35;
+      else w *= 2.2;
     }
 
-    if (w > bestScore) {
-      bestScore = w;
-      best = item;
+    // Context thematic relevance
+    if (context === 'stopped') {
+      if (STOPPED_CATS.has(c.category)) w *= 2.0;
+    } else if (context === 'space') {
+      if (SPACE_CATS.has(c.category)) w *= 2.4;
+      if (tags.some(t => SPACE_TAGS.has(t))) w *= 2.2;
+    } else if (context === 'giga') {
+      if (GIGA_CATS.has(c.category)) w *= 2.4;
+      if (tags.some(t => GIGA_TAGS.has(t))) w *= 1.8;
+    } else if (context === 'cruise') {
+      if (CRUISE_CATS.has(c.category)) w *= 1.6;
     }
+
+    return w;
+  });
+
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  let chosen = candidates[0];
+  if (totalWeight > 0) {
+    let r = Math.random() * totalWeight;
+    for (let i = 0; i < candidates.length; i++) {
+      r -= weights[i];
+      if (r <= 0) {
+        chosen = candidates[i];
+        break;
+      }
+    }
+  } else {
+    chosen = candidates[Math.floor(Math.random() * candidates.length)];
   }
 
-  recordSkyCinemaPlayed(best.clip);
-  return { clip: best.clip, index: best.index, total };
+  recordSkyCinemaPlayed(chosen.clip);
+  return { clip: chosen.clip, index: chosen.index, total };
 }
