@@ -235,6 +235,7 @@ function createNoiseBuffer(ctx: AudioContext, durationSec: number, pink = false)
     return buffer;
   }
   let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  let maxAbs = 0;
   for (let i = 0; i < length; i++) {
     const white = Math.random() * 2 - 1;
     b0 = 0.99886 * b0 + white * 0.0555179;
@@ -243,8 +244,17 @@ function createNoiseBuffer(ctx: AudioContext, durationSec: number, pink = false)
     b3 = 0.86650 * b3 + white * 0.3104856;
     b4 = 0.55000 * b4 + white * 0.5329522;
     b5 = -0.7616 * b5 - white * 0.0168980;
-    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.08;
+    const sample = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+    data[i] = sample;
+    const abs = Math.abs(sample);
+    if (abs > maxAbs) maxAbs = abs;
     b6 = white * 0.115926;
+  }
+  if (maxAbs > 1e-6) {
+    const norm = 0.85 / maxAbs;
+    for (let i = 0; i < length; i++) {
+      data[i] *= norm;
+    }
   }
   return buffer;
 }
@@ -359,7 +369,7 @@ export class HolidayAudioEngine {
   private songIdx = 0;
   private stepIdx = 0;
   private stepWaitSec = 0.25;
-  private stardustTimer = 4.5;
+  private stardustTimer = 2.0;
   private prevBraking = false;
   private wasMoving = false;
   private wasHardTurning = false;
@@ -648,15 +658,12 @@ export class HolidayAudioEngine {
   private setupAmbientBus(): void {
     if (!this.ctx || !this.dryBus || !this.reverbBus) return;
     this.ambientBus = this.ctx.createGain();
-    this.ambientBus.gain.value = this.mixMode === 'muted' ? 0 : this.mixMode === 'full' ? 0.72 : 1.0;
+    this.ambientBus.gain.value = this.mixMode === 'muted' ? 0 : this.mixMode === 'full' ? 0.65 : 1.0;
 
-    const drySend = this.ctx.createGain();
-    drySend.gain.value = 0.85;
-    this.ambientBus.connect(drySend);
-    drySend.connect(this.dryBus);
+    this.ambientBus.connect(this.dryBus);
 
     this.ambientReverbSend = this.ctx.createGain();
-    this.ambientReverbSend.gain.value = 0.55;
+    this.ambientReverbSend.gain.value = 0.75;
     this.ambientBus.connect(this.ambientReverbSend);
     this.ambientReverbSend.connect(this.reverbBus);
   }
@@ -706,12 +713,12 @@ export class HolidayAudioEngine {
 
   private setupCyberGlideBed(): void {
     if (!this.ctx || !this.ambientBus) return;
-    const baseHz = 98;
+    const baseHz = 146.83;
 
     this.glideFilter = this.ctx.createBiquadFilter();
     this.glideFilter.type = 'lowpass';
-    this.glideFilter.frequency.value = 210;
-    this.glideFilter.Q.value = 1.4;
+    this.glideFilter.frequency.value = 360;
+    this.glideFilter.Q.value = 1.8;
 
     this.glideGain = this.ctx.createGain();
     this.glideGain.gain.value = 0.0001;
@@ -727,37 +734,37 @@ export class HolidayAudioEngine {
     }
 
     this.glideRootOsc = this.ctx.createOscillator();
-    this.glideRootOsc.type = 'sine';
+    this.glideRootOsc.type = 'triangle';
     this.glideRootOsc.frequency.value = baseHz;
     const rootGain = this.ctx.createGain();
-    rootGain.gain.value = 0.55;
+    rootGain.gain.value = 0.48;
     this.glideRootOsc.connect(rootGain);
     rootGain.connect(this.glideFilter);
 
     this.glideFifthOsc = this.ctx.createOscillator();
-    this.glideFifthOsc.type = 'triangle';
+    this.glideFifthOsc.type = 'sine';
     this.glideFifthOsc.frequency.value = baseHz * 1.498;
-    this.glideFifthOsc.detune.value = 4;
+    this.glideFifthOsc.detune.value = 5;
     const fifthGain = this.ctx.createGain();
-    fifthGain.gain.value = 0.26;
+    fifthGain.gain.value = 0.40;
     this.glideFifthOsc.connect(fifthGain);
     fifthGain.connect(this.glideFilter);
 
     this.glideOctOsc = this.ctx.createOscillator();
-    this.glideOctOsc.type = 'sine';
-    this.glideOctOsc.frequency.value = baseHz * 2.003;
+    this.glideOctOsc.type = 'triangle';
+    this.glideOctOsc.frequency.value = baseHz * 2.004;
     this.glideOctOsc.detune.value = -5;
     this.glideOctGain = this.ctx.createGain();
-    this.glideOctGain.gain.value = 0.02;
+    this.glideOctGain.gain.value = 0.12;
     this.glideOctOsc.connect(this.glideOctGain);
     this.glideOctGain.connect(this.glideFilter);
 
     // Gentle organic motion LFO so hover hum breathes subtly
     const lfo = this.ctx.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.value = 0.26;
+    lfo.frequency.value = 0.32;
     const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = 32;
+    lfoGain.gain.value = 55;
     lfo.connect(lfoGain);
     lfoGain.connect(this.glideFilter.frequency);
 
@@ -776,17 +783,17 @@ export class HolidayAudioEngine {
   private applyGainStates(): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    const duck = this.speechDucking ? 0.22 : 1.0;
+    const duck = this.speechDucking ? 0.20 : 1.0;
     if (this.masterGain) {
       const target = this.mixMode === 'muted' ? 0 : this.volume;
       this.masterGain.gain.setTargetAtTime(target, now, 0.08);
     }
     if (this.musicBus) {
-      const targetMusic = this.mixMode === 'full' ? 0.36 * duck : 0;
+      const targetMusic = this.mixMode === 'full' ? 0.36 * (this.speechDucking ? 0.22 : 1.0) : 0;
       this.musicBus.gain.setTargetAtTime(targetMusic, now, 0.25);
     }
     if (this.ambientBus) {
-      const modeScale = this.mixMode === 'muted' ? 0 : this.mixMode === 'full' ? 0.72 : 1.0;
+      const modeScale = this.mixMode === 'muted' ? 0 : this.mixMode === 'full' ? 0.65 : 1.0;
       this.ambientBus.gain.setTargetAtTime(modeScale * duck, now, 0.22);
     }
   }
@@ -861,28 +868,28 @@ export class HolidayAudioEngine {
       }
     }
 
-    const moveBlend = Math.min(1, Math.max(0, (telemetry.speedKmh - 1.5) / 14));
+    const moveBlend = Math.min(1, Math.max(0, (telemetry.speedKmh - 1.5) / 10.5));
     const posAccel = Math.max(0, Math.min(4, telemetry.acceleration)) / 4;
     const negAccel = Math.max(0, Math.min(4, -telemetry.acceleration)) / 4;
-    const plaidBlend = Math.min(1, Math.max(0, (telemetry.speedKmh - 55) / 55));
+    const plaidBlend = Math.min(1, Math.max(0, (telemetry.speedKmh - 35) / 65));
 
     // 2. Dynamic Winter Wind & Speed/Steering Swish + Plaid Shimmer
     if (this.windFilter && this.windGain) {
       const windFreq =
-        210 +
-        speedRatio * 740 +
-        posAccel * 190 +
-        Math.abs(telemetry.turnRate) * 230 +
-        telemetry.tunnelBlend * 110;
-      const windQ = 1.35 + telemetry.tunnelBlend * 0.85;
+        260 +
+        speedRatio * 1060 +
+        posAccel * 380 +
+        Math.abs(telemetry.turnRate) * 320 +
+        telemetry.tunnelBlend * 140;
+      const windQ = 1.55 + telemetry.tunnelBlend * 0.85;
       const windGainTarget =
-        0.008 +
-        moveBlend * (0.014 + speedRatio * 0.072) +
-        posAccel * 0.022 +
-        Math.abs(telemetry.turnRate) * moveBlend * 0.018 +
-        telemetry.tunnelBlend * 0.028;
+        0.045 +
+        moveBlend * (0.16 + speedRatio * 0.28) +
+        posAccel * 0.14 +
+        Math.abs(telemetry.turnRate) * moveBlend * 0.11 +
+        telemetry.tunnelBlend * 0.12;
 
-      this.windFilter.frequency.setTargetAtTime(Math.min(1800, windFreq), now, 0.14);
+      this.windFilter.frequency.setTargetAtTime(Math.min(2400, windFreq), now, 0.14);
       this.windFilter.Q.setTargetAtTime(windQ, now, 0.18);
       this.windGain.gain.setTargetAtTime(windGainTarget, now, 0.14);
       if (this.windPanner) {
@@ -891,10 +898,10 @@ export class HolidayAudioEngine {
     }
 
     if (this.plaidFilter && this.plaidGain) {
-      const plaidFreq = 1350 + plaidBlend * 950 + posAccel * 260;
+      const plaidFreq = 1400 + plaidBlend * 1350 + posAccel * 340;
       const plaidGainTarget = Math.max(
         0.0001,
-        plaidBlend * 0.024 + (telemetry.isPlaidSpeed ? 0.008 : 0) + posAccel * moveBlend * 0.01
+        plaidBlend * 0.24 + (telemetry.isPlaidSpeed ? 0.08 : 0) + posAccel * moveBlend * 0.1
       );
       this.plaidFilter.frequency.setTargetAtTime(plaidFreq, now, 0.18);
       this.plaidGain.gain.setTargetAtTime(plaidGainTarget, now, 0.22);
@@ -906,36 +913,36 @@ export class HolidayAudioEngine {
       const isNordic = this.musicStyle === 'nordic';
       const cyberScale = isCyber ? 1.2 : 1.0;
       const nordicScale = isNordic ? 1.18 : 1.0;
-      const themeQ = isCyber ? 2.0 : isNordic ? 1.45 : 1.3;
+      const themeQ = isCyber ? 2.6 : isNordic ? 1.9 : 1.7;
 
       const rootHz =
-        92 + speedRatio * 96 + (telemetry.isPlaidSpeed ? 14 : 0) + posAccel * 11 - negAccel * 8;
+        146.83 + speedRatio * 146.83 + (telemetry.isPlaidSpeed ? 22 : 0) + posAccel * 20 - negAccel * 14;
       this.glideRootOsc.frequency.setTargetAtTime(rootHz, now, 0.18);
       this.glideFifthOsc.frequency.setTargetAtTime(rootHz * 1.498, now, 0.18);
-      this.glideOctOsc.frequency.setTargetAtTime(rootHz * 2.003, now, 0.18);
+      this.glideOctOsc.frequency.setTargetAtTime(rootHz * 2.004, now, 0.18);
 
       const glideCutoff =
-        190 +
-        speedRatio * 680 +
-        posAccel * 280 -
-        negAccel * 120 +
-        (telemetry.isPlaidSpeed ? 220 : 0) -
-        telemetry.tunnelBlend * 180 +
-        (isCyber ? 160 : 0);
-      this.glideFilter.frequency.setTargetAtTime(Math.max(150, glideCutoff), now, 0.16);
+        340 +
+        speedRatio * 1310 +
+        posAccel * 450 -
+        negAccel * 220 +
+        (telemetry.isPlaidSpeed ? 320 : 0) -
+        telemetry.tunnelBlend * 280 +
+        (isCyber ? 240 : 0);
+      this.glideFilter.frequency.setTargetAtTime(Math.max(240, glideCutoff), now, 0.16);
       this.glideFilter.Q.setTargetAtTime(themeQ, now, 0.2);
 
       const glideGainTarget =
         moveBlend < 0.005
           ? 0.0001
-          : (0.014 + Math.pow(speedRatio, 0.85) * 0.044 + posAccel * 0.015 + telemetry.tunnelBlend * 0.014) *
+          : (0.065 + Math.pow(speedRatio, 0.8) * 0.115 + posAccel * 0.045 + telemetry.tunnelBlend * 0.03) *
             moveBlend *
             cyberScale;
       this.glideGain.gain.setTargetAtTime(glideGainTarget, now, 0.18);
 
       if (this.glideOctGain) {
         const octTarget =
-          (0.03 + Math.pow(speedRatio, 1.4) * 0.22 + (telemetry.isPlaidSpeed ? 0.1 : 0)) * nordicScale;
+          (0.12 + Math.pow(speedRatio, 1.2) * 0.3 + (telemetry.isPlaidSpeed ? 0.12 : 0)) * nordicScale;
         this.glideOctGain.gain.setTargetAtTime(octTarget, now, 0.2);
       }
       if (this.glidePanner) {
@@ -948,25 +955,25 @@ export class HolidayAudioEngine {
       this.stardustTimer -= dt;
       if (this.stardustTimer <= 0) {
         this.playStardustGlimmer(speedRatio);
-        this.stardustTimer = telemetry.isMoving ? 4.2 + Math.random() * 5.2 : 9.5 + Math.random() * 7.0;
+        this.stardustTimer = telemetry.isMoving ? 3.8 + Math.random() * 4.5 : 7.5 + Math.random() * 6.0;
       }
     }
 
     // 5. Event-Driven Sleigh Bells (departure, braking, cornering — never on a timer)
     const nowMs = performance.now();
-    const movingNow = telemetry.speedKmh >= 4.0;
-    if (movingNow && !this.wasMoving && nowMs - this.lastDepartureBellMs > 9000) {
+    const movingNow = telemetry.speedKmh >= 3.5;
+    if (movingNow && !this.wasMoving && nowMs - this.lastDepartureBellMs > 8000) {
       this.lastDepartureBellMs = nowMs;
-      this.triggerSleighBell(0.36, 0, undefined, 4);
+      this.triggerSleighBell(0.62, 0, undefined, 5);
     }
     this.wasMoving = movingNow;
 
-    const hardTurn = Math.abs(telemetry.turnRate) > 0.42 && telemetry.speedKmh > 14;
-    if (hardTurn && !this.wasHardTurning && nowMs - this.lastTurnBellMs > 7000) {
+    const hardTurn = Math.abs(telemetry.turnRate) > 0.30 && telemetry.speedKmh > 12;
+    if (hardTurn && !this.wasHardTurning && nowMs - this.lastTurnBellMs > 6500) {
       this.lastTurnBellMs = nowMs;
-      const turnIntensity = 0.28 + Math.min(0.16, Math.abs(telemetry.turnRate) * 0.2);
+      const turnIntensity = 0.50 + Math.min(0.22, Math.abs(telemetry.turnRate) * 0.3);
       const turnPan = Math.max(-0.55, Math.min(0.55, telemetry.turnRate * 0.55));
-      this.triggerSleighBell(turnIntensity, turnPan, undefined, 3);
+      this.triggerSleighBell(turnIntensity, turnPan, undefined, 4);
     }
     this.wasHardTurning = hardTurn;
 
@@ -1094,13 +1101,13 @@ export class HolidayAudioEngine {
 
       // Send sparsely to ambient dry and deeper to hall reverb, still respecting ambientBus ducking
       const dryTap = this.ctx.createGain();
-      dryTap.gain.value = 0.28;
+      dryTap.gain.value = 0.75;
       out.connect(dryTap);
       dryTap.connect(this.ambientBus);
 
       if (this.reverbBus) {
         const revTap = this.ctx.createGain();
-        revTap.gain.value = 0.9 * (this.speechDucking ? 0.22 : 1.0);
+        revTap.gain.value = 1.0 * (this.speechDucking ? 0.20 : 1.0);
         out.connect(revTap);
         revTap.connect(this.reverbBus);
       }
@@ -1112,7 +1119,7 @@ export class HolidayAudioEngine {
     };
 
     const pan1 = (Math.random() - 0.5) * 1.3;
-    const level = 0.018 + speedRatio * 0.012;
+    const level = 0.068 + speedRatio * 0.032;
     spawnTone(CRYSTAL_POOL[baseIdx], 0, level, pan1);
 
     if (speedRatio > 0.45 && Math.random() < 0.4) {
@@ -1130,7 +1137,7 @@ export class HolidayAudioEngine {
 
     const clusterFilter = this.ctx.createBiquadFilter();
     clusterFilter.type = 'lowpass';
-    clusterFilter.frequency.value = 5800;
+    clusterFilter.frequency.value = 6400;
     clusterFilter.Q.value = 0.6;
 
     if (destOverride) {
@@ -1139,20 +1146,20 @@ export class HolidayAudioEngine {
       const duck = this.speechDucking ? 0.35 : 1.0;
       if (this.dryBus) {
         const dryTap = this.ctx.createGain();
-        dryTap.gain.value = 0.58 * duck;
+        dryTap.gain.value = 0.88 * duck;
         clusterFilter.connect(dryTap);
         dryTap.connect(this.dryBus);
       }
       if (this.reverbBus) {
         const revTap = this.ctx.createGain();
-        revTap.gain.value = 0.85 * duck;
+        revTap.gain.value = 0.95 * duck;
         clusterFilter.connect(revTap);
         revTap.connect(this.reverbBus);
       }
     }
 
     let offsetSec = 0;
-    const baseAmp = Math.min(0.11, Math.max(0.018, intensity * 0.085)) / Math.sqrt(count * 0.65);
+    const baseAmp = Math.min(0.24, Math.max(0.06, intensity * 0.185)) / Math.sqrt(count * 0.5);
 
     for (let i = 0; i < count; i++) {
       if (i > 0) {
@@ -1174,19 +1181,19 @@ export class HolidayAudioEngine {
       mod.frequency.setValueAtTime(f * 2.756, t);
 
       const modGain = this.ctx.createGain();
-      modGain.gain.setValueAtTime(f * 0.65, t);
-      modGain.gain.exponentialRampToValueAtTime(0.01, t + 0.045);
+      modGain.gain.setValueAtTime(f * 0.85, t);
+      modGain.gain.exponentialRampToValueAtTime(0.01, t + 0.055);
 
       mod.connect(modGain);
       modGain.connect(carrier.frequency);
 
-      // Soft harmonic shimmer overtone
+      // Soft harmonic shimmer overtone (connected in parallel with carrier)
       const shimmer = this.ctx.createOscillator();
       shimmer.type = 'sine';
       shimmer.frequency.setValueAtTime(f * 2.005, t);
       const shimmerEnv = this.ctx.createGain();
       shimmerEnv.gain.setValueAtTime(0.0001, t);
-      shimmerEnv.gain.linearRampToValueAtTime(baseAmp * 0.18, t + attack);
+      shimmerEnv.gain.linearRampToValueAtTime(baseAmp * 0.28, t + attack);
       shimmerEnv.gain.exponentialRampToValueAtTime(0.0001, t + decay * 0.72);
 
       const bellEnv = this.ctx.createGain();
@@ -1196,22 +1203,23 @@ export class HolidayAudioEngine {
 
       carrier.connect(bellEnv);
       shimmer.connect(shimmerEnv);
-      shimmerEnv.connect(bellEnv);
 
       if (typeof this.ctx.createStereoPanner === 'function') {
         const panner = this.ctx.createStereoPanner();
         const bellPan = Math.max(-0.75, Math.min(0.75, pan + (Math.random() - 0.5) * 0.44));
         panner.pan.setValueAtTime(bellPan, t);
         bellEnv.connect(panner);
+        shimmerEnv.connect(panner);
         panner.connect(clusterFilter);
       } else {
         bellEnv.connect(clusterFilter);
+        shimmerEnv.connect(clusterFilter);
       }
 
       mod.start(t);
       carrier.start(t);
       shimmer.start(t);
-      mod.stop(t + 0.07);
+      mod.stop(t + 0.075);
       carrier.stop(t + decay + 0.05);
       shimmer.stop(t + decay + 0.05);
     }
@@ -1281,10 +1289,10 @@ export class HolidayAudioEngine {
     if (nowMs - this.lastBrakeJingleMs < 2200) return;
     this.lastBrakeJingleMs = nowMs;
 
-    this.triggerSleighBell(0.48, -0.24, undefined, 4);
+    this.triggerSleighBell(0.72, -0.24, undefined, 5);
     setTimeout(() => {
       if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
-        this.triggerSleighBell(0.34, 0.24, undefined, 3);
+        this.triggerSleighBell(0.52, 0.24, undefined, 4);
       }
     }, 130);
   }
