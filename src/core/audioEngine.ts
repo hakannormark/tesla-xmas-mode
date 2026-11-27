@@ -333,8 +333,22 @@ export class HolidayAudioEngine {
   private padFilter: BiquadFilterNode | null = null;
   private padVoice: PadVoice | null = null;
 
+  private ambientBus: GainNode | null = null;
+  private ambientReverbSend: GainNode | null = null;
   private windGain: GainNode | null = null;
   private windFilter: BiquadFilterNode | null = null;
+  private windPanner: StereoPannerNode | null = null;
+  private plaidFilter: BiquadFilterNode | null = null;
+  private plaidGain: GainNode | null = null;
+
+  private glideRootOsc: OscillatorNode | null = null;
+  private glideFifthOsc: OscillatorNode | null = null;
+  private glideOctOsc: OscillatorNode | null = null;
+  private glideOctGain: GainNode | null = null;
+  private glideFilter: BiquadFilterNode | null = null;
+  private glideGain: GainNode | null = null;
+  private glidePanner: StereoPannerNode | null = null;
+
   private whiteNoiseBuf: AudioBuffer | null = null;
 
   private mixMode: AudioMixMode = 'sfx';
@@ -345,7 +359,13 @@ export class HolidayAudioEngine {
   private songIdx = 0;
   private stepIdx = 0;
   private stepWaitSec = 0.25;
+  private stardustTimer = 4.5;
   private prevBraking = false;
+  private wasMoving = false;
+  private wasHardTurning = false;
+  private lastDepartureBellMs = 0;
+  private lastTurnBellMs = 0;
+  private lastBrakeJingleMs = 0;
   private lastEventTriggered: string | null = null;
 
   private beatPulse = 0;
@@ -515,7 +535,9 @@ export class HolidayAudioEngine {
 
       this.whiteNoiseBuf = createNoiseBuffer(this.ctx, 2.0, false);
       this.setupMusicPad();
+      this.setupAmbientBus();
       this.setupWindBed();
+      this.setupCyberGlideBed();
       this.reconnectOutput();
       this.applyGainStates();
     }
@@ -623,8 +645,24 @@ export class HolidayAudioEngine {
     this.padVoice = { oscs, gains };
   }
 
-  private setupWindBed(): void {
+  private setupAmbientBus(): void {
     if (!this.ctx || !this.dryBus || !this.reverbBus) return;
+    this.ambientBus = this.ctx.createGain();
+    this.ambientBus.gain.value = this.mixMode === 'muted' ? 0 : this.mixMode === 'full' ? 0.72 : 1.0;
+
+    const drySend = this.ctx.createGain();
+    drySend.gain.value = 0.85;
+    this.ambientBus.connect(drySend);
+    drySend.connect(this.dryBus);
+
+    this.ambientReverbSend = this.ctx.createGain();
+    this.ambientReverbSend.gain.value = 0.55;
+    this.ambientBus.connect(this.ambientReverbSend);
+    this.ambientReverbSend.connect(this.reverbBus);
+  }
+
+  private setupWindBed(): void {
+    if (!this.ctx || !this.ambientBus) return;
     const pinkBuf = createNoiseBuffer(this.ctx, 4.0, true);
     const src = this.ctx.createBufferSource();
     src.buffer = pinkBuf;
@@ -632,17 +670,101 @@ export class HolidayAudioEngine {
 
     this.windFilter = this.ctx.createBiquadFilter();
     this.windFilter.type = 'bandpass';
-    this.windFilter.frequency.value = 260;
-    this.windFilter.Q.value = 1.6;
+    this.windFilter.frequency.value = 220;
+    this.windFilter.Q.value = 1.35;
 
     this.windGain = this.ctx.createGain();
-    this.windGain.gain.value = 0.015;
+    this.windGain.gain.value = 0.01;
 
     src.connect(this.windFilter);
     this.windFilter.connect(this.windGain);
-    this.windGain.connect(this.dryBus);
-    this.windGain.connect(this.reverbBus);
+
+    if (typeof this.ctx.createStereoPanner === 'function') {
+      this.windPanner = this.ctx.createStereoPanner();
+      this.windPanner.pan.value = 0;
+      this.windGain.connect(this.windPanner);
+      this.windPanner.connect(this.ambientBus);
+    } else {
+      this.windGain.connect(this.ambientBus);
+    }
+
+    // High-speed Plaid air shimmer path
+    this.plaidFilter = this.ctx.createBiquadFilter();
+    this.plaidFilter.type = 'bandpass';
+    this.plaidFilter.frequency.value = 1550;
+    this.plaidFilter.Q.value = 2.6;
+
+    this.plaidGain = this.ctx.createGain();
+    this.plaidGain.gain.value = 0.0001;
+
+    src.connect(this.plaidFilter);
+    this.plaidFilter.connect(this.plaidGain);
+    this.plaidGain.connect(this.ambientBus);
+
     src.start();
+  }
+
+  private setupCyberGlideBed(): void {
+    if (!this.ctx || !this.ambientBus) return;
+    const baseHz = 98;
+
+    this.glideFilter = this.ctx.createBiquadFilter();
+    this.glideFilter.type = 'lowpass';
+    this.glideFilter.frequency.value = 210;
+    this.glideFilter.Q.value = 1.4;
+
+    this.glideGain = this.ctx.createGain();
+    this.glideGain.gain.value = 0.0001;
+
+    this.glideFilter.connect(this.glideGain);
+    if (typeof this.ctx.createStereoPanner === 'function') {
+      this.glidePanner = this.ctx.createStereoPanner();
+      this.glidePanner.pan.value = 0;
+      this.glideGain.connect(this.glidePanner);
+      this.glidePanner.connect(this.ambientBus);
+    } else {
+      this.glideGain.connect(this.ambientBus);
+    }
+
+    this.glideRootOsc = this.ctx.createOscillator();
+    this.glideRootOsc.type = 'sine';
+    this.glideRootOsc.frequency.value = baseHz;
+    const rootGain = this.ctx.createGain();
+    rootGain.gain.value = 0.55;
+    this.glideRootOsc.connect(rootGain);
+    rootGain.connect(this.glideFilter);
+
+    this.glideFifthOsc = this.ctx.createOscillator();
+    this.glideFifthOsc.type = 'triangle';
+    this.glideFifthOsc.frequency.value = baseHz * 1.498;
+    this.glideFifthOsc.detune.value = 4;
+    const fifthGain = this.ctx.createGain();
+    fifthGain.gain.value = 0.26;
+    this.glideFifthOsc.connect(fifthGain);
+    fifthGain.connect(this.glideFilter);
+
+    this.glideOctOsc = this.ctx.createOscillator();
+    this.glideOctOsc.type = 'sine';
+    this.glideOctOsc.frequency.value = baseHz * 2.003;
+    this.glideOctOsc.detune.value = -5;
+    this.glideOctGain = this.ctx.createGain();
+    this.glideOctGain.gain.value = 0.02;
+    this.glideOctOsc.connect(this.glideOctGain);
+    this.glideOctGain.connect(this.glideFilter);
+
+    // Gentle organic motion LFO so hover hum breathes subtly
+    const lfo = this.ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.26;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 32;
+    lfo.connect(lfoGain);
+    lfoGain.connect(this.glideFilter.frequency);
+
+    this.glideRootOsc.start();
+    this.glideFifthOsc.start();
+    this.glideOctOsc.start();
+    lfo.start();
   }
 
   setSpeechDucking(active: boolean): void {
@@ -654,14 +776,18 @@ export class HolidayAudioEngine {
   private applyGainStates(): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
+    const duck = this.speechDucking ? 0.22 : 1.0;
     if (this.masterGain) {
       const target = this.mixMode === 'muted' ? 0 : this.volume;
       this.masterGain.gain.setTargetAtTime(target, now, 0.08);
     }
     if (this.musicBus) {
-      const duck = this.speechDucking ? 0.22 : 1.0;
       const targetMusic = this.mixMode === 'full' ? 0.36 * duck : 0;
       this.musicBus.gain.setTargetAtTime(targetMusic, now, 0.25);
+    }
+    if (this.ambientBus) {
+      const modeScale = this.mixMode === 'muted' ? 0 : this.mixMode === 'full' ? 0.72 : 1.0;
+      this.ambientBus.gain.setTargetAtTime(modeScale * duck, now, 0.22);
     }
   }
 
@@ -735,17 +861,115 @@ export class HolidayAudioEngine {
       }
     }
 
-    // 2. Dynamic Winter Wind
+    const moveBlend = Math.min(1, Math.max(0, (telemetry.speedKmh - 1.5) / 14));
+    const posAccel = Math.max(0, Math.min(4, telemetry.acceleration)) / 4;
+    const negAccel = Math.max(0, Math.min(4, -telemetry.acceleration)) / 4;
+    const plaidBlend = Math.min(1, Math.max(0, (telemetry.speedKmh - 55) / 55));
+
+    // 2. Dynamic Winter Wind & Speed/Steering Swish + Plaid Shimmer
     if (this.windFilter && this.windGain) {
-      const turnExtra = Math.abs(telemetry.turnRate) * 140;
-      const tunnelBoost = telemetry.tunnelBlend * 180;
-      const freq = 240 + speedRatio * 650 + turnExtra + tunnelBoost;
-      const gain = 0.012 + speedRatio * 0.095 + telemetry.tunnelBlend * 0.035;
-      this.windFilter.frequency.setTargetAtTime(freq, now, 0.15);
-      this.windGain.gain.setTargetAtTime(gain, now, 0.15);
+      const windFreq =
+        210 +
+        speedRatio * 740 +
+        posAccel * 190 +
+        Math.abs(telemetry.turnRate) * 230 +
+        telemetry.tunnelBlend * 110;
+      const windQ = 1.35 + telemetry.tunnelBlend * 0.85;
+      const windGainTarget =
+        0.008 +
+        moveBlend * (0.014 + speedRatio * 0.072) +
+        posAccel * 0.022 +
+        Math.abs(telemetry.turnRate) * moveBlend * 0.018 +
+        telemetry.tunnelBlend * 0.028;
+
+      this.windFilter.frequency.setTargetAtTime(Math.min(1800, windFreq), now, 0.14);
+      this.windFilter.Q.setTargetAtTime(windQ, now, 0.18);
+      this.windGain.gain.setTargetAtTime(windGainTarget, now, 0.14);
+      if (this.windPanner) {
+        this.windPanner.pan.setTargetAtTime(Math.max(-0.55, Math.min(0.55, telemetry.turnRate * 0.48)), now, 0.12);
+      }
     }
 
-    // 3. Braking bell jingle transition
+    if (this.plaidFilter && this.plaidGain) {
+      const plaidFreq = 1350 + plaidBlend * 950 + posAccel * 260;
+      const plaidGainTarget = Math.max(
+        0.0001,
+        plaidBlend * 0.024 + (telemetry.isPlaidSpeed ? 0.008 : 0) + posAccel * moveBlend * 0.01
+      );
+      this.plaidFilter.frequency.setTargetAtTime(plaidFreq, now, 0.18);
+      this.plaidGain.gain.setTargetAtTime(plaidGainTarget, now, 0.22);
+    }
+
+    // 3. Speed-Varied Cyber Hover Glide
+    if (this.glideRootOsc && this.glideFifthOsc && this.glideOctOsc && this.glideFilter && this.glideGain) {
+      const isCyber = this.musicStyle === 'cyber2099';
+      const isNordic = this.musicStyle === 'nordic';
+      const cyberScale = isCyber ? 1.2 : 1.0;
+      const nordicScale = isNordic ? 1.18 : 1.0;
+      const themeQ = isCyber ? 2.0 : isNordic ? 1.45 : 1.3;
+
+      const rootHz =
+        92 + speedRatio * 96 + (telemetry.isPlaidSpeed ? 14 : 0) + posAccel * 11 - negAccel * 8;
+      this.glideRootOsc.frequency.setTargetAtTime(rootHz, now, 0.18);
+      this.glideFifthOsc.frequency.setTargetAtTime(rootHz * 1.498, now, 0.18);
+      this.glideOctOsc.frequency.setTargetAtTime(rootHz * 2.003, now, 0.18);
+
+      const glideCutoff =
+        190 +
+        speedRatio * 680 +
+        posAccel * 280 -
+        negAccel * 120 +
+        (telemetry.isPlaidSpeed ? 220 : 0) -
+        telemetry.tunnelBlend * 180 +
+        (isCyber ? 160 : 0);
+      this.glideFilter.frequency.setTargetAtTime(Math.max(150, glideCutoff), now, 0.16);
+      this.glideFilter.Q.setTargetAtTime(themeQ, now, 0.2);
+
+      const glideGainTarget =
+        moveBlend < 0.005
+          ? 0.0001
+          : (0.014 + Math.pow(speedRatio, 0.85) * 0.044 + posAccel * 0.015 + telemetry.tunnelBlend * 0.014) *
+            moveBlend *
+            cyberScale;
+      this.glideGain.gain.setTargetAtTime(glideGainTarget, now, 0.18);
+
+      if (this.glideOctGain) {
+        const octTarget =
+          (0.03 + Math.pow(speedRatio, 1.4) * 0.22 + (telemetry.isPlaidSpeed ? 0.1 : 0)) * nordicScale;
+        this.glideOctGain.gain.setTargetAtTime(octTarget, now, 0.2);
+      }
+      if (this.glidePanner) {
+        this.glidePanner.pan.setTargetAtTime(Math.max(-0.4, Math.min(0.4, telemetry.turnRate * 0.34)), now, 0.14);
+      }
+    }
+
+    // 4. Sparse Stardust Glimmers (SFX mode only, non-rhythmic)
+    if (this.mixMode === 'sfx') {
+      this.stardustTimer -= dt;
+      if (this.stardustTimer <= 0) {
+        this.playStardustGlimmer(speedRatio);
+        this.stardustTimer = telemetry.isMoving ? 4.2 + Math.random() * 5.2 : 9.5 + Math.random() * 7.0;
+      }
+    }
+
+    // 5. Event-Driven Sleigh Bells (departure, braking, cornering — never on a timer)
+    const nowMs = performance.now();
+    const movingNow = telemetry.speedKmh >= 4.0;
+    if (movingNow && !this.wasMoving && nowMs - this.lastDepartureBellMs > 9000) {
+      this.lastDepartureBellMs = nowMs;
+      this.triggerSleighBell(0.36, 0, undefined, 4);
+    }
+    this.wasMoving = movingNow;
+
+    const hardTurn = Math.abs(telemetry.turnRate) > 0.42 && telemetry.speedKmh > 14;
+    if (hardTurn && !this.wasHardTurning && nowMs - this.lastTurnBellMs > 7000) {
+      this.lastTurnBellMs = nowMs;
+      const turnIntensity = 0.28 + Math.min(0.16, Math.abs(telemetry.turnRate) * 0.2);
+      const turnPan = Math.max(-0.55, Math.min(0.55, telemetry.turnRate * 0.55));
+      this.triggerSleighBell(turnIntensity, turnPan, undefined, 3);
+    }
+    this.wasHardTurning = hardTurn;
+
     if (telemetry.isBraking && !this.prevBraking && telemetry.speedKmh > 12) {
       this.playBrakeJingle();
     }
@@ -830,68 +1054,167 @@ export class HolidayAudioEngine {
     osc.stop(now + duration + 0.04);
   }
 
-  private triggerSleighBell(intensity: number, pan = 0, destOverride?: AudioNode): void {
-    if (!this.ctx || !this.whiteNoiseBuf) return;
-    const now = this.ctx.currentTime;
+  private playStardustGlimmer(speedRatio: number): void {
+    if (!this.ctx || !this.ambientBus || this.ctx.state !== 'running' || this.mixMode !== 'sfx') return;
 
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.whiteNoiseBuf;
+    const CRYSTAL_POOL = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51];
+    const baseIdx = Math.floor(Math.random() * CRYSTAL_POOL.length);
 
-    const hp = this.ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 3800;
+    const spawnTone = (freq: number, delaySec: number, peakGain: number, pan: number) => {
+      if (!this.ctx || !this.ambientBus) return;
+      const t = this.ctx.currentTime + delaySec;
+      const decay = 1.25 + Math.random() * 0.6;
 
-    const bp = this.ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 5400 + Math.random() * 1100;
-    bp.Q.value = 2.6;
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
 
-    const env = this.ctx.createGain();
-    const peak = Math.min(0.24, intensity * 0.22);
-    env.gain.setValueAtTime(0.0001, now);
-    env.gain.linearRampToValueAtTime(peak, now + 0.008);
-    env.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+      const octOsc = this.ctx.createOscillator();
+      octOsc.type = 'sine';
+      octOsc.frequency.setValueAtTime(freq * 2, t);
+      const octGain = this.ctx.createGain();
+      octGain.gain.value = 0.14;
 
-    // Subtle metallic harmonic pings
-    const pingFreqs = [3520, 4978, 6645];
-    for (const pf of pingFreqs) {
-      const pOsc = this.ctx.createOscillator();
-      pOsc.type = 'sine';
-      pOsc.frequency.value = pf * (0.97 + Math.random() * 0.06);
-      const pGain = this.ctx.createGain();
-      pGain.gain.setValueAtTime(0.0001, now);
-      pGain.gain.linearRampToValueAtTime(peak * 0.14, now + 0.005);
-      pGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.17);
-      pOsc.connect(pGain);
-      if (destOverride) {
-        pGain.connect(destOverride);
-      } else if (this.dryBus) {
-        pGain.connect(this.dryBus);
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(0.0001, t);
+      env.gain.linearRampToValueAtTime(peakGain, t + 0.045);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+
+      osc.connect(env);
+      octOsc.connect(octGain);
+      octGain.connect(env);
+
+      let out: AudioNode = env;
+      if (typeof this.ctx.createStereoPanner === 'function') {
+        const panner = this.ctx.createStereoPanner();
+        panner.pan.value = Math.max(-0.65, Math.min(0.65, pan));
+        env.connect(panner);
+        out = panner;
       }
-      pOsc.start(now);
-      pOsc.stop(now + 0.19);
-    }
 
-    src.connect(hp);
-    hp.connect(bp);
-    bp.connect(env);
+      // Send sparsely to ambient dry and deeper to hall reverb, still respecting ambientBus ducking
+      const dryTap = this.ctx.createGain();
+      dryTap.gain.value = 0.28;
+      out.connect(dryTap);
+      dryTap.connect(this.ambientBus);
 
-    let tail: AudioNode = env;
-    if (typeof this.ctx.createStereoPanner === 'function') {
-      const panner = this.ctx.createStereoPanner();
-      panner.pan.value = Math.max(-0.7, Math.min(0.7, pan));
-      env.connect(panner);
-      tail = panner;
+      if (this.reverbBus) {
+        const revTap = this.ctx.createGain();
+        revTap.gain.value = 0.9 * (this.speechDucking ? 0.22 : 1.0);
+        out.connect(revTap);
+        revTap.connect(this.reverbBus);
+      }
+
+      osc.start(t);
+      octOsc.start(t);
+      osc.stop(t + decay + 0.06);
+      octOsc.stop(t + decay + 0.06);
+    };
+
+    const pan1 = (Math.random() - 0.5) * 1.3;
+    const level = 0.018 + speedRatio * 0.012;
+    spawnTone(CRYSTAL_POOL[baseIdx], 0, level, pan1);
+
+    if (speedRatio > 0.45 && Math.random() < 0.4) {
+      const intervalMult = Math.random() < 0.5 ? 1.5 : 2.0;
+      const delaySec = 0.19 + Math.random() * 0.07;
+      spawnTone(CRYSTAL_POOL[baseIdx] * intervalMult, delaySec, level * 0.78, -pan1 * 0.7);
     }
+  }
+
+  private triggerSleighBell(intensity: number, pan = 0, destOverride?: AudioNode, clusterCount = 4): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const count = Math.max(2, Math.min(6, clusterCount));
+    const BELL_PITCHES = [1318.51, 1567.98, 1760.0, 2093.0, 2349.32, 2637.02];
+
+    const clusterFilter = this.ctx.createBiquadFilter();
+    clusterFilter.type = 'lowpass';
+    clusterFilter.frequency.value = 5800;
+    clusterFilter.Q.value = 0.6;
 
     if (destOverride) {
-      tail.connect(destOverride);
+      clusterFilter.connect(destOverride);
     } else {
-      if (this.dryBus) tail.connect(this.dryBus);
-      if (this.reverbBus) tail.connect(this.reverbBus);
+      const duck = this.speechDucking ? 0.35 : 1.0;
+      if (this.dryBus) {
+        const dryTap = this.ctx.createGain();
+        dryTap.gain.value = 0.58 * duck;
+        clusterFilter.connect(dryTap);
+        dryTap.connect(this.dryBus);
+      }
+      if (this.reverbBus) {
+        const revTap = this.ctx.createGain();
+        revTap.gain.value = 0.85 * duck;
+        clusterFilter.connect(revTap);
+        revTap.connect(this.reverbBus);
+      }
     }
 
-    src.start(now, Math.random() * 0.8, 0.18);
+    let offsetSec = 0;
+    const baseAmp = Math.min(0.11, Math.max(0.018, intensity * 0.085)) / Math.sqrt(count * 0.65);
+
+    for (let i = 0; i < count; i++) {
+      if (i > 0) {
+        offsetSec += 0.014 + Math.random() * 0.024;
+      }
+      const t = now + offsetSec;
+      const rawPitch = BELL_PITCHES[Math.floor(Math.random() * BELL_PITCHES.length)];
+      const f = rawPitch * (0.992 + Math.random() * 0.016);
+      const decay = 0.38 + Math.random() * 0.24;
+      const attack = 0.008 + Math.random() * 0.006;
+
+      // FM metallic brass bell: brief high-ratio modulator transient blooms into pure singing bell
+      const carrier = this.ctx.createOscillator();
+      carrier.type = 'sine';
+      carrier.frequency.setValueAtTime(f, t);
+
+      const mod = this.ctx.createOscillator();
+      mod.type = 'sine';
+      mod.frequency.setValueAtTime(f * 2.756, t);
+
+      const modGain = this.ctx.createGain();
+      modGain.gain.setValueAtTime(f * 0.65, t);
+      modGain.gain.exponentialRampToValueAtTime(0.01, t + 0.045);
+
+      mod.connect(modGain);
+      modGain.connect(carrier.frequency);
+
+      // Soft harmonic shimmer overtone
+      const shimmer = this.ctx.createOscillator();
+      shimmer.type = 'sine';
+      shimmer.frequency.setValueAtTime(f * 2.005, t);
+      const shimmerEnv = this.ctx.createGain();
+      shimmerEnv.gain.setValueAtTime(0.0001, t);
+      shimmerEnv.gain.linearRampToValueAtTime(baseAmp * 0.18, t + attack);
+      shimmerEnv.gain.exponentialRampToValueAtTime(0.0001, t + decay * 0.72);
+
+      const bellEnv = this.ctx.createGain();
+      bellEnv.gain.setValueAtTime(0.0001, t);
+      bellEnv.gain.linearRampToValueAtTime(baseAmp, t + attack);
+      bellEnv.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+
+      carrier.connect(bellEnv);
+      shimmer.connect(shimmerEnv);
+      shimmerEnv.connect(bellEnv);
+
+      if (typeof this.ctx.createStereoPanner === 'function') {
+        const panner = this.ctx.createStereoPanner();
+        const bellPan = Math.max(-0.75, Math.min(0.75, pan + (Math.random() - 0.5) * 0.44));
+        panner.pan.setValueAtTime(bellPan, t);
+        bellEnv.connect(panner);
+        panner.connect(clusterFilter);
+      } else {
+        bellEnv.connect(clusterFilter);
+      }
+
+      mod.start(t);
+      carrier.start(t);
+      shimmer.start(t);
+      mod.stop(t + 0.07);
+      carrier.stop(t + decay + 0.05);
+      shimmer.stop(t + decay + 0.05);
+    }
   }
 
   playSkyCinemaChime(): void {
@@ -954,8 +1277,16 @@ export class HolidayAudioEngine {
 
   playBrakeJingle(): void {
     if (!this.ctx || this.mixMode === 'muted') return;
-    this.triggerSleighBell(0.6, -0.3);
-    setTimeout(() => this.triggerSleighBell(0.45, 0.3), 90);
+    const nowMs = performance.now();
+    if (nowMs - this.lastBrakeJingleMs < 2200) return;
+    this.lastBrakeJingleMs = nowMs;
+
+    this.triggerSleighBell(0.48, -0.24, undefined, 4);
+    setTimeout(() => {
+      if (this.ctx && this.ctx.state === 'running' && this.mixMode !== 'muted') {
+        this.triggerSleighBell(0.34, 0.24, undefined, 3);
+      }
+    }, 130);
   }
 
   private speakHoHoHoFallback(): void {
@@ -1350,6 +1681,20 @@ export class HolidayAudioEngine {
       this.mediaAudioEl.remove();
       this.mediaAudioEl = null;
     }
+    this.ambientBus = null;
+    this.ambientReverbSend = null;
+    this.windGain = null;
+    this.windFilter = null;
+    this.windPanner = null;
+    this.plaidFilter = null;
+    this.plaidGain = null;
+    this.glideRootOsc = null;
+    this.glideFifthOsc = null;
+    this.glideOctOsc = null;
+    this.glideOctGain = null;
+    this.glideFilter = null;
+    this.glideGain = null;
+    this.glidePanner = null;
     if (this.ctx) {
       this.ctx.close().catch(() => {});
       this.ctx = null;
