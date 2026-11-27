@@ -540,6 +540,7 @@ export class DriveFestivities {
   private cinemaCooldownSec = Math.min(75, getCinemaIntervalSeconds(this.cinemaInterval) * 0.45);
   private wasCinemaActive = false;
   private stoppedTriggerConsumed = false;
+  private hasDrivenSinceStart = false;
   private lastChurchBellTime = -30;
 
   private statusText = '';
@@ -1980,6 +1981,7 @@ export class DriveFestivities {
     }
     if (frame.speedKmh > 6.0) {
       this.stoppedTriggerConsumed = false;
+      this.hasDrivenSinceStart = true;
     }
     this.sleigh.setStoppedMode(this.stoppedSec);
     this.sleigh.setTheme(env.theme);
@@ -2015,9 +2017,27 @@ export class DriveFestivities {
     this.effects.rotation.y = -(event ? this.eventHeading : heading);
     this.frost.update(dt, env);
     this.sky.update(dt, time, traveled, env, live, ZERO_ELEV, 0, false);
+    if (this.snapshotVersion !== mapSnapshot?.version || time - this.matchedAt > 0.25) {
+      this.snapshotVersion = mapSnapshot?.version;
+      this.matchedStreet = mapSnapshot && streetAtCar(mapSnapshot, frame);
+      this.matchedAt = time;
+    }
+    const street = this.matchedStreet;
+
+    let cinemaPlacementHeading = heading;
+    if (street && frame.speedKmh >= 6) {
+      const aheadPt =
+        pointAlongStreet(street, center, heading, 95) ??
+        pointAlongStreet(street, center, heading, 55);
+      if (aheadPt) {
+        const d = Math.atan2(Math.sin(aheadPt.heading - heading), Math.cos(aheadPt.heading - heading));
+        cinemaPlacementHeading = heading + THREE.MathUtils.clamp(d * 0.65, -0.28, 0.28);
+      }
+    }
+
     this.skyCinema.setVolume(Math.max(0.75, this.audio.getVolume()));
     this.skyCinema.setSkyVisible(this.cinemaSurface !== 'giga');
-    this.skyCinema.update(dt, time, center, heading, env.daylightFactor, env.theme);
+    this.skyCinema.update(dt, time, center, heading, env.daylightFactor, env.theme, cinemaPlacementHeading);
     const cinemaReveal = this.skyCinema.getIntensity();
     if (this.cinemaSurface !== 'sky' && cinemaReveal > 0.001) {
       this.gigaCinema.update(
@@ -2036,13 +2056,6 @@ export class DriveFestivities {
     this.audio.setSpeechDucking(this.skyCinema.isActive() && !this.skyCinema.isMuted());
     this.launchText = live.spaceXLive ? `🚀 ${live.nextSpaceXName} · ${live.nextSpaceXCountdown}` : '';
 
-    if (this.snapshotVersion !== mapSnapshot?.version || time - this.matchedAt > 0.25) {
-      this.snapshotVersion = mapSnapshot?.version;
-      this.matchedStreet = mapSnapshot && streetAtCar(mapSnapshot, frame);
-      this.matchedAt = time;
-    }
-    const street = this.matchedStreet;
-
     // Cooldown-gated Sky Cinema auto-trigger ("Sällsynt Stjärnstund" + stopped-car pause)
     const intervalSec = getCinemaIntervalSeconds(this.cinemaInterval);
     const isCinemaActiveNow = this.skyCinema.isActive();
@@ -2060,12 +2073,14 @@ export class DriveFestivities {
       this.skyCinema.getIntensity() <= 0.01
     ) {
       this.cinemaCooldownSec = Math.max(0, this.cinemaCooldownSec - dt);
+      const hasReliableHeading = frame.source !== 'gps' || this.hasDrivenSinceStart;
       const nearSupercharger = Boolean(
         mapSnapshot?.pois.some(
           p => p.tesla && p.kind === 'charger' && Math.hypot(p.x - center.x, p.z - center.z) < 60
         )
       );
       if (
+        hasReliableHeading &&
         this.stoppedSec >= 8.5 &&
         !this.stoppedTriggerConsumed &&
         this.cinemaCooldownSec <= intervalSec * 0.4
@@ -2073,6 +2088,8 @@ export class DriveFestivities {
         this.stoppedTriggerConsumed = true;
         this.startAutoSkyCinema(nearSupercharger ? 'giga' : 'stopped');
       } else if (
+        hasReliableHeading &&
+        Math.abs(frame.turnRate) < 0.35 &&
         (event?.type === 'starship' || superAurora > 0.35) &&
         this.cinemaCooldownSec <= intervalSec * 0.25
       ) {

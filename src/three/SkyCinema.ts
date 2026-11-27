@@ -172,7 +172,7 @@ function loadSavedMode(): SkyCinemaMode {
   return 'skyvault';
 }
 
-type CinemaState = 'idle' | 'entering' | 'playing' | 'exiting';
+type CinemaState = 'idle' | 'entering' | 'playing' | 'relocating' | 'exiting';
 
 const SKY_PATCH_VERT = /* glsl */ `
   uniform float uRadius;
@@ -365,6 +365,7 @@ export class SkyCinema {
   private currentTotal = SKY_CINEMA_TEST_CLIPS.length;
   private hasPlaced = false;
   private cinemaHeading = 0;
+  private offScreenSec = 0;
   private hasVideoFrame = false;
   private playToken = 0;
   private hasRequestedPlayback = false;
@@ -411,27 +412,25 @@ export class SkyCinema {
     this.video = document.createElement('video');
     this.video.playsInline = true;
     this.video.setAttribute('playsinline', '');
+    this.video.setAttribute('webkit-playsinline', '');
+    this.video.setAttribute('aria-hidden', 'true');
+    this.video.tabIndex = -1;
     this.video.preload = 'auto';
     this.video.crossOrigin = 'anonymous';
     this.video.loop = false;
     this.video.muted = false;
     this.video.volume = 0.9;
-
-    this.video.addEventListener('loadeddata', () => {
-      if (this.video.readyState >= 2) {
-        this.hasVideoFrame = true;
-        this.screenMat.uniforms.uHasVideo.value = 1;
-      }
-    });
-    this.video.addEventListener('playing', () => {
-      this.hasVideoFrame = true;
-      this.screenMat.uniforms.uHasVideo.value = 1;
-    });
-    this.video.addEventListener('ended', () => {
-      if (this.state === 'entering' || this.state === 'playing') {
-        this.state = 'exiting';
-      }
-    });
+    this.video.style.position = 'fixed';
+    this.video.style.left = '0';
+    this.video.style.top = '0';
+    this.video.style.width = '1px';
+    this.video.style.height = '1px';
+    this.video.style.opacity = '0.001';
+    this.video.style.pointerEvents = 'none';
+    this.video.style.zIndex = '-1';
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.appendChild(this.video);
+    }
 
     this.videoTex = new THREE.VideoTexture(this.video);
     this.videoTex.colorSpace = THREE.SRGBColorSpace;
@@ -498,6 +497,23 @@ export class SkyCinema {
     });
     this.screenMesh = new THREE.Mesh(screenGeo, this.screenMat);
     this.screenMesh.frustumCulled = false;
+
+    const markVideoReady = () => {
+      if (this.hasDecodedVideoFrame()) {
+        this.hasVideoFrame = true;
+        this.videoTex.needsUpdate = true;
+        this.screenMat.uniforms.uHasVideo.value = 1;
+      }
+    };
+    this.video.addEventListener('loadeddata', markVideoReady);
+    this.video.addEventListener('canplay', markVideoReady);
+    this.video.addEventListener('playing', markVideoReady);
+    this.video.addEventListener('timeupdate', markVideoReady);
+    this.video.addEventListener('ended', () => {
+      if (this.state === 'entering' || this.state === 'playing' || this.state === 'relocating') {
+        this.state = 'exiting';
+      }
+    });
 
     // Layer 3: Floating caption plate (shown in 'classic' framed mode)
     this.captionCanvas = document.createElement('canvas');
@@ -649,6 +665,10 @@ export class SkyCinema {
     await this.playClipObject(clip, safeIdx, total, opts);
   }
 
+  private hasDecodedVideoFrame(): boolean {
+    return this.video.readyState >= 2 && this.video.videoWidth > 0 && this.video.videoHeight > 0;
+  }
+
   async playClipObject(
     clip: SkyCinemaClip,
     index: number,
@@ -662,11 +682,16 @@ export class SkyCinema {
     this.currentTotal = Math.max(1, total);
     this.hasRequestedPlayback = true;
     this.hasPlaced = false;
+    this.offScreenSec = 0;
     this.state = 'entering';
-    this.group.visible = true;
+    this.group.visible = this.skyVisible;
     this.hasVideoFrame = false;
     this.screenMat.uniforms.uHasVideo.value = 0;
     this.drawCaption(clip, this.activeIndex, this.currentTotal);
+
+    if (!this.video.isConnected && typeof document !== 'undefined' && document.body) {
+      document.body.appendChild(this.video);
+    }
 
     const url = resolveSkyCinemaUrl(clip.file);
     this.video.pause();
@@ -678,8 +703,11 @@ export class SkyCinema {
     try {
       await this.video.play();
       if (token !== this.playToken) return;
-      this.hasVideoFrame = true;
-      this.screenMat.uniforms.uHasVideo.value = 1;
+      if (this.hasDecodedVideoFrame()) {
+        this.hasVideoFrame = true;
+        this.videoTex.needsUpdate = true;
+        this.screenMat.uniforms.uHasVideo.value = 1;
+      }
     } catch {
       if (token !== this.playToken) return;
       if (opts?.allowMutedFallback) {
@@ -687,8 +715,11 @@ export class SkyCinema {
         try {
           await this.video.play();
           if (token !== this.playToken) return;
-          this.hasVideoFrame = true;
-          this.screenMat.uniforms.uHasVideo.value = 1;
+          if (this.hasDecodedVideoFrame()) {
+            this.hasVideoFrame = true;
+            this.videoTex.needsUpdate = true;
+            this.screenMat.uniforms.uHasVideo.value = 1;
+          }
         } catch {
           // Keep visual frame ready or stay softly visible if blocked
         }
@@ -716,7 +747,7 @@ export class SkyCinema {
   }
 
   isActive(): boolean {
-    return this.state === 'entering' || this.state === 'playing';
+    return this.state === 'entering' || this.state === 'playing' || this.state === 'relocating';
   }
 
   getIntensity(): number {
@@ -737,7 +768,7 @@ export class SkyCinema {
   }
 
   getHasVideoFrame(): boolean {
-    return this.hasVideoFrame || this.video.readyState >= 2;
+    return this.hasVideoFrame || this.hasDecodedVideoFrame();
   }
 
   getActiveClip(): { clip: SkyCinemaClip; index: number; total: number } | null {
@@ -778,13 +809,40 @@ export class SkyCinema {
     center: THREE.Vector3,
     heading: number,
     daylightFactor: number,
-    theme: HolidayThemeId
+    theme: HolidayThemeId,
+    placementHeading = heading
   ): void {
     if (this.state === 'entering') {
       this.reveal = Math.min(1, this.reveal + dt / 1.15);
       if (this.reveal >= 1) this.state = 'playing';
     } else if (this.state === 'playing') {
       this.reveal = 1;
+      if (this.skyVisible && this.hasPlaced) {
+        const viewDelta = Math.atan2(
+          Math.sin(heading - (this.cinemaHeading + this.curAzimuth)),
+          Math.cos(heading - (this.cinemaHeading + this.curAzimuth))
+        );
+        if (Math.abs(viewDelta) > 1.28) {
+          this.offScreenSec += dt;
+          const remaining =
+            Number.isFinite(this.video.duration) && this.video.duration > 0
+              ? this.video.duration - this.video.currentTime
+              : 10;
+          if (this.offScreenSec >= 1.4 && remaining > 3.0 && !this.video.ended) {
+            this.state = 'relocating';
+          }
+        } else {
+          this.offScreenSec = Math.max(0, this.offScreenSec - dt * 2.0);
+        }
+      }
+    } else if (this.state === 'relocating') {
+      this.reveal = Math.max(0, this.reveal - dt / 0.55);
+      if (this.reveal <= 0.001) {
+        this.reveal = 0;
+        this.cinemaHeading = placementHeading;
+        this.offScreenSec = 0;
+        this.state = 'entering';
+      }
     } else if (this.state === 'exiting') {
       this.reveal = Math.max(0, this.reveal - dt / 0.9);
       if (this.reveal <= 0.001) {
@@ -792,6 +850,7 @@ export class SkyCinema {
         this.state = 'idle';
         this.group.visible = false;
         this.hasPlaced = false;
+        this.offScreenSec = 0;
         this.video.pause();
         if (this.hasRequestedPlayback) {
           this.video.removeAttribute('src');
@@ -811,8 +870,9 @@ export class SkyCinema {
     const targetSpec = getModeSpec(this.mode);
 
     if (!this.hasPlaced) {
-      this.cinemaHeading = heading;
+      this.cinemaHeading = placementHeading;
       this.hasPlaced = true;
+      this.offScreenSec = 0;
       this.snapToModeSpec(targetSpec);
     } else {
       this.dampModeParams(dt, targetSpec);
@@ -829,11 +889,19 @@ export class SkyCinema {
     const themeMode = theme === 'cyber2099' ? 2.0 : theme === 'nordic' ? 1.0 : 0.0;
     const smoothReveal = THREE.MathUtils.smoothstep(this.reveal, 0, 1);
 
+    const frameReady = this.hasDecodedVideoFrame();
+    if (frameReady) {
+      this.hasVideoFrame = true;
+      if (!this.video.paused && !this.video.ended) {
+        this.videoTex.needsUpdate = true;
+      }
+    }
+
     this.screenMat.uniforms.uTime.value = time;
     this.screenMat.uniforms.uReveal.value = smoothReveal;
     this.screenMat.uniforms.uDaylight.value = daylightFactor;
     this.screenMat.uniforms.uThemeMode.value = themeMode;
-    this.screenMat.uniforms.uHasVideo.value = this.hasVideoFrame || this.video.readyState >= 2 ? 1 : 0;
+    this.screenMat.uniforms.uHasVideo.value = frameReady || this.hasVideoFrame ? 1 : 0;
     this.screenMat.uniforms.uRadius.value = this.curRadius;
     this.screenMat.uniforms.uElevation.value = this.curElevation + driftEl;
     this.screenMat.uniforms.uAzimuth.value = this.curAzimuth;
@@ -881,6 +949,7 @@ export class SkyCinema {
     this.video.pause();
     this.video.removeAttribute('src');
     this.video.load();
+    this.video.remove();
     this.videoTex.dispose();
     this.captionTex.dispose();
     this.group.traverse((obj) => {
